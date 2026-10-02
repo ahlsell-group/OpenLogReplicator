@@ -858,7 +858,10 @@ namespace OpenLogReplicator {
                     else
                         ctx->metrics->emitTransactionsCommitPartial(1);
                 }
-                ctx->warning(60011, "skipping transaction with no beginning: " + transaction->toString(ctx));
+                // The transaction began before the first redo log read; its changes after the starting scn are lost
+                ctx->error(60011, "skipping transaction with no beginning, changes committed after the starting scn are lost: " +
+                           transaction->toString(ctx));
+                ctx->hint("start from a checkpoint or with an earlier start-seq to read the whole transaction");
             }
         } else {
             if (ctx->metrics != nullptr) {

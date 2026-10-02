@@ -295,35 +295,49 @@ namespace OpenLogReplicator {
             if (metadata->firstDataScn == Scn::none())
                 metadata->firstDataScn = Scn::zero();
         } else {
+            // Without a checkpoint there is no low watermark. A transaction which is open at the starting SCN began in
+            // an earlier redo log; starting with the log containing the SCN would drop it at commit (60011) together
+            // with its changes made after the starting SCN. Start with the log containing the begin of the oldest
+            // transaction open now instead, transactions committed before the starting SCN are skipped anyway.
+            Scn positionScn = metadata->firstDataScn;
+            if (!standby) {
+                const Scn oldestTransactionScn = getOldestActiveTransactionScn();
+                if (oldestTransactionScn != Scn::none() && oldestTransactionScn > Scn::zero() && oldestTransactionScn < positionScn) {
+                    ctx->info(0, "oldest active transaction began at scn: " + oldestTransactionScn.toString() +
+                              ", starting before scn: " + positionScn.toString() + " to read it completely");
+                    positionScn = oldestTransactionScn;
+                }
+            }
+
             DatabaseStatement stmt(conn);
             if (standby) {
                 if (unlikely(ctx->isTraceSet(Ctx::TRACE::SQL))) {
                     ctx->logTrace(Ctx::TRACE::SQL, std::string(SQL_GET_SEQUENCE_FROM_SCN_STANDBY));
-                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM1: " + metadata->firstDataScn.toString());
-                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM2: " + metadata->firstDataScn.toString());
+                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM1: " + positionScn.toString());
+                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM2: " + positionScn.toString());
                     ctx->logTrace(Ctx::TRACE::SQL, "PARAM3: " + std::to_string(metadata->resetlogs));
                 }
                 stmt.createStatement(SQL_GET_SEQUENCE_FROM_SCN_STANDBY);
-                stmt.bindUInt(1, metadata->firstDataScn);
-                stmt.bindUInt(2, metadata->firstDataScn);
+                stmt.bindUInt(1, positionScn);
+                stmt.bindUInt(2, positionScn);
                 stmt.bindUInt(3, metadata->resetlogs);
             } else {
                 if (unlikely(ctx->isTraceSet(Ctx::TRACE::SQL))) {
                     ctx->logTrace(Ctx::TRACE::SQL, std::string(SQL_GET_SEQUENCE_FROM_SCN));
-                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM1: " + metadata->firstDataScn.toString());
-                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM2: " + metadata->firstDataScn.toString());
+                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM1: " + positionScn.toString());
+                    ctx->logTrace(Ctx::TRACE::SQL, "PARAM2: " + positionScn.toString());
                     ctx->logTrace(Ctx::TRACE::SQL, "PARAM3: " + std::to_string(metadata->resetlogs));
                 }
                 stmt.createStatement(SQL_GET_SEQUENCE_FROM_SCN);
-                stmt.bindUInt(1, metadata->firstDataScn);
-                stmt.bindUInt(2, metadata->firstDataScn);
+                stmt.bindUInt(1, positionScn);
+                stmt.bindUInt(2, positionScn);
                 stmt.bindUInt(3, metadata->resetlogs);
             }
             Seq sequence;
             stmt.defineUInt(1, sequence);
 
             if (stmt.executeQuery() == 0)
-                throw BootException(10030, "getting database sequence for scn: " + metadata->firstDataScn.toString());
+                throw BootException(10030, "getting database sequence for scn: " + positionScn.toString());
 
             metadata->setSeqFileOffset(sequence, FileOffset::zero());
             ctx->info(0, "starting sequence not found - starting with new batch with seq: " + metadata->sequence.toString());
@@ -419,6 +433,34 @@ namespace OpenLogReplicator {
 
         // No value found
         throw RuntimeException(10033, "can't get property value for " + property);
+    }
+
+    // Begin SCN of the oldest transaction open now, Scn::none() if there is none or the view can't be read
+    Scn ReplicatorOnline::getOldestActiveTransactionScn() {
+        try {
+            DatabaseStatement stmt(conn);
+            if (unlikely(ctx->isTraceSet(Ctx::TRACE::SQL)))
+                ctx->logTrace(Ctx::TRACE::SQL, std::string(SQL_GET_OLDEST_TRANSACTION_SCN));
+            stmt.createStatement(SQL_GET_OLDEST_TRANSACTION_SCN);
+            Scn scn;
+            stmt.defineUInt(1, scn);
+
+            // Transactions which have not generated redo yet show START_SCN 0, they are filtered out in the query
+            if (stmt.executeQuery() == 0 || stmt.isNull(1) || scn == Scn::zero())
+                return Scn::none();
+            return scn;
+        } catch (RuntimeException& ex) {
+            // ORA-00942 or ORA-01031: the view is not granted
+            if (ex.supCode == 942 || ex.supCode == 1031) {
+                if (metadata->conId > 0)
+                    ctx->hint("run: ALTER SESSION SET CONTAINER = " + metadata->conName + ";");
+                ctx->hint("run: GRANT SELECT ON SYS.V_$TRANSACTION TO " + conn->user + ";");
+                ctx->warning(60038, "can't read SYS.V_$TRANSACTION, transactions open at the starting scn which began in earlier redo logs "
+                                    "will be skipped");
+                return Scn::none();
+            }
+            throw RuntimeException(ex.code, ex.msg);
+        }
     }
 
     void ReplicatorOnline::checkTableForGrants(const std::string& tableName) {
