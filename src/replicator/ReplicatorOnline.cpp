@@ -172,7 +172,10 @@ namespace OpenLogReplicator {
                     stmt2.defineString(2, conNameChar.data(), conNameChar.size());
                     std::array < char, 81 > conContext{};
                     stmt2.defineString(3, conContext.data(), conContext.size());
-                    typeDbId dbId;
+                    // NULL for a non-CDB and for CDB$ROOT: SYS.V_$PDBS has no row for them. The define has no indicator, so
+                    // a NULL leaves the variable untouched (checkErr ignores ORA-01405). Uninitialized it was stack garbage,
+                    // and a non-zero dbId makes Parser::appendToTransactionBegin skip every transaction begin.
+                    typeDbId dbId = 0;
                     stmt2.defineUInt(4, dbId);
 
                     if (stmt2.executeQuery() != 0) {
@@ -185,7 +188,7 @@ namespace OpenLogReplicator {
 
                 ctx->info(0, "version: " + std::string(banner.data()) + ", context: " + metadata->context + ", resetlogs: " +
                           std::to_string(metadata->resetlogs) + ", activation: " + std::to_string(metadata->activation) + ", con_id: " +
-                          std::to_string(metadata->conId) + ", con_name: " + metadata->conName);
+                          std::to_string(metadata->conId) + ", con_name: " + metadata->conName + ", db_id: " + std::to_string(metadata->dbId));
             } else {
                 throw RuntimeException(10023, "no data in SYS.V_$DATABASE");
             }
