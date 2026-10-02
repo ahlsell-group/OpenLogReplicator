@@ -261,7 +261,7 @@ Options control epoch vs ISO-8601 and how the timezone is attached (comma, space
 * `0` — classic hex text, e.g., `0x0002.012.00004162`.
 * `1` — dotted decimal, e.g., `2.18.16738`.
 * `2` — single 64-bit numeric `xidn`.
-* `3` — Logminer format value stored as a string.
+* `3` — LogMiner format: the raw XID bytes as hex text, e.g., `0200120062410000`, identical to `V$LOGMNR_CONTENTS.XID` of the source database; the byte order of the fields follows the endianness of the database host (little-endian shown).
 
 |===
 

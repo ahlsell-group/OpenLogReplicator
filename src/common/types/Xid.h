@@ -146,6 +146,18 @@ namespace OpenLogReplicator {
             return data;
         }
 
+        // The XID as LogMiner shows it in V$LOGMNR_CONTENTS.XID: the raw bytes of usn, slt and sqn as stored by the
+        // database host, so the byte order of each field follows the endianness of the redo log, not of this host.
+        // The result is a number whose big-endian hex representation is that byte string.
+        [[nodiscard]] uint64_t toRaw(bool bigEndian) const {
+            if (bigEndian)
+                return data;
+            const uint64_t usnSwapped = ((data >> 56) & 0xFF) | (((data >> 48) & 0xFF) << 8);
+            const uint64_t sltSwapped = ((data >> 40) & 0xFF) | (((data >> 32) & 0xFF) << 8);
+            const uint64_t sqnSwapped = ((data >> 24) & 0xFF) | (((data >> 16) & 0xFF) << 8) | (((data >> 8) & 0xFF) << 16) | ((data & 0xFF) << 24);
+            return (usnSwapped << 48) | (sltSwapped << 32) | sqnSwapped;
+        }
+
         [[nodiscard]] std::string toString() const {
             std::ostringstream ss;
             ss << "0x" << std::setfill('0') << std::setw(4) << std::hex << (data >> 48) << "." << std::setw(3) <<

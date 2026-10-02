@@ -197,4 +197,10 @@ if (WITH_TESTS)
         endif ()
     endif ()
     add_test(NAME BuilderScnTest COMMAND BuilderScnTest)
+
+    add_executable(XidTest
+            test/XidTest.cpp
+            common/exception/DataException.cpp)
+    target_include_directories(XidTest PUBLIC "${PROJECT_BINARY_DIR}")
+    add_test(NAME XidTest COMMAND XidTest)
 endif ()
