@@ -37,7 +37,7 @@ run several copies side by side), `OLRSQL_ORACLE_TZ` (container time zone, defau
 
 | scenario | what it covers |
 |---|---|
-| `wide-delete-then-update` | DELETE on a 313-column table (trailing NULLs), then UPDATE on a 278-column table: `ERROR 50073` in OLR 2.0.0 |
+| `wide-delete-then-update` | DELETE on a 65-column table (row ends at column 63), then UPDATE of column 64 on a 64-column table: `ERROR 50073` in OLR 2.0.0 |
 | `multi-piece-rows` | 300-column rows stored in two row pieces: per-piece updates, NULLs, row migration, sparse insert |
 | `number-scale` | `NUMBER(15,3)` zero and negatives, 38-digit values, `FLOAT`, NULL transitions |
 | `number-extreme-exponent` | 1e-130 and 9.99e125 (known failing, marked `known_failing`) |

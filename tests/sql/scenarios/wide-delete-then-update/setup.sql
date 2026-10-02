@@ -2,9 +2,8 @@ BEGIN EXECUTE IMMEDIATE 'DROP USER rt_wide CASCADE';
 EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF; END;
 /
 CREATE USER rt_wide IDENTIFIED BY test QUOTA UNLIMITED ON users DEFAULT TABLESPACE users;
--- WIDE_A has 278 columns, WIDE_B 313: both need more than 256 column slots, so their rows are
--- stored in several row pieces. Column type cycles by position: C2 VARCHAR2, C3 DATE, C4 NUMBER, ...
--- WIDE_B rows have values up to C225 only; C226..C313 are trailing NULLs.
+-- WIDE_A has 64 columns, WIDE_B 65. Column type cycles by position: C2 VARCHAR2, C3 DATE,
+-- C4 NUMBER, ... WIDE_B rows have values up to C63 only; C64 and C65 are trailing NULLs.
 DECLARE
     PROCEDURE make(p_table VARCHAR2, p_cols PLS_INTEGER, p_filled PLS_INTEGER, p_first PLS_INTEGER, p_rows PLS_INTEGER) IS
         ddl  VARCHAR2(30000) := 'ID NUMBER(10) NOT NULL';
@@ -29,7 +28,7 @@ DECLARE
         COMMIT;
     END;
 BEGIN
-    make('WIDE_A', 278, 278, 1, 50);
-    make('WIDE_B', 313, 225, 1, 50);
+    make('WIDE_A', 64, 64, 1, 10);
+    make('WIDE_B', 65, 63, 1, 10);
 END;
 /

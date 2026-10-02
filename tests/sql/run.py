@@ -111,8 +111,6 @@ def up():
         c.cursor().execute("ALTER SYSTEM SET undo_retention = 86400")
     with pdb() as c:
         c.cursor().execute("ALTER TABLESPACE undotbs1 RETENTION GUARANTEE")
-        # not needed by every OLR version: lets newer builds find the oldest open transaction
-        c.cursor().execute("GRANT SELECT ON SYS.V_$TRANSACTION TO olr")
     print(f"Oracle ready on 127.0.0.1:{PORT} (container {CONTAINER})")
 
 
