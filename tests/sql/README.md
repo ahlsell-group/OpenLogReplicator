@@ -9,7 +9,9 @@ redo with the file writer, and checks the **replay invariant**:
 The snapshots are `SELECT ... AS OF SCN` at the start and end of the workload. For updates and deletes the
 before-image must also equal the replayed row. No expected output files are needed; a wrong value, a missing
 or phantom row, a lost or reordered transaction all show up as a mismatch. OLR's log must contain no
-`ERROR`/`WARN` line, and OLR must stop by itself after the last archived log of the recording.
+`ERROR`/`WARN` line, and OLR must stop by itself after the last archived log of the recording. The database is the
+oracle: LogMiner is not used, so event-by-event parity with LogMiner is not checked here; a value OLR gets
+wrong is caught through the before-image comparison and the after snapshot.
 
 ## Requirements
 
