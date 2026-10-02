@@ -1,0 +1,3 @@
+description = "NUMBER values: 0.000, negatives, 38 digits, 1e-130, 1e125, thirds, NULL transitions"
+tables = ["RT_NUM.T_NUM"]
+events = { c = 5, u = 5, d = 1 }
