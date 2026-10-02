@@ -823,6 +823,8 @@ namespace OpenLogReplicator {
         transaction->commitTimestamp = redoLogRecord1->timestamp;
         if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0)
             transaction->rollback = true;
+        if (transaction->begin && !transaction->rollback && transaction->commitScn >= lwnScn)
+            transactionBuffer->addCommitted(transaction->commitScn, transaction->beginSequence, transaction->beginFileOffset, transaction->xid);
 
         // Inclusive: a client restarting from the position of a transaction gets that transaction again in full and
         // drops what it already has, a transaction committed at the starting SCN is never lost
@@ -1523,7 +1525,7 @@ namespace OpenLogReplicator {
                         Seq minSequence = Seq::none();
                         FileOffset minFileOffset;
                         Xid minXid;
-                        transactionBuffer->checkpoint(minSequence, minFileOffset, minXid);
+                        transactionBuffer->checkpoint(lwnScn, minSequence, minFileOffset, minXid);
                         if (unlikely(ctx->isTraceSet(Ctx::TRACE::LWN)))
                             ctx->logTrace(Ctx::TRACE::LWN, "* checkpoint: " + lwnScn.toString());
                         metadata->checkpoint(ctx->parserThread, lwnScn, lwnTimestamp, sequence, FileOffset(currentBlock, reader->getBlockSize()),

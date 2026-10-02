@@ -51,6 +51,7 @@ namespace OpenLogReplicator {
             delete transaction;
         }
         xidTransactionMap.clear();
+        committedAtOrAfterLwn.clear();
     }
 
     Transaction* TransactionBuffer::findTransaction(XmlCtx* xmlCtx, Xid xid, typeConId conId, uint16_t thread, bool old, bool add, bool rollback) {
@@ -265,17 +266,31 @@ namespace OpenLogReplicator {
             redoLogRecord1->flg &= ~(OpCode::FLG_MULTIBLOCKUNDOHEAD | OpCode::FLG_MULTIBLOCKUNDOMID | OpCode::FLG_MULTIBLOCKUNDOTAIL);
     }
 
-    void TransactionBuffer::checkpoint(Seq& minSequence, FileOffset& minFileOffset, Xid& minXid) {
-        for (const auto& [_, transaction]: xidTransactionMap) {
-            if (transaction->beginSequence < minSequence) {
-                minSequence = transaction->beginSequence;
-                minFileOffset = transaction->beginFileOffset;
-                minXid = transaction->xid;
-            } else if (transaction->beginSequence == minSequence && transaction->beginFileOffset < minFileOffset) {
-                minFileOffset = transaction->beginFileOffset;
-                minXid = transaction->xid;
+    void TransactionBuffer::addCommitted(Scn commitScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid) {
+        committedAtOrAfterLwn.emplace(commitScn, CommittedBegin{beginSequence, beginFileOffset, xid});
+    }
+
+    // The position a restart from the checkpoint at checkpointScn has to read from: the begin of the oldest open
+    // transaction and of every transaction committed at or after checkpointScn. Such a commit is possible in the LWN of
+    // the checkpoint since the records of an LWN can carry an SCN above the SCN of the LWN. A client which starts from
+    // the commit SCN of such a transaction gets the checkpoint (Metadata::readCheckpoints takes the newest one at or
+    // below the start SCN) and the transaction (Parser sends the ones committed at or after the start SCN), so the
+    // checkpoint must still reach back to its begin.
+    void TransactionBuffer::checkpoint(Scn checkpointScn, Seq& minSequence, FileOffset& minFileOffset, Xid& minXid) {
+        const auto update = [&](Seq sequence, FileOffset fileOffset, Xid xid) {
+            if (sequence < minSequence || (sequence == minSequence && fileOffset < minFileOffset)) {
+                minSequence = sequence;
+                minFileOffset = fileOffset;
+                minXid = xid;
             }
-        }
+        };
+
+        for (const auto& [_, transaction]: xidTransactionMap)
+            update(transaction->beginSequence, transaction->beginFileOffset, transaction->xid);
+
+        committedAtOrAfterLwn.erase(committedAtOrAfterLwn.begin(), committedAtOrAfterLwn.lower_bound(checkpointScn));
+        for (const auto& [_, committed]: committedAtOrAfterLwn)
+            update(committed.sequence, committed.fileOffset, committed.xid);
     }
 
     void TransactionBuffer::addOrphanedLob(RedoLogRecord* redoLogRecord1) {
