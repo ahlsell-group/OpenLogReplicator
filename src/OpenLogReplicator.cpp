@@ -916,8 +916,10 @@ namespace OpenLogReplicator {
 
             if (readerJson.HasMember("host-timezone")) {
                 const std::string hostTimezone = Ctx::getJsonFieldS(configFileName, Ctx::JSON_PARAMETER_LENGTH, readerJson, "host-timezone");
-                if (!Data::parseTimezone(hostTimezone, ctx->hostTimezone))
-                    throw ConfigurationException(30001, "bad JSON, invalid \"host-timezone\" value: " + hostTimezone + ", expected value: {\"+/-HH:MM\"}");
+                std::string error;
+                if (!ctx->hostTimezone.parse(hostTimezone, error))
+                    throw ConfigurationException(30001, "bad JSON, invalid \"host-timezone\" value: " + hostTimezone + ", " + error +
+                                                 ", expected value: {\"+/-HH:MM\"} or a time zone name like \"Europe/Warsaw\"");
             }
 
             if (readerJson.HasMember("log-timezone")) {

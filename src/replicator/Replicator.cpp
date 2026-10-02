@@ -171,7 +171,7 @@ namespace OpenLogReplicator {
             if (!ctx->isFlagSet(Ctx::REDO_FLAGS::ARCH_ONLY))
                 updateOnlineRedoLogData();
             ctx->info(0, "timezone: " + Data::timezoneToString(-timezone) + ", db-timezone: " + Data::timezoneToString(metadata->dbTimezone) +
-                      ", log-timezone: " + Data::timezoneToString(ctx->logTimezone) + ", host-timezone: " + Data::timezoneToString(ctx->hostTimezone));
+                      ", log-timezone: " + Data::timezoneToString(ctx->logTimezone) + ", host-timezone: " + ctx->hostTimezone.toString());
 
             do {
                 if (ctx->softShutdown)

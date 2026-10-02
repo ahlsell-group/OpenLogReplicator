@@ -52,9 +52,13 @@ _NOTE:_ Disabling checks can improve performance but increases risk.
 Use with caution and prefer enabling checks in production.
 
 |`host-timezone`
-|_string_, format: `+HH:MM` or `-HH:MM`, default: host timezone
-|Timezone of the host running OpenLogReplicator.
-Adjust if the database host uses a different timezone.
+|_string_, format: `+HH:MM`, `-HH:MM` or a tz database zone name like `Europe/Warsaw`, default: timezone of the host running OpenLogReplicator
+|Timezone of the database host.
+Redo log timestamps are wall-clock time of the database host without zone information; this value converts them to UTC.
+Set it if the database host uses a different timezone than the host running OpenLogReplicator.
+Use a zone name when the database host observes daylight saving time, a fixed offset is wrong for half of the year.
+Zone names are read from the system tz database (`TZDIR`, default `/usr/share/zoneinfo`).
+A repeated wall-clock time (when daylight saving time ends) resolves to its first occurrence, a skipped wall-clock time (when daylight saving time starts) keeps the offset from before the transition.
 
 |`log-archive-format`
 |_string_, max length: 4000

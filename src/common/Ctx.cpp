@@ -56,7 +56,7 @@ namespace OpenLogReplicator {
         clock = new ClockHW();
         tzset();
         logTimezone = -timezone;
-        hostTimezone = -timezone;
+        hostTimezone = TimeZone(-timezone);
     }
 
     Ctx::~Ctx() {
