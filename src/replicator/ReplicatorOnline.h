@@ -101,6 +101,16 @@ namespace OpenLogReplicator {
             "   SYS.V_$DATABASE D"
         };
 
+        static constexpr std::string_view SQL_GET_OLDEST_TRANSACTION_SCN
+        {
+            "SELECT"
+            "   MIN(T.START_SCN)"
+            " FROM"
+            "   SYS.V_$TRANSACTION T"
+            " WHERE"
+            "   T.START_SCN > 0"
+        };
+
         static constexpr std::string_view SQL_GET_CON_INFO
         {
             "SELECT"
@@ -602,6 +612,7 @@ namespace OpenLogReplicator {
         std::string getPropertyValue(std::string property) const;
         void checkTableForGrants(const std::string& tableName);
         void checkTableForGrantsFlashback(const std::string& tableName, Scn scn);
+        Scn getOldestActiveTransactionScn();
         std::string getModeName() const override;
         void verifySchema(Scn currentScn) override;
         void createSchema() override;
