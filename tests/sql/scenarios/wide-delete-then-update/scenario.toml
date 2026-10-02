@@ -1,0 +1,3 @@
+description = "DELETE on a 313-column table with trailing NULLs, then UPDATE on a 278-column table"
+tables = ["RT_WIDE.WIDE_A", "RT_WIDE.WIDE_B"]
+events = { u = 1, d = 1 }
