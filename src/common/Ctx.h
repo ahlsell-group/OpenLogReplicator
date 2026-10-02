@@ -33,6 +33,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <unordered_map>
 #include <vector>
 
+#include "TimeZone.h"
 #include "types/LobId.h"
 #include "types/Scn.h"
 #include "types/Xid.h"
@@ -187,7 +188,7 @@ namespace OpenLogReplicator {
         std::string versionStr;
         std::unique_ptr<std::ofstream> dumpStream;
         int64_t dbTimezone{BAD_TIMEZONE};
-        int64_t hostTimezone;
+        TimeZone hostTimezone;
         int64_t logTimezone;
 
         // Memory buffers

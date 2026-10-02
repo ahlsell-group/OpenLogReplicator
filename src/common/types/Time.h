@@ -23,6 +23,8 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <iomanip>
 #include <ostream>
 
+#include "../TimeZone.h"
+
 namespace OpenLogReplicator {
     class Time final {
         uint32_t data;
@@ -67,6 +69,11 @@ namespace OpenLogReplicator {
 
             return (((((static_cast<time_t>((year / 4) - (year / 100) + (year / 400) + (367 * mon / 12) + day) + (year * 365) - 719499) * 24
                     + hour) * 60) + min) * 60) + sec - hostTimezone;
+        }
+
+        // Redo log timestamps are wall-clock time of the database host without zone information
+        [[nodiscard]] time_t toEpoch(const TimeZone& hostTimezone) const {
+            return hostTimezone.toUtc(toEpoch(0));
         }
 
         friend std::ostream& operator<<(std::ostream& os, const Time other) {

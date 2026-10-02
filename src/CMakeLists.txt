@@ -26,6 +26,7 @@ list(APPEND ListCommon
         common/LobKey.cpp
         common/MemoryManager.cpp
         common/Thread.cpp
+        common/TimeZone.cpp
         common/XmlCtx.cpp
         common/exception/BootException.cpp
         common/exception/ConfigurationException.cpp
@@ -157,4 +158,14 @@ if (WITH_PROTOBUF)
     target_sources(StreamClient PUBLIC StreamClient.cpp)
     target_link_libraries(StreamClient LibCommon)
     target_link_libraries(StreamClient LibStream)
+endif ()
+
+if (WITH_TESTS)
+    add_executable(TimeZoneTest
+            test/TimeZoneTest.cpp
+            common/TimeZone.cpp
+            common/types/Data.cpp
+            common/exception/DataException.cpp
+            common/exception/RuntimeException.cpp)
+    add_test(NAME TimeZoneTest COMMAND TimeZoneTest)
 endif ()
