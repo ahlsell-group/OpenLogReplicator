@@ -158,3 +158,11 @@ if (WITH_PROTOBUF)
     target_link_libraries(StreamClient LibCommon)
     target_link_libraries(StreamClient LibStream)
 endif ()
+
+if (WITH_TESTS)
+    add_executable(XidTest
+            test/XidTest.cpp
+            common/exception/DataException.cpp)
+    target_include_directories(XidTest PUBLIC "${PROJECT_BINARY_DIR}")
+    add_test(NAME XidTest COMMAND XidTest)
+endif ()
