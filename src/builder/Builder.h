@@ -321,7 +321,10 @@ namespace OpenLogReplicator {
             ctx->assertDebug(lastBuilderSize + messagePosition < OUTPUT_BUFFER_DATA_SIZE);
             msg->scn = scn;
             msg->lwnScn = lwnScn;
-            msg->lwnIdx = lwnIdx++;
+            // The index is 1-based and is the value the header writes as c_idx: a client continues or confirms with the
+            // (c_scn, c_idx) it received, so the message and its header must carry the same number. 0 means before the
+            // first message of the scn.
+            msg->lwnIdx = ++lwnIdx;
             msg->sequence = sequence;
             msg->size = 0;
             msg->tagSize = 0;
