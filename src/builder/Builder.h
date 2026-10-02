@@ -50,6 +50,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/types/Xid.h"
 #include "../locales/CharacterSet.h"
 #include "../locales/Locales.h"
+#include "../metadata/Metadata.h"
 
 namespace OpenLogReplicator {
     class Builder;
@@ -310,8 +311,6 @@ namespace OpenLogReplicator {
         void builderBegin(Seq sequence, Scn scn, typeObj obj, BuilderMsg::OUTPUT_BUFFER flags) {
             messageSize = 0;
             messagePosition = 0;
-            if (format.isScnTypeCommitValue())
-                scn = commitScn;
 
             if (unlikely(lastBuilderSize + messagePosition + sizeof(BuilderMsg) >= OUTPUT_BUFFER_DATA_SIZE))
                 builderRotate<true>();
@@ -319,7 +318,7 @@ namespace OpenLogReplicator {
             msg = reinterpret_cast<BuilderMsg*>(lastBuilderQueue->data + lastBuilderSize);
             builderShiftFast(sizeof(BuilderMsg));
             ctx->assertDebug(lastBuilderSize + messagePosition < OUTPUT_BUFFER_DATA_SIZE);
-            msg->scn = scn;
+            msg->scn = outputScn(scn);
             msg->lwnScn = lwnScn;
             msg->lwnIdx = lwnIdx++;
             msg->sequence = sequence;
@@ -1243,6 +1242,21 @@ namespace OpenLogReplicator {
         BuilderQueue* lastBuilderQueue{nullptr};
         Scn lwnScn{Scn::none()};
         typeIdx lwnIdx{0};
+
+        // The SCN a message is sent with ("scn"/"scns" field and BuilderMsg::scn). By default it is the SCN of the redo
+        // record, with scn-type COMMIT_VALUE the commit SCN of the transaction. It is never below the SCN the stream was
+        // started from: a transaction which began before that SCN but committed after it is sent in full (Parser keeps
+        // transactions by commit SCN), and a client which started at that SCN may drop what it reads as earlier.
+        // Debezium's OpenLogReplicator client compares the scn of every message with its start SCN and discards the
+        // messages below it, so the begin and the changes made before the start SCN were lost.
+        [[nodiscard]] Scn outputScn(Scn scn) const {
+            if (format.isScnTypeCommitValue())
+                return commitScn;
+            const Scn firstDataScn = metadata->firstDataScn;
+            if (firstDataScn != Scn::none() && scn < firstDataScn)
+                return firstDataScn;
+            return scn;
+        }
 
         Builder(Ctx* newCtx, Locales* newLocales, Metadata* newMetadata, const Format& newFormat, uint64_t newFlushBuffer);
         virtual ~Builder();
