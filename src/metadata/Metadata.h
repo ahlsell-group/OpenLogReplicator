@@ -173,6 +173,10 @@ namespace OpenLogReplicator {
         void checkpoint(Thread* t, Scn newCheckpointScn, Time newCheckpointTime, Seq newCheckpointSequence, FileOffset newCheckpointFileOffset,
                         uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid);
         void writeCheckpoint(Thread* t, bool force);
+        // An interval of 0 disables that trigger
+        static bool checkpointIntervalDue(uint64_t elapsedS, uint64_t elapsedMb, uint64_t intervalS, uint64_t intervalMb) {
+            return (intervalS > 0 && elapsedS >= intervalS) || (intervalMb > 0 && elapsedMb >= intervalMb);
+        }
         void readCheckpoints();
         void readCheckpoint(Scn scn);
         void deleteOldCheckpoints(Thread* t);

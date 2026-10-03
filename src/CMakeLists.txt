@@ -289,4 +289,8 @@ if (WITH_TESTS)
         endif ()
     endif ()
     add_test(NAME CheckpointMinTranTest COMMAND CheckpointMinTranTest)
+
+    add_executable(CheckpointIntervalTest test/CheckpointIntervalTest.cpp)
+    target_include_directories(CheckpointIntervalTest PUBLIC "${PROJECT_BINARY_DIR}")
+    add_test(NAME CheckpointIntervalTest COMMAND CheckpointIntervalTest)
 endif ()
