@@ -105,10 +105,13 @@ namespace OpenLogReplicator {
         // Rewind to the oldest buffer still held, buffers are released only after the client confirmed them, so this
         // is the earliest position a client can continue from; isNewData() skips forward to the requested position.
         // Rewinding only within the current buffer skips every unconfirmed message in the buffers before it.
+        // The oldest held buffer never starts inside a message: start is undefined only while a message spanning into the
+        // buffer is not committed, and the buffer holding its beginning is released only after it was confirmed.
         builderQueue = builder->firstBuilderQueue;
         oldSize = builderQueue->start;
         if (unlikely(oldSize == Builder::BUFFER_START_UNDEFINED))
-            oldSize = 0;
+            throw RuntimeException(50074, "output buffer - oldest held buffer: " + std::to_string(builderQueue->id) +
+                                   " starts inside a message, can't rewind");
     }
 
     Writer::HELD Writer::oldestHeldMessage(Scn& scn, typeIdx& idx) const {
