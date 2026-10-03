@@ -89,7 +89,7 @@ namespace OpenLogReplicator {
         void appendToTransactionCommit(RedoLogRecord* redoLogRecord1);
         void appendToTransactionLob(RedoLogRecord* redoLogRecord1);
         void appendToDirectLoad(const RedoLogRecord* redoLogRecord1);
-        void flushDirectLoadWarnings();
+        void flushDirectLoadWarnings(bool endOfFile);
         void appendToTransactionIndex(RedoLogRecord* redoLogRecord1, RedoLogRecord* redoLogRecord2);
         void appendToTransaction(RedoLogRecord* redoLogRecord1);
         void appendToTransactionRollback(RedoLogRecord* redoLogRecord1);
