@@ -824,7 +824,8 @@ namespace OpenLogReplicator {
         if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0)
             transaction->rollback = true;
         if (transaction->begin && !transaction->rollback && transaction->commitScn >= lwnScn)
-            transactionBuffer->addCommitted(transaction->commitScn, transaction->beginSequence, transaction->beginFileOffset, transaction->xid);
+            transactionBuffer->addCommitted(transaction->commitScn, metadata->firstDataScn, transaction->beginSequence, transaction->beginFileOffset,
+                                            transaction->xid);
 
         // Inclusive: a client restarting from the position of a transaction gets that transaction again in full and
         // drops what it already has, a transaction committed at the starting SCN is never lost
