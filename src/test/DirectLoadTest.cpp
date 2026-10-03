@@ -34,8 +34,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 // object id is at offset 4 (after the KTBBH type), while a LOB page has it at offset 0. Layouts taken from a redo dump of
 // Oracle 23 Free.
 //
-// The parser feeds each data block of a replicated table into the tracker and flushes it at the end of every LWN, so one
-// load gives one warning per table and LWN with a block count, not one warning per block.
+// The parser feeds each data block of a replicated table into the tracker with the LWN's redo time. A load is reported
+// when no block of the table came for 10 s, every 60 s while it goes on, and at the end of the redo log file, so one load
+// gives one warning per table with a block count and scn range, not one per block or LWN.
 namespace {
     int failures = 0;
 
@@ -131,35 +132,66 @@ int main() {
 
     DirectLoadTracker tracker;
     check("empty at start", tracker.empty());
+    check("end of LWN without blocks", tracker.endLwn(1000).empty());
     check("flush of nothing", tracker.flush().empty());
 
-    // one LWN: 3 blocks of T1 (two SCNs), 1 block of T2
-    tracker.add(100, 200, "OWN", "T1", Scn(5000));
-    tracker.add(100, 200, "OWN", "T1", Scn(5000));
-    tracker.add(300, 301, "OWN", "T2", Scn(5001));
-    tracker.add(100, 200, "OWN", "T1", Scn(5002));
+    // t=1000: 3 blocks of T1 (two SCNs), 1 block of T2
+    tracker.add(100, 200, "OWN", "T1", Scn(5000), 1000);
+    tracker.add(100, 200, "OWN", "T1", Scn(5000), 1000);
+    tracker.add(300, 301, "OWN", "T2", Scn(5001), 1000);
+    tracker.add(100, 200, "OWN", "T1", Scn(5002), 1000);
     check("not empty after add", !tracker.empty());
+    check("t=1000: loads running, no message", tracker.endLwn(1000).empty());
 
-    std::vector<std::string> messages = tracker.flush();
-    check("one message per table", messages.size() == 2);
-    check("empty after flush", tracker.empty());
-    if (messages.size() == 2) {
-        std::cout << "     " << messages[0] << "\n     " << messages[1] << "\n";
-        check("T1 named", contains(messages[0], "OWN.T1 (obj: 100, dataobj: 200,"));
-        check("T1 scn range", contains(messages[0], "scn: 5000-5002,"));
-        check("T1 block count", contains(messages[0], "blocks: 3)"));
-        check("T2 named", contains(messages[1], "OWN.T2 (obj: 300, dataobj: 301,"));
-        check("T2 single scn", contains(messages[1], "scn: 5001,"));
-        check("T2 block count", contains(messages[1], "blocks: 1)"));
+    // other LWNs in between (Oracle writes a load in batches): still no message
+    check("t=1005: within the idle time, no message", tracker.endLwn(1005).empty());
+
+    // t=1008: T1 continues, T2 idle for 8 s
+    tracker.add(100, 200, "OWN", "T1", Scn(5010), 1008);
+    check("t=1008: no message", tracker.endLwn(1008).empty());
+
+    // t=1010: T2 idle for 10 s, T1 for 2 s
+    std::vector<std::string> messages = tracker.endLwn(1010);
+    check("t=1010: one message, for T2", messages.size() == 1);
+    if (messages.size() == 1) {
+        std::cout << "     " << messages[0] << "\n";
+        check("T2 named", contains(messages[0], "OWN.T2 (obj: 300, dataobj: 301,"));
+        check("T2 single scn", contains(messages[0], "scn: 5001,"));
+        check("T2 block count", contains(messages[0], "blocks: 1)"));
         check("says the rows are missing", contains(messages[0], "missing from the output"));
     }
 
-    // next LWN starts counting again
-    tracker.add(100, 200, "OWN", "T1", Scn(6000));
-    messages = tracker.flush();
-    check("next LWN: one message", messages.size() == 1);
+    // t=1018: T1 idle for 10 s
+    messages = tracker.endLwn(1018);
+    check("t=1018: one message, for T1", messages.size() == 1);
+    check("empty after both loads ended", tracker.empty());
+    if (messages.size() == 1) {
+        std::cout << "     " << messages[0] << "\n";
+        check("T1 named", contains(messages[0], "OWN.T1 (obj: 100, dataobj: 200,"));
+        check("T1 scn range over the batches", contains(messages[0], "scn: 5000-5010,"));
+        check("T1 block count over the batches", contains(messages[0], "blocks: 4)"));
+    }
+
+    // a load that goes on is reported every MAX_S seconds
+    for (int64_t t = 2000; t < 2000 + DirectLoadTracker::MAX_S; t += 5) {
+        tracker.add(100, 200, "OWN", "T1", Scn(7000 + t), t);
+        check("long load: no message before MAX_S", tracker.endLwn(t).empty());
+    }
+    tracker.add(100, 200, "OWN", "T1", Scn(9000), 2000 + DirectLoadTracker::MAX_S);
+    messages = tracker.endLwn(2000 + DirectLoadTracker::MAX_S);
+    check("long load: message after MAX_S", messages.size() == 1);
     if (messages.size() == 1)
-        check("next LWN: count restarted", contains(messages[0], "scn: 6000, blocks: 1)"));
+        check("long load: 13 blocks so far", contains(messages[0], "blocks: 13)"));
+    check("long load: counting starts again", tracker.empty());
+
+    // a load still running at the end of the redo log file is reported then
+    tracker.add(100, 200, "OWN", "T1", Scn(6000), 3000);
+    check("end of file: LWN keeps it", tracker.endLwn(3000).empty());
+    messages = tracker.flush();
+    check("end of file: one message", messages.size() == 1);
+    if (messages.size() == 1)
+        check("end of file: count restarted", contains(messages[0], "scn: 6000, blocks: 1)"));
+    check("empty after flush", tracker.empty());
 
     check("warning code", DirectLoadTracker::WARNING_CODE == 60042);
 

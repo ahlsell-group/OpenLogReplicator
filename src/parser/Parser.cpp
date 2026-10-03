@@ -636,7 +636,8 @@ namespace OpenLogReplicator {
             std::unique_lock const lckTransaction(metadata->mtxTransaction);
             const DbTable* table = metadata->schema->checkTableDataObjDict(redoLogRecord1->dataObj);
             if (table != nullptr && !DbTable::isSystemTable(table->options) && !DbTable::isSchemaTable(table->options))
-                directLoadTracker.add(table->obj, redoLogRecord1->dataObj, table->owner, table->name, redoLogRecord1->scn);
+                directLoadTracker.add(table->obj, redoLogRecord1->dataObj, table->owner, table->name, redoLogRecord1->scn,
+                                      lwnTimestamp.toEpoch(0));
         }
         ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
     }
@@ -695,10 +696,10 @@ namespace OpenLogReplicator {
                                    transaction->xid, redoLogRecord1->fileOffset);
     }
 
-    void Parser::flushDirectLoadWarnings() {
+    void Parser::flushDirectLoadWarnings(bool endOfFile) {
         if (likely(directLoadTracker.empty()))
             return;
-        for (const auto& message: directLoadTracker.flush())
+        for (const auto& message: endOfFile ? directLoadTracker.flush() : directLoadTracker.endLwn(lwnTimestamp.toEpoch(0)))
             ctx->warning(DirectLoadTracker::WARNING_CODE, message);
     }
 
@@ -1542,7 +1543,7 @@ namespace OpenLogReplicator {
                         lwnMembers[lwnPos] = lwnMembers[lwnRecords];
                         --lwnRecords;
                     }
-                    flushDirectLoadWarnings();
+                    flushDirectLoadWarnings(false);
 
                     if (lwnScn > metadata->firstDataScn) {
                         if (unlikely(ctx->isTraceSet(Ctx::TRACE::CHECKPOINT)))
@@ -1675,6 +1676,7 @@ namespace OpenLogReplicator {
             ctx->dumpStream->close();
         }
 
+        flushDirectLoadWarnings(true);
         builder->flush();
         freeLwn();
         return reader->getRet();
