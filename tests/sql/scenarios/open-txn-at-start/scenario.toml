@@ -1,0 +1,3 @@
+description = "Cold start while a transaction that began two redo logs earlier is open; it commits after the start SCN"
+tables = ["RT_OT.T"]
+events = { c = 3, u = 2 }

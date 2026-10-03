@@ -1,0 +1,7 @@
+description = "xid format 3 (LogMiner) equals the transaction's V$TRANSACTION.XID"
+tables = ["RT_XID.T"]
+events = { c = 3, u = 3 }
+xid_column = "TX"
+
+[olr_format]
+xid = 3

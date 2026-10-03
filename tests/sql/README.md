@@ -2,7 +2,8 @@
 
 End-to-end tests for OpenLogReplicator (OLR) against a real Oracle database. Each scenario is plain SQL
 (`setup.sql`, `workload.sql`). The runner executes it on Oracle Free in Docker, lets OLR read the resulting
-redo with the file writer, and checks the **replay invariant**:
+redo (file writer, or network writer with a client that behaves like Debezium), and checks the **replay
+invariant**:
 
 > snapshot(before) + OLR's events, in output order = snapshot(after)
 
@@ -47,6 +48,14 @@ run several copies side by side), `OLRSQL_ORACLE_TZ` (container time zone, defau
 | `savepoint-rollback` | `ROLLBACK TO SAVEPOINT` (nested) and a fully rolled-back transaction |
 | `interleaved-transactions` | three overlapping sessions, commit order differs from begin order |
 | `long-txn-log-switches` | one transaction across four archived logs, a short one committing inside |
+| `open-txn-at-start` | cold start (no checkpoint) while a transaction that began two logs earlier is open: whole transaction, no `scn` below the start SCN |
+| `net-continue-mid-txn` | network client restarted inside a transaction continues from its stored `c_scn`/`c_idx`: nothing skipped or repeated (upstream #325) |
+| `net-long-txn-continue` | long transaction open while later ones commit and are confirmed, client restarted before its commit |
+| `host-timezone-name` | `host-timezone` as a tz database name; `tm` checked against the UTC time of each change |
+| `xid-logminer-format` | `xid: 3` equals `V$TRANSACTION.XID` |
+| `archive-gap-exit-code` | an archived log of the range is missing: error and a non-zero exit code |
+| `sigterm-exit-code` | `docker stop` (SIGTERM): clean stop, exit code 0 |
+| `root-container-cold-start` | cold start in CDB$ROOT, where `SYS.V_$PDBS` has no row (as on a non-CDB) |
 
 Results seen so far (`bersler/openlogreplicator:2.0.0`): all pass except `wide-delete-then-update` (50073)
 and `number-extreme-exponent` (known failing).
@@ -59,10 +68,28 @@ Create `scenarios/<name>/` with:
   (each needs a primary key and `ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS`).
 - `workload.sql`: captured. Statements end with `;`, PL/SQL blocks with a line holding only `/`.
   Comment directives: `-- @session N` switches to connection N (default 1, opened on demand),
-  `-- @switch_logfile` archives the current redo log. A workload that ends uncommitted is committed.
+  `-- @switch_logfile` archives the current redo log, `-- @sleep S` waits. A workload that ends uncommitted is
+  committed. With a `-- @start` line the statements before it run first and are not captured (e.g. a
+  transaction left open); the start SCN is taken there and OLR is started while the rest runs. In network mode
+  `-- @client connect | read N | commits N | store | confirm | disconnect | drain [S]` drive the client, see
+  `Client` in run.py: only stored messages count, like a connector that keeps its offset in Kafka.
 - `scenario.toml`: `description`, `tables` (`OWNER.TABLE`, these are the OLR filter and the replayed
   tables), optional `events = { c = n, u = n, d = n }` (exact event counts) and optional
   `known_failing = "reason"` (reported as XFAIL, does not fail the run; XPASS when it starts passing).
+  Optional too:
+  - `mode = "network"`: OLR uses its network writer and the workload drives a client (`-- @client` below).
+  - `[olr_reader]`, `[olr_format]`: merged into the reader and format of the OLR configuration;
+    `{oracle_tz}` in a value is the database host's time zone.
+  - `checks`: subset of `["run", "replay", "counts"]` (default all).
+  - `expect_exit = "zero" | "nonzero"`, `expect_log = ["regex", ...]`: OLR's exit code, and `ERROR`/`WARN` lines
+    that must appear (and are then allowed).
+  - `archive_gap = { index = n }`: the n-th archived log of the range (0-based) is hidden from OLR.
+  - `stop = "TERM"`: OLR runs without `stop-log-switches` and is stopped with `docker stop` once its output is
+    complete.
+  - `commit_time_column`, `xid_column`: a column the workload sets to the UTC time of the change, or to the
+    transaction's `RAWTOHEX(V$TRANSACTION.XID)`; the event's `tm` (within 5 s) or `xid` must match it.
+  - `container = "root"` with `olr_user = { user = "...", password = "..." }`: setup, workload and OLR run in
+    CDB$ROOT; setup.sql creates the common user OLR logs in with.
 - `expected.md`: what the output should look like and what the scenario guards.
 
 Keep names generic and values synthetic: this directory is meant to be upstreamable.
@@ -74,4 +101,7 @@ Keep names generic and values synthetic: this directory is meant to be upstreama
   LOG CURRENT` before the start SCN and after the workload, so the range is whole archived logs.
 - The runner waits 5 s after `setup.sql`: `AS OF SCN` snapshots fail with `ORA-01466` if the table was
   created or altered within a few seconds before that SCN.
-- Not covered: DDL, LOBs, network writer, restart/checkpoint behaviour, RAC.
+- Network mode: OLR's network writer, the client in run.py (no extra dependency: the few protobuf fields are
+  encoded by hand). OLR is stopped with SIGTERM at the end; `WARN 10056 host disconnected` and
+  `10015 caught signal: 15` are expected there.
+- Not covered: DDL, LOBs, OLR restarts and checkpoints, RAC.
