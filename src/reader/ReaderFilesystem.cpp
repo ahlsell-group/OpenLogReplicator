@@ -120,7 +120,17 @@ namespace OpenLogReplicator {
             if (bytes == -1 && errno != ENOTCONN)
                 break;
 
-            ctx->error(10005, "file: " + fileName + " - " + std::to_string(bytes) + " bytes read instead of " + std::to_string(size));
+            if (bytes == 0) {
+                // Say why the read came back empty: the file may have been truncated or removed meanwhile
+                struct stat fileStat{};
+                contextSet(CONTEXT::OS, REASON::OS);
+                const int statRet = stat(fileName.c_str(), &fileStat);
+                contextSet(CONTEXT::CPU);
+                ctx->error(10005, "file: " + fileName + " - " + std::to_string(bytes) + " bytes read instead of " + std::to_string(size) +
+                           " at offset: " + std::to_string(offset) + (statRet != 0 ? ", get metadata returned: " + std::string(strerror(errno)) :
+                           ", file size now: " + std::to_string(fileStat.st_size)));
+            } else
+                ctx->error(10005, "file: " + fileName + " - " + std::to_string(bytes) + " bytes read instead of " + std::to_string(size));
 
             if (ctx->hardShutdown)
                 break;

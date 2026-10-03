@@ -42,6 +42,7 @@ Verify the file integrity.
 ==== code 10005: "file: <file name> - <number> bytes read instead of <number>"
 
 A read returned fewer bytes than expected.
+When the read returned no data at all, the message also gives the offset and the current file size (or why the file could not be checked).
 Check filesystem health and device availability.
 
 ==== code 10006: "file: <file name> - open for writing returned: <error>"
