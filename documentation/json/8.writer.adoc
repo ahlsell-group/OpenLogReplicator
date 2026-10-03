@@ -65,6 +65,16 @@ Only applies to `file` writer.
 
 _CAUTION:_ `output` and `append` cannot be used together.
 
+|`continue-gap`
+|_integer_, min: 0, max: 1, default: 0
+|What to do when a client sends CONTINUE from a position before the one it already confirmed with CONFIRM, and the messages after its position were released because of that confirmation:
+
+* `0` — log warning 60039 and continue from the oldest message still held; the messages in between are not sent again
+* `1` — log warning 60039 and refuse the CONTINUE (response `FAILED_START`); the client has to start again from an earlier SCN
+
+_NOTE:_ Valid only for `network` and `zeromq`.
+A client should confirm only what it has stored, then this never happens.
+
 |`max-message-mb`
 |_integer_, min: 1, max: 953, default: 100
 |Maximum Kafka message size in megabytes.

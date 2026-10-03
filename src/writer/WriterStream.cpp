@@ -193,6 +193,26 @@ namespace OpenLogReplicator {
         }
         ctx->info(0, "client requested scn: " + metadata->clientScn.toString() + paramIdx);
 
+        // A client which continues before the position it confirmed gets only what is still held: CONFIRM allowed the
+        // messages up to that position to be released. A client which confirms what it has read but not yet stored
+        // (Debezium 3.6) loses the messages in between on a restart, say so instead of resuming later silently.
+        Scn oldestScn = Scn::none();
+        typeIdx oldestIdx = 0;
+        const HELD held = oldestHeldMessage(oldestScn, oldestIdx);
+        if (isContinueGap(metadata->clientScn, metadata->clientIdx, confirmedScn, confirmedIdx, held, oldestScn, oldestIdx)) {
+            const std::string oldest = held == HELD::MESSAGE ?
+                    "the oldest message still held is scn: " + oldestScn.toString() + ", idx: " + std::to_string(oldestIdx) :
+                    "no message is held any more";
+            ctx->warning(60039, "client continues from scn: " + metadata->clientScn.toString() + ", idx: " + std::to_string(metadata->clientIdx) +
+                         ", before the position it confirmed, scn: " + confirmedScn.toString() + ", idx: " + std::to_string(confirmedIdx) + "; " +
+                         oldest + ", the messages in between were released and " +
+                         (refuseContinueGap ? "can't be sent again, refusing to continue (continue-gap: 1)" : "are not sent again"));
+            if (refuseContinueGap) {
+                response.set_code(pb::ResponseCode::FAILED_START);
+                return;
+            }
+        }
+
         resetMessageQueue();
         response.set_code(pb::ResponseCode::REPLICATE);
         ctx->info(0, "streaming to client");
