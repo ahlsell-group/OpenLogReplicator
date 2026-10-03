@@ -20,6 +20,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 #ifndef REPLICATOR_ONLINE_H_
 #define REPLICATOR_ONLINE_H_
 
+#include <vector>
+
+#include "ColdStart.h"
 #include "Replicator.h"
 #include "../common/DbTable.h"
 #include "../metadata/SchemaElement.h"
@@ -101,14 +104,69 @@ namespace OpenLogReplicator {
             "   SYS.V_$DATABASE D"
         };
 
-        static constexpr std::string_view SQL_GET_OLDEST_TRANSACTION_SCN
+        // Transactions which have not generated redo yet show START_SCN 0
+        static constexpr std::string_view SQL_GET_OPEN_TRANSACTIONS
+        {
+            "SELECT * FROM ("
+            "  SELECT"
+            "     T.XIDUSN"
+            ",    T.XIDSLOT"
+            ",    T.XIDSQN"
+            ",    T.START_SCN"
+            ",    NVL(ROUND((SYSDATE - T.START_DATE) * 86400), 0)"
+            "   FROM"
+            "     SYS.V_$TRANSACTION T"
+            "   WHERE"
+            "     T.START_SCN > 0"
+            "   ORDER BY"
+            "     T.START_SCN)"
+            " WHERE ROWNUM <= 100"
+        };
+
+        // In a PDB the view already shows only its own transactions; the filter keeps it that way if the view is shared
+        static constexpr std::string_view SQL_GET_OPEN_TRANSACTIONS_CON
+        {
+            "SELECT * FROM ("
+            "  SELECT"
+            "     T.XIDUSN"
+            ",    T.XIDSLOT"
+            ",    T.XIDSQN"
+            ",    T.START_SCN"
+            ",    NVL(ROUND((SYSDATE - T.START_DATE) * 86400), 0)"
+            "   FROM"
+            "     SYS.V_$TRANSACTION T"
+            "   WHERE"
+            "     T.START_SCN > 0"
+            "     AND (T.CON_ID = 0 OR T.CON_ID = :i)"
+            "   ORDER BY"
+            "     T.START_SCN)"
+            " WHERE ROWNUM <= 100"
+        };
+
+        // Redo logs from a sequence on which the database still has: online, or archived and not deleted
+        static constexpr std::string_view SQL_GET_REDO_AVAILABLE
         {
             "SELECT"
-            "   MIN(T.START_SCN)"
-            " FROM"
-            "   SYS.V_$TRANSACTION T"
-            " WHERE"
-            "   T.START_SCN > 0"
+            "   COUNT(DISTINCT SEQUENCE#)"
+            ",  NVL(MAX(SEQUENCE#), 0)"
+            " FROM ("
+            "  SELECT"
+            "     SEQUENCE#"
+            "   FROM"
+            "     SYS.V_$LOG"
+            "   WHERE"
+            "     SEQUENCE# >= :i"
+            " UNION"
+            "  SELECT"
+            "     SEQUENCE#"
+            "   FROM"
+            "     SYS.V_$ARCHIVED_LOG"
+            "   WHERE"
+            "     SEQUENCE# >= :j"
+            "     AND RESETLOGS_ID = :k"
+            "     AND NAME IS NOT NULL"
+            "     AND DELETED = 'NO'"
+            "     AND STATUS = 'A')"
         };
 
         static constexpr std::string_view SQL_GET_CON_INFO
@@ -612,7 +670,9 @@ namespace OpenLogReplicator {
         std::string getPropertyValue(std::string property) const;
         void checkTableForGrants(const std::string& tableName);
         void checkTableForGrantsFlashback(const std::string& tableName, Scn scn);
-        Scn getOldestActiveTransactionScn();
+        bool getOpenTransactions(std::vector<ColdStart::OpenTransaction>& transactions);
+        ColdStart::RedoPosition locateRedo(Scn scn);
+        Seq getSequenceFromScn(Scn scn);
         std::string getModeName() const override;
         void verifySchema(Scn currentScn) override;
         void createSchema() override;

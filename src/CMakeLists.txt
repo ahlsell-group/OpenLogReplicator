@@ -498,4 +498,10 @@ if (WITH_TESTS)
     add_test(NAME BuilderStartScnOutputTest COMMAND BuilderStartScnOutputTest)
 
     add_test(NAME ExitCodeTest COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/test/ExitCodeTest.sh $<TARGET_FILE:OpenLogReplicator>)
+
+    add_executable(ColdStartTest
+            test/ColdStartTest.cpp
+            common/exception/DataException.cpp)
+    target_include_directories(ColdStartTest PUBLIC "${PROJECT_BINARY_DIR}")
+    add_test(NAME ColdStartTest COMMAND ColdStartTest)
 endif ()
