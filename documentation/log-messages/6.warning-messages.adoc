@@ -200,9 +200,12 @@ Remediation: Run `GRANT SELECT ON SYS.V_$TRANSACTION TO <user>;` (see the hint p
 
 ==== code 60039: "client continues from scn: <scn>, idx: <idx>, before the position it confirmed, scn: <scn>, idx: <idx>; the oldest message still held is scn: <scn>, idx: <idx>, the messages in between were released and are not sent again"
 
-A `network` or `zeromq` client continued from a position before the one it confirmed earlier. Confirmed messages are released, so the stream resumes with the oldest message still held and the client misses the messages in between.
+A `network` or `zeromq` client continued from a position before the one it confirmed earlier.
+Confirmed messages are released, so the stream resumes with the oldest message still held and the client misses the messages in between.
+When no message is held any more the text says so instead of naming the oldest one.
 This happens with a client which confirms what it has read instead of what it has stored, for example the Debezium 3.6 OpenLogReplicator adapter after a task restart.
-Remediation: Make the client confirm only stored positions (Debezium 3.7 or later) and restart it from an SCN before the gap. With writer option `continue-gap: 1` such a CONTINUE is refused instead.
+With the experimental writer option `continue-gap: 1` the message ends with "can't be sent again, refusing to continue (continue-gap: 1)" and the CONTINUE is answered with `FAILED_START`; Debezium 3.6 then stays RUNNING without streaming (see `continue-gap` in the writer reference).
+Remediation: Make the client confirm only stored positions (Debezium 3.7 or later) and restart it from an SCN before the gap.
 
 ==== code 60040: "output queue full for <seconds>s (queue-size: <number>) with messages of one transaction, scn: <scn>; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of messages of the largest transaction"
 
