@@ -193,7 +193,9 @@ Remediation: Inspect raw DDL records and source metadata; report if reproducible
 The `online` reader could not query `SYS.V_$TRANSACTION` to find the oldest open transaction when starting without a checkpoint.
 Remediation: Run `GRANT SELECT ON SYS.V_$TRANSACTION TO <user>;` (see the hint printed before this warning).
 
-==== code 60040: "output queue full for <seconds>s (queue-size: <number>) with messages of one transaction, scn: <scn>; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of messages of the largest transaction"
+==== code 60040: "output queue full for <number>s (queue-size: <number>) with messages of one transaction, scn: <scn>; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of messages of the largest transaction"
 
-The writer queue has been full for 10 seconds with messages that all belong to one transaction (same scn). A client which confirms only when the scn grows, for example the Debezium 3.6 OpenLogReplicator adapter, cannot confirm any of them, so replication stops. Repeated every minute while the state lasts.
+The writer queue has been full for 10 seconds with messages that all belong to one transaction (same scn).
+A client which confirms only when the scn grows, for example the Debezium 3.6 OpenLogReplicator adapter, cannot confirm any of them, so replication stops.
+Repeated every minute while the state lasts.
 Remediation: Set writer `queue-size` above the number of messages of the largest transaction.
