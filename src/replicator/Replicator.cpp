@@ -156,6 +156,10 @@ namespace OpenLogReplicator {
         checkOnlineRedoLogs();
     }
 
+    void Replicator::updateIncarnations() {
+        // Only known in online mode
+    }
+
     void Replicator::run() {
         if (unlikely(ctx->isTraceSet(Ctx::TRACE::THREADS))) {
             std::ostringstream ss;
@@ -170,6 +174,9 @@ namespace OpenLogReplicator {
             metadata->readCheckpoints();
             if (!ctx->isFlagSet(Ctx::REDO_FLAGS::ARCH_ONLY))
                 updateOnlineRedoLogData();
+            else
+                // The resetlogs id filters the archived log list; without a checkpoint it is otherwise only learned from an online log
+                updateIncarnations();
             ctx->info(0, "timezone: " + Data::timezoneToString(-timezone) + ", db-timezone: " + Data::timezoneToString(metadata->dbTimezone) +
                       ", log-timezone: " + Data::timezoneToString(ctx->logTimezone) + ", host-timezone: " + ctx->hostTimezone.toString());
 
