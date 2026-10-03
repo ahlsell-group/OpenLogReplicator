@@ -81,9 +81,6 @@ namespace OpenLogReplicator {
         static bool isContinueGap(Scn clientScn, typeIdx clientIdx, Scn confirmedScn, typeIdx confirmedIdx, HELD held, Scn oldestScn,
                                   typeIdx oldestIdx);
 
-    protected:
-
-    public:
         Writer(Ctx* newCtx, std::string newAlias, std::string newDatabase, Builder* newBuilder, Metadata* newMetadata);
         ~Writer() override;
 

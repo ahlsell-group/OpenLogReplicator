@@ -70,10 +70,16 @@ _CAUTION:_ `output` and `append` cannot be used together.
 |What to do when a client sends CONTINUE from a position before the one it already confirmed with CONFIRM, and the messages after its position were released because of that confirmation:
 
 * `0` — log warning 60039 and continue from the oldest message still held; the messages in between are not sent again
-* `1` — log warning 60039 and refuse the CONTINUE (response `FAILED_START`); the client has to start again from an earlier SCN
+* `1` — _experimental_: log warning 60039 and refuse the CONTINUE (response `FAILED_START`); what happens next depends on the client
 
 _NOTE:_ Valid only for `network` and `zeromq`.
 A client should confirm only what it has stored, then this never happens.
+
+_WARNING:_ `1` is experimental; keep the default `0` for Debezium.
+The Debezium 3.6 OpenLogReplicator adapter treats `FAILED_START` as a failed connect: it logs "Server failed to enter streaming mode, OpenLogReplicator client shutting down." and "Failed to connect to OpenLogReplicator server." at WARN level and returns without failing the task.
+The Kafka Connect task stays RUNNING and streams nothing until it is restarted; while OpenLogReplicator keeps running, a restart sends the same position and is refused again.
+The loss becomes a stall that only the logs show, so alert on warning 60039 with either value.
+Use `1` only with a client which fails, or starts again from an earlier SCN, on `FAILED_START`.
 
 |`max-message-mb`
 |_integer_, min: 1, max: 953, default: 100
