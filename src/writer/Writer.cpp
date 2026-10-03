@@ -173,6 +173,21 @@ namespace OpenLogReplicator {
         contextSet(CONTEXT::CPU);
     }
 
+    // A queue full of messages with the scn of the next one holds one transaction only. A client which confirms only when the scn
+    // grows (Debezium 3.6) can never confirm any of them, so replication stops without an error. Say so, every minute.
+    void Writer::warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned) {
+        if (currentQueueSize < ctx->queueSize || queue[0]->lwnScn != msg->lwnScn)
+            return;
+        const time_ut now = ctx->clock->getTimeUt();
+        if (now - fullSince < QUEUE_FULL_WARN_US || (fullWarned != 0 && now - fullWarned < QUEUE_FULL_REPEAT_US))
+            return;
+        fullWarned = now;
+        ctx->warning(60039, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
+                     std::to_string(ctx->queueSize) + ") with messages of one transaction, scn: " + msg->lwnScn.toString() +
+                     "; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of " +
+                     "messages of the largest transaction");
+    }
+
     void Writer::run() {
         if (unlikely(ctx->isTraceSet(Ctx::TRACE::THREADS))) {
             std::ostringstream ss;
@@ -279,6 +294,8 @@ namespace OpenLogReplicator {
 
                 // The queue is full
                 pollQueue();
+                const time_ut fullSince = ctx->clock->getTimeUt();
+                time_ut fullWarned = 0;
                 while (currentQueueSize >= ctx->queueSize && !ctx->hardShutdown) {
                     if (unlikely(ctx->isTraceSet(Ctx::TRACE::WRITER)))
                         ctx->logTrace(Ctx::TRACE::WRITER, "output queue is full (" + std::to_string(currentQueueSize) +
@@ -287,6 +304,7 @@ namespace OpenLogReplicator {
                     ctx->usleepInt(ctx->pollIntervalUs);
                     contextSet(CONTEXT::CPU);
                     pollQueue();
+                    warnQueueFull(msg, fullSince, fullWarned);
                 }
 
                 writeCheckpoint(redo);

@@ -54,7 +54,11 @@ namespace OpenLogReplicator {
         typeIdx confirmedIdx{0};
         BuilderMsg** queue{nullptr};
 
+        static constexpr time_ut QUEUE_FULL_WARN_US = 10000000;
+        static constexpr time_ut QUEUE_FULL_REPEAT_US = 60000000;
+
         void createMessage(BuilderMsg* msg);
+        void warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned);
         virtual void sendMessage(BuilderMsg* msg) = 0;
         virtual std::string getType() const = 0;
         virtual void pollQueue() = 0;
