@@ -32,10 +32,7 @@ namespace OpenLogReplicator {
         append('"');
         appendEscape(columnName);
         append(std::string_view(R"(":)"));
-
-        std::ostringstream ss;
-        ss << value;
-        append(ss.str());
+        append(floatingPointToString(static_cast<float>(value)));
     }
 
     void BuilderJson::columnDouble(const std::string& columnName, long double value) {
@@ -43,10 +40,7 @@ namespace OpenLogReplicator {
         append('"');
         appendEscape(columnName);
         append(std::string_view(R"(":)"));
-
-        std::ostringstream ss;
-        ss << value;
-        append(ss.str());
+        append(floatingPointToString(static_cast<double>(value)));
     }
 
     void BuilderJson::columnString(const std::string& columnName) {

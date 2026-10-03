@@ -22,6 +22,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -1241,6 +1242,14 @@ namespace OpenLogReplicator {
         bool parseXml(const XmlCtx* xmlCtx, const uint8_t* data, uint64_t size, FileOffset fileOffset);
 
     public:
+        // Shortest text that reads back as the same IEEE value (float: single precision)
+        template<typename T>
+        static std::string floatingPointToString(T value) {
+            char buf[64];
+            const auto result = std::to_chars(buf, buf + sizeof(buf), value);
+            return {buf, result.ptr};
+        }
+
         SystemTransaction* systemTransaction{nullptr};
         uint64_t buffersAllocated{0};
         BuilderQueue* firstBuilderQueue{nullptr};

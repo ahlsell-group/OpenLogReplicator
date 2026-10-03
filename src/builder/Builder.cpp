@@ -614,66 +614,23 @@ namespace OpenLogReplicator {
         }
     }
 
+    // Oracle stores BINARY_FLOAT/BINARY_DOUBLE as big-endian IEEE 754 with the sign bit set for positive values and all bits
+    // inverted for negative values, so that the bytes sort like the numbers. Undoing that gives the exact IEEE value, including
+    // subnormals, -0, infinities and NaN.
     double Builder::decodeFloat(const uint8_t* data) {
-        const uint8_t sign = data[0] & 0x80;
-        int64_t exponent = (static_cast<uint64_t>(data[0] & 0x7F) << 1) | (static_cast<uint64_t>(data[1]) >> 7);
-        uint64_t significand = (static_cast<uint64_t>(data[1] & 0x7F) << 16) | (static_cast<uint64_t>(data[2]) << 8) | static_cast<uint64_t>(data[3]);
-
-        if (sign != 0) {
-            if (significand == 0) {
-                if (exponent == 0)
-                    return 0.0;
-                if (exponent == 0xFF)
-                    return std::numeric_limits<double>::infinity();
-            } else if (significand == 0x400000 && exponent == 0xFF)
-                return std::numeric_limits<double>::quiet_NaN();
-
-            if (exponent > 0)
-                significand += 0x800000;
-            exponent -= 0x7F;
-            return ldexp((static_cast<double>(significand)) / (static_cast<double>(0x800000)), exponent);
-        }
-
-        if (exponent == 0 && significand == 0x7FFFFF)
-            return -std::numeric_limits<double>::infinity();
-
-        significand = 0x7FFFFF - significand;
-        if (exponent < 0xFF)
-            significand += 0x800000;
-        exponent = 0x80 - exponent;
-        return -ldexp(((static_cast<double>(significand) / static_cast<double>(0x800000))), exponent);
+        uint32_t bits = Ctx::read32Big(data);
+        bits = (bits & 0x80000000) != 0 ? (bits ^ 0x80000000) : ~bits;
+        float value;
+        memcpy(&value, &bits, sizeof(value));
+        return value;
     }
 
     long double Builder::decodeDouble(const uint8_t* data) {
-        const uint8_t sign = data[0] & 0x80;
-        int64_t exponent = (static_cast<uint64_t>(data[0] & 0x7F) << 4) | (static_cast<uint64_t>(data[1]) >> 4);
-        uint64_t significand = (static_cast<uint64_t>(data[1] & 0x0F) << 48) | (static_cast<uint64_t>(data[2]) << 40) |
-                               (static_cast<uint64_t>(data[3]) << 32) | (static_cast<uint64_t>(data[4]) << 24) | (static_cast<uint64_t>(data[5]) << 16) |
-                               (static_cast<uint64_t>(data[6]) << 8) | static_cast<uint64_t>(data[7]);
-
-        if (sign != 0) {
-            if (significand == 0) {
-                if (exponent == 0)
-                    return 0.0L;
-                if (exponent == 0x7FF)
-                    return std::numeric_limits<long double>::infinity();
-            } else if (significand == 0x8000000000000 && exponent == 0x7FF)
-                return std::numeric_limits<long double>::quiet_NaN();
-
-            if (exponent > 0)
-                significand += 0x10000000000000;
-            exponent -= 0x3FF;
-            return ldexpl(static_cast<long double>(significand) / static_cast<long double>(0x10000000000000), exponent);
-        }
-
-        if (exponent == 0 && significand == 0xFFFFFFFFFFFFF)
-            return -std::numeric_limits<long double>::infinity();
-
-        significand = 0xFFFFFFFFFFFFF - significand;
-        if (exponent < 0x7FF)
-            significand += 0x10000000000000;
-        exponent = 0x400 - exponent;
-        return -ldexpl(static_cast<long double>(significand) / static_cast<long double>(0x10000000000000), exponent);
+        uint64_t bits = Ctx::read64Big(data);
+        bits = (bits & 0x8000000000000000) != 0 ? (bits ^ 0x8000000000000000) : ~bits;
+        double value;
+        memcpy(&value, &bits, sizeof(value));
+        return value;
     }
 
     uint64_t Builder::builderSize() const {
