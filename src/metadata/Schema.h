@@ -81,6 +81,7 @@ namespace OpenLogReplicator {
         std::unordered_map<typeDataObj, DbLob*> lobIndexMap;
         std::unordered_map<typeObj, DbTable*> tableMap;
         std::unordered_map<typeObj, DbTable*> tablePartitionMap;
+        std::unordered_map<typeDataObj, DbTable*> tableDataObjMap;
         XmlCtx* xmlCtxDefault{nullptr};
         DbColumn* columnTmp{nullptr};
         DbLob* lobTmp{nullptr};
@@ -121,6 +122,7 @@ namespace OpenLogReplicator {
         void touchTableLobFrag(typeObj lobFragObj);
         void touchTablePart(typeObj obj);
         [[nodiscard]] DbTable* checkTableDict(typeObj obj) const;
+        [[nodiscard]] DbTable* checkTableDataObjDict(typeDataObj dataObj) const;
         [[nodiscard]] bool checkTableDictUncommitted(typeObj obj, std::string& owner, std::string& table) const;
         [[nodiscard]] DbLob* checkLobDict(typeDataObj dataObj) const;
         [[nodiscard]] DbLob* checkLobIndexDict(typeDataObj dataObj) const;

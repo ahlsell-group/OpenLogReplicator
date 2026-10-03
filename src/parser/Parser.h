@@ -28,6 +28,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/types/Time.h"
 #include "../common/types/Types.h"
 #include "../common/types/Xid.h"
+#include "DirectLoadTracker.h"
 
 namespace OpenLogReplicator {
     class Builder;
@@ -79,6 +80,7 @@ namespace OpenLogReplicator {
         Time lwnTimestamp{0};
         Scn lwnScn;
         typeBlk lwnCheckpointBlock{0};
+        DirectLoadTracker directLoadTracker;
 
         void freeLwn();
         void analyzeLwn(LwnMember* lwnMember);
@@ -86,6 +88,8 @@ namespace OpenLogReplicator {
         void appendToTransactionBegin(RedoLogRecord* redoLogRecord1);
         void appendToTransactionCommit(RedoLogRecord* redoLogRecord1);
         void appendToTransactionLob(RedoLogRecord* redoLogRecord1);
+        void appendToDirectLoad(const RedoLogRecord* redoLogRecord1);
+        void flushDirectLoadWarnings();
         void appendToTransactionIndex(RedoLogRecord* redoLogRecord1, RedoLogRecord* redoLogRecord2);
         void appendToTransaction(RedoLogRecord* redoLogRecord1);
         void appendToTransactionRollback(RedoLogRecord* redoLogRecord1);

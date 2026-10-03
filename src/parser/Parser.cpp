@@ -554,6 +554,13 @@ namespace OpenLogReplicator {
                 continue;
             }
 
+            // Direct-path load: table data block
+            if (redoLogRecord[vectorCur].opCode == 0x1301 && redoLogRecord[vectorCur].directLoadDataBlock) {
+                appendToDirectLoad(&redoLogRecord[vectorCur]);
+                vectorCur = -1;
+                continue;
+            }
+
             // LOB
             if (redoLogRecord[vectorCur].opCode == 0x1301 || redoLogRecord[vectorCur].opCode == 0x1A06) {
                 appendToTransactionLob(&redoLogRecord[vectorCur]);
@@ -622,6 +629,18 @@ namespace OpenLogReplicator {
         transaction->add(metadata, transactionBuffer, redoLogRecord1, &zero);
     }
 
+    void Parser::appendToDirectLoad(const RedoLogRecord* redoLogRecord1) {
+        // A direct-path load logs the formatted data blocks of a table as 19.1; they are not decoded, only reported
+        ctx->parserThread->contextSet(Thread::CONTEXT::TRAN);
+        {
+            std::unique_lock const lckTransaction(metadata->mtxTransaction);
+            const DbTable* table = metadata->schema->checkTableDataObjDict(redoLogRecord1->dataObj);
+            if (table != nullptr && !DbTable::isSystemTable(table->options) && !DbTable::isSchemaTable(table->options))
+                directLoadTracker.add(table->obj, redoLogRecord1->dataObj, table->owner, table->name, redoLogRecord1->scn);
+        }
+        ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+    }
+
     void Parser::appendToTransactionLob(RedoLogRecord* redoLogRecord1) {
         DbLob* lob;
         ctx->parserThread->contextSet(Thread::CONTEXT::TRAN);
@@ -674,6 +693,13 @@ namespace OpenLogReplicator {
 
         transaction->lobCtx.addLob(ctx, redoLogRecord1->lobId, redoLogRecord1->dba, 0, TransactionBuffer::allocateLob(redoLogRecord1),
                                    transaction->xid, redoLogRecord1->fileOffset);
+    }
+
+    void Parser::flushDirectLoadWarnings() {
+        if (likely(directLoadTracker.empty()))
+            return;
+        for (const auto& message: directLoadTracker.flush())
+            ctx->warning(DirectLoadTracker::WARNING_CODE, message);
     }
 
     void Parser::appendToTransaction(RedoLogRecord* redoLogRecord1) {
@@ -1517,6 +1543,7 @@ namespace OpenLogReplicator {
                         lwnMembers[lwnPos] = lwnMembers[lwnRecords];
                         --lwnRecords;
                     }
+                    flushDirectLoadWarnings();
 
                     if (lwnScn > metadata->firstDataScn) {
                         if (unlikely(ctx->isTraceSet(Ctx::TRACE::CHECKPOINT)))

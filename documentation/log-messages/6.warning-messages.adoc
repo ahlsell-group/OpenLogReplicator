@@ -213,3 +213,9 @@ The writer queue has been full for 10 seconds with messages that all belong to o
 A client which confirms only when the scn grows, for example the Debezium 3.6 OpenLogReplicator adapter, cannot confirm any of them, so replication stops.
 Repeated every minute while the state lasts.
 Remediation: Set writer `queue-size` above the number of messages of the largest transaction.
+
+==== code 60042: "direct-path load into replicated table <owner>.<table> (obj: <number>, dataobj: <number>, scn: <scn>[-<scn>], blocks: <number>): OP 19.1 direct loader blocks are not decoded, the rows they contain are missing from the output"
+
+A direct-path load (`INSERT /*+ APPEND */`, `INSERT /*+ APPEND_VALUES */`, SQL*Loader `direct=true`, Data Pump with the direct path access method, parallel DML) into a replicated table writes whole formatted data blocks, which the redo log carries only as OP 19.1 "Direct Loader block redo entry" records, without row-level change vectors. OpenLogReplicator does not decode these blocks, so the loaded rows never reach the output, and later changes of those rows arrive as updates or deletes of rows the consumer has never seen.
+The warning is logged once per table and LWN (redo write), with the number of blocks and the scn range in that LWN; a large load gives one warning per LWN it spans. The table is looked up by the data object id of the block. A direct-path load with NOLOGGING and without FORCE LOGGING writes no redo at all and cannot be detected.
+Remediation: Do not use direct-path loads on replicated tables (remove the `APPEND` hint, use conventional SQL*Loader), or resynchronize the table after the load, for example with a new snapshot of it.
