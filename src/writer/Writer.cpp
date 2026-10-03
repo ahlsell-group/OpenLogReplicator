@@ -229,7 +229,7 @@ namespace OpenLogReplicator {
         if (now - fullSince < QUEUE_FULL_WARN_US || (fullWarned != 0 && now - fullWarned < QUEUE_FULL_REPEAT_US))
             return;
         fullWarned = now;
-        ctx->warning(60039, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
+        ctx->warning(60040, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
                      std::to_string(ctx->queueSize) + ") with messages of one transaction, scn: " + msg->lwnScn.toString() +
                      "; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of " +
                      "messages of the largest transaction");
