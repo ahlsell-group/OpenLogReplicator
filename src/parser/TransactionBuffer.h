@@ -70,7 +70,10 @@ namespace OpenLogReplicator {
         };
         // Begin positions of committed transactions, by commit SCN, whose commit SCN is not below the SCN of the LWN
         // they committed in. A checkpoint at that LWN is already past their commit, but a client may start from their
-        // commit SCN and has to get them; see checkpoint().
+        // commit SCN and has to get them; see checkpoint(). Only commits at or after firstDataScn are kept: earlier ones are
+        // never sent, and checkpoint() (which prunes) does not run before the parser has passed firstDataScn, so during
+        // catch-up the map would otherwise grow by one entry per commit. Assumes a single redo thread: with RAC the shared
+        // buffer is pruned by whichever thread checkpoints.
         std::multimap<Scn, CommittedBegin> committedAtOrAfterLwn;
 
     public:
@@ -89,7 +92,10 @@ namespace OpenLogReplicator {
         void addTransactionChunk(Transaction* transaction, RedoLogRecord* redoLogRecord1, const RedoLogRecord* redoLogRecord2);
         void rollbackTransactionChunk(Transaction* transaction);
         void mergeBlocks(uint8_t* mergeBuffer, RedoLogRecord* redoLogRecord1, const RedoLogRecord* redoLogRecord2);
-        void addCommitted(Scn commitScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid);
+        bool addCommitted(Scn commitScn, Scn firstDataScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid);
+        [[nodiscard]] size_t committedSize() const {
+            return committedAtOrAfterLwn.size();
+        }
         void checkpoint(Scn checkpointScn, Seq& minSequence, FileOffset& minFileOffset, Xid& minXid);
         void addOrphanedLob(RedoLogRecord* redoLogRecord1);
         static uint8_t* allocateLob(const RedoLogRecord* redoLogRecord1);

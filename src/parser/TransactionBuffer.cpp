@@ -266,8 +266,11 @@ namespace OpenLogReplicator {
             redoLogRecord1->flg &= ~(OpCode::FLG_MULTIBLOCKUNDOHEAD | OpCode::FLG_MULTIBLOCKUNDOMID | OpCode::FLG_MULTIBLOCKUNDOTAIL);
     }
 
-    void TransactionBuffer::addCommitted(Scn commitScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid) {
+    bool TransactionBuffer::addCommitted(Scn commitScn, Scn firstDataScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid) {
+        if (commitScn < firstDataScn)
+            return false;
         committedAtOrAfterLwn.emplace(commitScn, CommittedBegin{beginSequence, beginFileOffset, xid});
+        return true;
     }
 
     // The position a restart from the checkpoint at checkpointScn has to read from: the begin of the oldest open
