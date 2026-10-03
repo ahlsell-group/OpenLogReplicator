@@ -376,4 +376,8 @@ if (WITH_TESTS)
         endif ()
     endif ()
     add_test(NAME BinaryFloatDecodeTest COMMAND BinaryFloatDecodeTest)
+
+    add_executable(CheckpointIntervalTest test/CheckpointIntervalTest.cpp)
+    target_include_directories(CheckpointIntervalTest PUBLIC "${PROJECT_BINARY_DIR}")
+    add_test(NAME CheckpointIntervalTest COMMAND CheckpointIntervalTest)
 endif ()
