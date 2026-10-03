@@ -111,6 +111,53 @@ namespace OpenLogReplicator {
             oldSize = 0;
     }
 
+    Writer::HELD Writer::oldestHeldMessage(Scn& scn, typeIdx& idx) const {
+        for (const BuilderQueue* heldQueue = builder->firstBuilderQueue; heldQueue != nullptr; heldQueue = heldQueue->next) {
+            const uint64_t start = heldQueue->start;
+            if (start == Builder::BUFFER_START_UNDEFINED)
+                return HELD::UNKNOWN;
+            if (start < heldQueue->confirmedSize) {
+                const auto* msg = reinterpret_cast<const BuilderMsg*>(heldQueue->data + start);
+                scn = msg->lwnScn;
+                idx = msg->lwnIdx;
+                return HELD::MESSAGE;
+            }
+        }
+        return HELD::NONE;
+    }
+
+    bool Writer::isContinueGap(Scn clientScn, typeIdx clientIdx, Scn confirmedScn, typeIdx confirmedIdx, HELD held, Scn oldestScn,
+                               typeIdx oldestIdx) {
+        // Only confirmed messages are released
+        if (confirmedScn == Scn::none() || clientScn == Scn::none())
+            return false;
+        if (clientScn > confirmedScn || (clientScn == confirmedScn && clientIdx >= confirmedIdx))
+            return false;
+
+        switch (held) {
+            case HELD::UNKNOWN:
+                return false;
+            case HELD::NONE:
+                // The confirmed message lies after the client's position and was released
+                return true;
+            case HELD::MESSAGE:
+                break;
+        }
+
+        // Held from the message right after the client's position or earlier
+        if (oldestScn < clientScn || (oldestScn == clientScn && oldestIdx <= clientIdx + 1))
+            return false;
+        // Messages clientIdx + 1 .. oldestIdx - 1 of the client's scn were released
+        if (oldestScn == clientScn)
+            return true;
+        // Messages 1 .. oldestIdx - 1 of a later scn were released
+        if (oldestIdx > 1)
+            return true;
+        // The oldest held message starts a later scn: the confirmed message was released if it lies before it,
+        // otherwise it is not known whether messages came between the client's position and that scn
+        return confirmedScn < oldestScn;
+    }
+
     void Writer::confirmMessage(BuilderMsg* msg) {
         if (ctx->metrics != nullptr && msg != nullptr) {
             ctx->metrics->emitBytesConfirmed(msg->size);

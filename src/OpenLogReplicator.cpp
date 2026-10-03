@@ -1090,6 +1090,7 @@ namespace OpenLogReplicator {
             if (!ctx->isDisableChecksSet(Ctx::DISABLE_CHECKS::JSON_TAGS)) {
                 static const std::vector<std::string> writerNames{
                     "append",
+                    "continue-gap",
                     "max-file-size",
                     "max-message-mb",
                     "new-line",
@@ -1118,6 +1119,14 @@ namespace OpenLogReplicator {
                 if (ctx->queueSize < 1 || ctx->queueSize > 1000000)
                     throw ConfigurationException(30001, "bad JSON, invalid \"queue-size\" value: " + std::to_string(ctx->queueSize) +
                                                  ", expected: one of {1 .. 1000000}");
+            }
+
+            [[maybe_unused]] uint64_t continueGap = 0;
+            if (writerJson.HasMember("continue-gap")) {
+                continueGap = Ctx::getJsonFieldU64(configFileName, writerJson, "continue-gap");
+                if (continueGap > 1)
+                    throw ConfigurationException(30001, "bad JSON, invalid \"continue-gap\" value: " + std::to_string(continueGap) +
+                                                 ", expected: one of {0, 1}");
             }
 
             if (writerType == "file") {
@@ -1195,7 +1204,10 @@ namespace OpenLogReplicator {
                 const std::string uri = Ctx::getJsonFieldS(configFileName, Ctx::JSON_PARAMETER_LENGTH, writerJson, "uri");
                 auto* stream = new StreamZeroMQ(ctx, uri);
                 stream->initialize();
-                writer = new WriterStream(ctx, alias + "-writer", replicator2->database, replicator2->builder, replicator2->metadata, stream);
+                auto* writerStream = new WriterStream(ctx, alias + "-writer", replicator2->database, replicator2->builder, replicator2->metadata,
+                                                      stream);
+                writerStream->refuseContinueGap = continueGap == 1;
+                writer = writerStream;
 #else
                 throw ConfigurationException(30001, "bad JSON, invalid \"type\" value: " + writerType +
                                              ", expected: not \"zeromq\" since the code is not compiled");
@@ -1206,7 +1218,10 @@ namespace OpenLogReplicator {
 
                 auto* stream = new StreamNetwork(ctx, uri);
                 stream->initialize();
-                writer = new WriterStream(ctx, alias + "-writer", replicator2->database, replicator2->builder, replicator2->metadata, stream);
+                auto* writerStream = new WriterStream(ctx, alias + "-writer", replicator2->database, replicator2->builder, replicator2->metadata,
+                                                      stream);
+                writerStream->refuseContinueGap = continueGap == 1;
+                writer = writerStream;
 #else
                 throw ConfigurationException(30001, "bad JSON, invalid \"type\" value: " + writerType +
                                              ", expected: not \"network\" since the code is not compiled");

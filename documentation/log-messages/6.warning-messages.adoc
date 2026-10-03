@@ -192,3 +192,9 @@ Remediation: Inspect raw DDL records and source metadata; report if reproducible
 
 The `online` reader could not query `SYS.V_$TRANSACTION` to find the oldest open transaction when starting without a checkpoint.
 Remediation: Run `GRANT SELECT ON SYS.V_$TRANSACTION TO <user>;` (see the hint printed before this warning).
+
+==== code 60039: "client continues from scn: <scn>, idx: <idx>, before the position it confirmed, scn: <scn>, idx: <idx>; the oldest message still held is scn: <scn>, idx: <idx>, the messages in between were released and are not sent again"
+
+A `network` or `zeromq` client continued from a position before the one it confirmed earlier. Confirmed messages are released, so the stream resumes with the oldest message still held and the client misses the messages in between.
+This happens with a client which confirms what it has read instead of what it has stored, for example the Debezium 3.6 OpenLogReplicator adapter after a task restart.
+Remediation: Make the client confirm only stored positions (Debezium 3.7 or later) and restart it from an SCN before the gap. With writer option `continue-gap: 1` such a CONTINUE is refused instead.

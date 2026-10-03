@@ -41,6 +41,9 @@ namespace OpenLogReplicator {
         void sendMessage(BuilderMsg* msg) override;
 
     public:
+        // continue-gap 1: refuse a CONTINUE which would skip released messages instead of warning and resuming later
+        bool refuseContinueGap{false};
+
         WriterStream(Ctx* newCtx, std::string newAlias, std::string newDatabase, Builder* newBuilder, Metadata* newMetadata, Stream* newStream);
         ~WriterStream() override;
 

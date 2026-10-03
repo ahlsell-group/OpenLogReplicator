@@ -70,6 +70,24 @@ namespace OpenLogReplicator {
         void resetMessageQueue();
 
     public:
+        enum class HELD : unsigned char {
+            NONE,       // no message is held, every message the client confirmed was released
+            MESSAGE,    // the oldest message held for the client is at (scn, idx)
+            UNKNOWN     // the oldest buffer starts inside a message, its position is not known
+        };
+
+        // Position of the oldest message still held for the client, i.e. the earliest position CONTINUE can resend from
+        HELD oldestHeldMessage(Scn& scn, typeIdx& idx) const;
+
+        // A client which continues after (clientScn, clientIdx), a position before the one it confirmed, misses
+        // messages when the oldest message still held comes later than the message after its position: CONFIRM
+        // released the messages in between. Message indexes are 1-based within an scn.
+        static bool isContinueGap(Scn clientScn, typeIdx clientIdx, Scn confirmedScn, typeIdx confirmedIdx, HELD held, Scn oldestScn,
+                                  typeIdx oldestIdx);
+
+    protected:
+
+    public:
         Writer(Ctx* newCtx, std::string newAlias, std::string newDatabase, Builder* newBuilder, Metadata* newMetadata);
         ~Writer() override;
 
