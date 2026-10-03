@@ -35,6 +35,19 @@ Will attempt reconnects if the DB connection is lost.
 _IMPORTANT:_ `batch` is intended for testing and troubleshooting.
 Checkpoint files created by `batch` may not contain a complete schema suitable for `online` or `offline` runs.
 
+|`cold-start-max-age-s`
+|_integer_, min: 0, default: 0
+|Only for `online` readers starting without a checkpoint and without `start-seq`.
+Reading then starts with the redo log holding the begin of the oldest transaction open at startup (from `SYS.V_$TRANSACTION`), so a transaction open at the starting SCN is read completely.
+A transaction is used for this only when it began at most this many seconds ago; `0` means no limit.
+Independent of this value, a transaction is used only when the redo log holding its begin and every later log are still online or archived and not deleted (`SYS.V_$LOG`, `SYS.V_$ARCHIVED_LOG`).
+If the oldest open transaction does not qualify, the next one is tried; if none qualifies reading starts with the log holding the starting SCN.
+Each transaction left out is named in warning 60011 at startup and is skipped at its commit.
+
+_NOTE:_ Bounds how far back a forgotten idle transaction can move a cold start.
+The check uses what the database reports; an archived log removed from disk without RMAN still counts as available.
+Assumes a single redo thread.
+
 |`db-timezone`
 |_string_, format: `+HH:MM` or `-HH:MM`, default: database DBTIMEZONE
 |Timezone used as the base for TIMESTAMP WITH LOCAL TIMEZONE values.

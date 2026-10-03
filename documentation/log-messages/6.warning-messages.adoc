@@ -55,9 +55,14 @@ Remediation: Usually benign if rollback started before replication; confirm rete
 ==== code 60011: "skipping transaction with no beginning, changes committed after the starting scn are lost: <details>"
 
 Transaction began before the first redo log read and lacks a recorded start; the whole transaction is skipped, including the changes made after the starting SCN.
-Logged at ERROR level because data is lost.
+Data is lost: alert on this warning.
 Remediation: Start from a checkpoint (its low watermark covers open transactions), or set `start-seq` to a redo log before the begin of the transaction.
 Without a checkpoint the `online` reader starts with the redo log containing the begin of the oldest transaction open at startup (needs `SELECT` on `SYS.V_$TRANSACTION`); transactions which were open at the starting SCN but committed before startup are not covered.
+
+The same code is logged at startup, before any data is read, as "transaction <xid> began at scn <scn>, before the first redo log read (seq: <number>), it will be skipped at commit and its changes are lost: <reason>".
+It names an open transaction whose begin the cold start can not read: its redo log (or a later one) is no longer online or archived according to `SYS.V_$ARCHIVED_LOG`, or the transaction is older than the reader option `cold-start-max-age-s`.
+Reading then starts with the oldest open transaction which qualifies, or at the starting SCN.
+Remediation: restore the archived redo logs and restart with an empty state directory, set `start-seq`, or raise `cold-start-max-age-s`.
 
 ==== code 60012: "aborting log dump"
 

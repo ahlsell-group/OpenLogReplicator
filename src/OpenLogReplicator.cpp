@@ -494,6 +494,7 @@ namespace OpenLogReplicator {
 
             if (!ctx->isDisableChecksSet(Ctx::DISABLE_CHECKS::JSON_TAGS)) {
                 static const std::vector<std::string> readerNames {
+                    "cold-start-max-age-s",
                     "db-timezone",
                     "disable-checks",
                     "host-timezone",
@@ -533,6 +534,9 @@ namespace OpenLogReplicator {
             Scn startScn = Scn::none();
             if (readerJson.HasMember("start-scn"))
                 startScn = Ctx::getJsonFieldU64(configFileName, readerJson, "start-scn");
+
+            if (readerJson.HasMember("cold-start-max-age-s"))
+                ctx->coldStartMaxAgeS = Ctx::getJsonFieldU64(configFileName, readerJson, "cold-start-max-age-s");
 
             Seq startSequence = Seq::none();
             if (readerJson.HasMember("start-seq"))

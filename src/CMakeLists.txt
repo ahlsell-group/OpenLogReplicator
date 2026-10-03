@@ -158,3 +158,11 @@ if (WITH_PROTOBUF)
     target_link_libraries(StreamClient LibCommon)
     target_link_libraries(StreamClient LibStream)
 endif ()
+
+if (WITH_TESTS)
+    add_executable(ColdStartTest
+            test/ColdStartTest.cpp
+            common/exception/DataException.cpp)
+    target_include_directories(ColdStartTest PUBLIC "${PROJECT_BINARY_DIR}")
+    add_test(NAME ColdStartTest COMMAND ColdStartTest)
+endif ()
