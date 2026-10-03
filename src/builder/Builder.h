@@ -60,6 +60,7 @@ namespace OpenLogReplicator {
     class Locales;
     class Metadata;
     class SystemTransaction;
+    class BuilderTestAccess;
     class XmlCtx;
 
     struct BuilderQueue {
@@ -423,18 +424,19 @@ namespace OpenLogReplicator {
 
         void parseNumber(const uint8_t* data, uint64_t size, FileOffset fileOffset) {
             valueBufferPurge();
-            valueBufferCheck((size * 2) + 2, fileOffset);
+            // Up to 64 leading zero pairs (exponent byte 0x80/0x7F) or 63 integer pairs come on top of the mantissa
+            valueBufferCheck((size * 2) + 140, fileOffset);
 
             uint8_t digits = data[0];
-            // Just zero
-            if (digits == 0x80) {
+            // Just zero; 0x80 followed by mantissa bytes is a positive number below 1e-128
+            if (digits == 0x80 && size == 1) {
                 valueBufferAppend('0');
             } else {
                 uint64_t j = 1;
                 uint64_t jMax = size - 1;
 
                 // Positive number
-                if (digits > 0x80 && jMax >= 1) {
+                if (digits >= 0x80 && jMax >= 1) {
                     uint64_t value;
                     uint64_t zeros = 0;
                     // Part of the total
@@ -1297,6 +1299,7 @@ namespace OpenLogReplicator {
 
 
         friend class SystemTransaction;
+        friend class BuilderTestAccess;
     };
 }
 
