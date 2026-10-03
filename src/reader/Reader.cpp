@@ -292,6 +292,15 @@ namespace OpenLogReplicator {
             ctx->info(0, "updating redo log size to: " + std::to_string(fileSize) + " for: " + fileName);
         }
 
+        // A complete archived redo log (next scn set) is exactly numBlocksHeader blocks long. A shorter file has lost its
+        // tail: reading it to its end and moving on to the next sequence would skip the missing redo without a trace.
+        if (group == 0 && numBlocksHeader != Ctx::ZERO_BLK && nextScnHeader != Scn::none() &&
+                fileSize < static_cast<uint64_t>(numBlocksHeader) * blockSize) {
+            ctx->error(40012, "file: " + fileName + " - size: " + std::to_string(fileSize) + " is smaller than the " +
+                       std::to_string(numBlocksHeader) + " blocks of " + std::to_string(blockSize) + " bytes in its header, the file is truncated");
+            return REDO_CODE::ERROR_READ;
+        }
+
         if (ctx->version == 0) {
             char SID[9];
             memcpy(SID, headerBuffer + blockSize + 28, 8);
@@ -393,6 +402,14 @@ namespace OpenLogReplicator {
                           std::to_string(bufferEnd) + "/" + std::to_string(bufferScan) + ") got: " + std::to_string(actualRead));
         if (actualRead < 0) {
             ctx->error(40003, "file: " + fileName + " - " + strerror(errno));
+            ret = REDO_CODE::ERROR_READ;
+            return false;
+        }
+        // End of file before the size the file had when it was opened: the file shrank or was replaced. For an archived
+        // redo log the code below would take this for the end of a partial log and report it as finished.
+        if (actualRead < static_cast<int>(blockSize) && group == 0 && !ctx->hardShutdown) {
+            ctx->error(40013, "file: " + fileName + " - " + std::to_string(actualRead) + " bytes read at offset: " + std::to_string(bufferScan) +
+                       ", expected size: " + std::to_string(fileSize) + ", the file shrank or was removed while being read");
             ret = REDO_CODE::ERROR_READ;
             return false;
         }

@@ -57,3 +57,15 @@ Next SCN in header mismatch.
 
 Double-read error.
 Verify file integrity.
+
+==== code 40012: "file: <file name> - size: <number> is smaller than the <number> blocks of <number> bytes in its header, the file is truncated"
+
+The archived redo log is shorter than its header says.
+Reading it to its end would skip the missing redo, so the file is not processed; OpenLogReplicator retries opening it and stops with error 10009 if it stays short.
+Check whether the file is still being copied or was truncated, and restore it from a backup if needed.
+
+==== code 40013: "file: <file name> - <number> bytes read at offset: <number>, expected size: <number>, the file shrank or was removed while being read"
+
+The archived redo log ended before the size it had when it was opened, usually because it was truncated or deleted (for example by a backup tool) while OpenLogReplicator read it.
+OpenLogReplicator stops instead of moving on to the next sequence.
+Restore the file and restart.
