@@ -206,6 +206,8 @@ def kind_of(data_type):
     t = data_type.upper()
     if t in ("NUMBER", "FLOAT", "INTEGER"):
         return "num"
+    if t in ("BINARY_FLOAT", "BINARY_DOUBLE"):
+        return "f32" if t == "BINARY_FLOAT" else "f64"
     if t == "DATE":
         return "date"
     if t.startswith("TIMESTAMP") and "TIME ZONE" not in t:
@@ -235,6 +237,11 @@ def canon(v, data_type):
             return "0"
         s = format(d.normalize(), "f")
         return s.rstrip("0").rstrip(".") if "." in s else s
+    if k in ("f32", "f64"):   # IEEE values: equal when they read back as the same float/double
+        f = float(v)
+        if k == "f32":
+            f = struct.unpack("<f", struct.pack("<f", f))[0]
+        return repr(f)
     if k in ("date", "ts"):
         if isinstance(v, (int, decimal.Decimal)) and not isinstance(v, bool):   # epoch nanoseconds
             secs, nanos = divmod(int(v), 10**9)

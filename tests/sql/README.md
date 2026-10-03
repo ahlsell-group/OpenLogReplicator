@@ -43,7 +43,8 @@ run several copies side by side), `OLRSQL_ORACLE_TZ` (container time zone, defau
 | `wide-delete-then-update` | DELETE on a 65-column table (row ends at column 63), then UPDATE of column 64 on a 64-column table: `ERROR 50073` in OLR 2.0.0 |
 | `multi-piece-rows` | 300-column rows stored in two row pieces: per-piece updates, NULLs, row migration, sparse insert |
 | `number-scale` | `NUMBER(15,3)` zero and negatives, 38-digit values, `FLOAT`, NULL transitions |
-| `number-extreme-exponent` | 1e-130 and 9.99e125 (known failing, marked `known_failing`) |
+| `number-extreme-exponent` | 1e-130 .. 1e-128 and +-9.99e125 (OLR 2.0.0 writes values below 1e-128 as 0) |
+| `binary-float-double` | `BINARY_FLOAT`/`BINARY_DOUBLE` whole numbers at the precision limit, subnormals, extremes (OLR 2.0.0 writes 6 significant digits and halves subnormals) |
 | `date-edges` | `DATE`/`TIMESTAMP(0..9)` before 1970, years 0001 and 9999, DST wall times |
 | `savepoint-rollback` | `ROLLBACK TO SAVEPOINT` (nested) and a fully rolled-back transaction |
 | `interleaved-transactions` | three overlapping sessions, commit order differs from begin order |
@@ -57,8 +58,8 @@ run several copies side by side), `OLRSQL_ORACLE_TZ` (container time zone, defau
 | `sigterm-exit-code` | `docker stop` (SIGTERM): clean stop, exit code 0 |
 | `root-container-cold-start` | cold start in CDB$ROOT, where `SYS.V_$PDBS` has no row (as on a non-CDB) |
 
-Results seen so far (`bersler/openlogreplicator:2.0.0`): all pass except `wide-delete-then-update` (50073)
-and `number-extreme-exponent` (known failing).
+Results seen so far (`bersler/openlogreplicator:2.0.0`): all pass except `wide-delete-then-update` (50073),
+`number-extreme-exponent` and `binary-float-double`. The fork fixes all three.
 
 ## Adding a scenario
 

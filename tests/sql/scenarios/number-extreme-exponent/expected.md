@@ -1,6 +1,9 @@
 Oracle NUMBER spans 1e-130 to 9.99e125. Expected: the exact value in the create and update
 events, not 0.
 
-Observed with OLR 2.0.0 and a build of the same code base from the fork: the 1e-130 values are
-written as `0`, so the replayed row differs from the database. Not yet fixed upstream, so this
-scenario currently fails with every image (see `known_failing` in scenario.toml).
+Oracle stores positive values from 1e-130 up to (not including) 1e-128 with the exponent byte
+0x80 followed by mantissa bytes; a lone 0x80 byte is zero. OLR 2.0.0 took every value starting
+with 0x80 for zero, so 1e-130, 1.5e-129 and 9.99e-129 were written as `0` and the replayed row
+differed from the database. Negative values (exponent byte 0x7F) and 1e-128 were right.
+Fixed in the fork by "Decode NUMBER values below 1e-128 instead of writing 0"; OLR 2.0.0 still
+fails this scenario.
