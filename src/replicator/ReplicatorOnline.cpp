@@ -1488,13 +1488,20 @@ namespace OpenLogReplicator {
                                     metadata->defaultCharacterNcharMapId);
     }
 
-    void ReplicatorOnline::updateOnlineRedoLogData() {
+    void ReplicatorOnline::updateIncarnations() {
         if (!checkConnection())
             return;
 
         contextSet(CONTEXT::CHKPT, REASON::CHKPT);
-        std::unique_lock const lck(metadata->mtxCheckpoint);
+        {
+            std::unique_lock const lck(metadata->mtxCheckpoint);
+            readIncarnations();
+        }
+        contextSet(CONTEXT::CPU);
+    }
 
+    // Caller holds metadata->mtxCheckpoint
+    void ReplicatorOnline::readIncarnations() {
         // Reload incarnation ctx
         typeResetlogs const oldResetlogs = metadata->resetlogs;
         for (DbIncarnation* oi: metadata->dbIncarnations)
@@ -1563,6 +1570,16 @@ namespace OpenLogReplicator {
                 ret = stmt.next();
             }
         }
+    }
+
+    void ReplicatorOnline::updateOnlineRedoLogData() {
+        if (!checkConnection())
+            return;
+
+        contextSet(CONTEXT::CHKPT, REASON::CHKPT);
+        std::unique_lock const lck(metadata->mtxCheckpoint);
+
+        readIncarnations();
 
         // Reload online redo log ctx
         {
