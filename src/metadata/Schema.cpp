@@ -79,6 +79,7 @@ namespace OpenLogReplicator {
         if (!tablePartitionMap.empty())
             ctx->error(50029, "schema table partition map not empty, left: " + std::to_string(tablePartitionMap.size()) + " at exit");
         tablePartitionMap.clear();
+        tableDataObjMap.clear();
 
         tablesTouched.clear();
         identifiersTouched.clear();
@@ -191,6 +192,14 @@ namespace OpenLogReplicator {
         return nullptr;
     }
 
+    DbTable* Schema::checkTableDataObjDict(typeDataObj dataObj) const {
+        const auto& it = tableDataObjMap.find(dataObj);
+        if (it != tableDataObjMap.end())
+            return it->second;
+
+        return nullptr;
+    }
+
     bool Schema::checkTableDictUncommitted(typeObj obj, std::string& owner, std::string& table) const {
         const auto& objIt = sysObjPack.unorderedMapKey.find(SysObjObj(obj));
         if (objIt == sysObjPack.unorderedMapKey.end())
@@ -243,6 +252,10 @@ namespace OpenLogReplicator {
             }
         }
 
+        // Only used to name the table of a direct-path block write (19.1), so a clash is not fatal
+        if (table->dataObj != 0)
+            tableDataObjMap.insert_or_assign(table->dataObj, table);
+
         if (likely(tablePartitionMap.find(table->obj) == tablePartitionMap.end()))
             tablePartitionMap.insert_or_assign(table->obj, table);
         else
@@ -253,6 +266,9 @@ namespace OpenLogReplicator {
             const typeObj obj = objx >> 32;
             const typeDataObj dataObj = objx & 0xFFFFFFFF;
 
+            if (dataObj != 0)
+                tableDataObjMap.insert_or_assign(dataObj, table);
+
             if (likely(tablePartitionMap.find(obj) == tablePartitionMap.end()))
                 tablePartitionMap.insert_or_assign(obj, table);
             else
@@ -262,6 +278,15 @@ namespace OpenLogReplicator {
     }
 
     void Schema::removeTableFromDict(const DbTable* table) {
+        auto tableDataObjMapIt = tableDataObjMap.find(table->dataObj);
+        if (tableDataObjMapIt != tableDataObjMap.end() && tableDataObjMapIt->second == table)
+            tableDataObjMap.erase(tableDataObjMapIt);
+        for (const typeObj2 objx: table->tablePartitions) {
+            tableDataObjMapIt = tableDataObjMap.find(objx & 0xFFFFFFFF);
+            if (tableDataObjMapIt != tableDataObjMap.end() && tableDataObjMapIt->second == table)
+                tableDataObjMap.erase(tableDataObjMapIt);
+        }
+
         auto tablePartitionMapIt = tablePartitionMap.find(table->obj);
         if (likely(tablePartitionMapIt != tablePartitionMap.end()))
             tablePartitionMap.erase(tablePartitionMapIt);

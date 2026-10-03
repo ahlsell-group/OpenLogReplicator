@@ -144,6 +144,7 @@ namespace OpenLogReplicator {
         LobId lobId;
         bool compressed;
         bool encryptedTablespace;
+        bool directLoadDataBlock;  // 19.1 carrying a table data block (direct-path load), not a LOB page
         // other
         uint32_t vectorNo;
         typeSlt slt;

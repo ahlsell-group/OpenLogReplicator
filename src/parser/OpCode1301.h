@@ -26,6 +26,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 namespace OpenLogReplicator {
     class OpCode1301 final : public OpCode {
     public:
+        static constexpr uint8_t BLOCK_TYPE_DATA = 0x06;
+        static constexpr uint8_t KTBBH_TYPE_DATA = 0x01;
+
         static void process1301(const Ctx* ctx, RedoLogRecord* redoLogRecord) {
             typePos fieldPos = 0;
             typeField fieldNum = 0;
@@ -33,6 +36,8 @@ namespace OpenLogReplicator {
 
             RedoLogRecord::nextField(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x130101);
             // Field: 1
+            const typePos blockPos = fieldPos;
+            const typeSize blockSize = fieldSize;
 
             if (unlikely(fieldSize < 36))
                 throw RedoLogException(50061, "too short field 19.1.1: " + std::to_string(fieldSize) + " offset: " + redoLogRecord->fileOffset.toString());
@@ -70,6 +75,15 @@ namespace OpenLogReplicator {
             RedoLogRecord::nextField(ctx, redoLogRecord, fieldNum, fieldPos, fieldSize, 0x130102);
             // Field: 2
             dumpMemory(ctx, redoLogRecord, fieldPos, fieldSize);
+
+            // Field 2 is the block type. A direct-path load logs table data blocks (type 6) the same way as LOB pages
+            // (type 40); field 1 is then the block without its cache header: KTBBH type 1, then the segment data object id.
+            if (fieldSize >= 1 && *redoLogRecord->data(fieldPos) == BLOCK_TYPE_DATA && blockSize >= 8 &&
+                *redoLogRecord->data(blockPos) == KTBBH_TYPE_DATA) {
+                redoLogRecord->directLoadDataBlock = true;
+                redoLogRecord->dataObj = ctx->read32(redoLogRecord->data(blockPos + 4));
+                redoLogRecord->recordDataObj = redoLogRecord->dataObj;
+            }
         }
     };
 }
