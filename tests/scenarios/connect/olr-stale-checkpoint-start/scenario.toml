@@ -1,0 +1,4 @@
+description = "Fresh OLR started from a stale checkpoint after a LogMiner phase: only transactions committed at or after the START SCN may come"
+tags = ["connect", "swap"]
+tables = ["OLRT_SC1.T"]
+allowed_warnings = ["^10061 network error"]
