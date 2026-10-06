@@ -41,8 +41,8 @@ namespace {
         return ss.str();
     }
 
-    // Byte order produced by 2.0.0 for every redo log: each field in little-endian order
-    std::string hex16ReversedOld(uint64_t value) {
+    // Each field in little-endian byte order, computed nibble by nibble independently of Xid::toRaw
+    std::string hex16FieldsLittleEndian(uint64_t value) {
         static const int shifts[16]{52, 48, 60, 56, 36, 32, 44, 40, 4, 0, 12, 8, 20, 16, 28, 24};
         std::string result;
         for (const int shift: shifts)
@@ -55,17 +55,17 @@ int main() {
     using OpenLogReplicator::Xid;
 
     // Transaction 0x0012.005.0003f2a1 on a big-endian database host (e.g. Oracle 19c on AIX):
-    // V$LOGMNR_CONTENTS.XID = 001200050003F2A1, OpenLogReplicator 2.0.0 emitted 12000500a1f20300
+    // V$LOGMNR_CONTENTS.XID = 001200050003F2A1; the same transaction on a little-endian host is 12000500a1f20300
     const Xid aix(0x0012, 0x0005, 0x0003f2a1);
     check("usn.slt.sqn text", aix.toString(), "0x0012.005.0003f2a1");
     check("big-endian redo gives the LogMiner bytes", hex16(aix.toRaw(true)), "001200050003f2a1");
-    check("little-endian redo gives the 2.0.0 bytes", hex16(aix.toRaw(false)), "12000500a1f20300");
-    check("little-endian redo matches the 2.0.0 algorithm", hex16(aix.toRaw(false)), hex16ReversedOld(aix.getData()));
+    check("little-endian redo gives each field little-endian", hex16(aix.toRaw(false)), "12000500a1f20300");
+    check("little-endian redo matches the per-field byte swap", hex16(aix.toRaw(false)), hex16FieldsLittleEndian(aix.getData()));
 
     // Transaction 0x0002.012.00004162 from the documentation example (little-endian host): 0200120062410000
     const Xid doc(0x0002, 0x0012, 0x00004162);
     check("doc example little-endian", hex16(doc.toRaw(false)), "0200120062410000");
-    check("doc example little-endian matches the 2.0.0 algorithm", hex16(doc.toRaw(false)), hex16ReversedOld(doc.getData()));
+    check("doc example little-endian matches the per-field byte swap", hex16(doc.toRaw(false)), hex16FieldsLittleEndian(doc.getData()));
     check("doc example big-endian", hex16(doc.toRaw(true)), "0002001200004162");
 
     // All bits set in every field, both orders round trip through the string parser
