@@ -30,9 +30,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../writer/Writer.h"
 
 // CONFIRM tells the writer that the client no longer needs the messages up to a position, and their buffers are
-// released. A client which later continues from an earlier position (Debezium 3.6 confirms what it has read, then
-// continues from what Kafka stored) gets only the messages still held. The writer has to notice the gap: the oldest
-// held message comes after the message following the client's position. Message indexes are 1-based within an scn.
+// released. A client which later continues from an earlier position (it confirms what it has read, then continues from
+// what it has stored) gets only the messages still held. The writer has to notice the gap: the oldest held message
+// comes after the message following the client's position. Message indexes are 1-based within an scn.
 using namespace OpenLogReplicator;
 
 namespace {

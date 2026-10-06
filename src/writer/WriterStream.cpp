@@ -195,7 +195,7 @@ namespace OpenLogReplicator {
 
         // A client which continues before the position it confirmed gets only what is still held: CONFIRM allowed the
         // messages up to that position to be released. A client which confirms what it has read but not yet stored
-        // (Debezium 3.6) loses the messages in between on a restart, say so instead of resuming later silently.
+        // loses the messages in between on a restart, so the gap is logged rather than skipped silently.
         Scn oldestScn = Scn::none();
         typeIdx oldestIdx = 0;
         const HELD held = oldestHeldMessage(oldestScn, oldestIdx);
