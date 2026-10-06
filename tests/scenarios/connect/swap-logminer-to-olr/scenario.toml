@@ -1,0 +1,4 @@
+description = "Adapter swap LogMiner -> OLR on the same connector while a transaction is open across the swap"
+tags = ["connect", "swap"]
+tables = ["OLRT_SW3.T"]
+allowed_warnings = ["^10061 network error"]

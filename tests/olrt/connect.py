@@ -7,6 +7,7 @@ A scenario opts in with connect.toml next to scenario.toml:
 
   [connector]
   snapshot_mode = "no_data"        # or "initial"
+  adapter = "olr"                   # or "logminer": the connector starts on the LogMiner adapter
   heartbeat_ms = 5000               # Debezium default is 0 (off)
   config = { "skipped.operations" = "none" }   # extra connector properties (optional)
   final_task_state = "RUNNING"      # expected task state at the end (default RUNNING, "" = any);
@@ -14,6 +15,8 @@ A scenario opts in with connect.toml next to scenario.toml:
 
   [olr]
   state_interval_s = 600
+  autostart = true                  # false: OLR is not started until an `olr = "start"` step
+
 
   [[step]]
   connector = "create"   # PUT the connector, wait for the task to stream (snapshot SCN known)
@@ -34,7 +37,16 @@ A scenario opts in with connect.toml next to scenario.toml:
   [[step]]
   olr = "restart"        # signal = "INT"|"KILL", delete_writer_checkpoint = true (as an init container might)
   [[step]]
-  olr = "stop" | "start" # OLR down for a while (signal as above)
+  olr = "stop" | "start" # OLR down for a while (signal as above); start takes delete_writer_checkpoint
+  [[step]]
+  connector = "adapter"  # adapter = "logminer" | "olr": PUT the same connector with the other adapter,
+                         # offsets kept. rewind = "open_transactions" (to logminer only): stop the
+                         # connector, set the offset to scn = oldest open transaction's start SCN,
+                         # commit_scn = "<old scn>:1:" so LogMiner skips what OLR already delivered,
+                         # then PUT the config and resume
+  [[step]]
+  worker = "upgrade"     # version = "3.7.0.Final": replace the Connect worker with another Debezium
+                         # version on the same group and storage topics (offsets and config kept)
   [[step]]
   expect_task = "FAILED" # task state after `within` s (default 30); mismatch fails "run"
   [[step]]
@@ -104,16 +116,22 @@ def broker_up():
     _wait_http(f"http://127.0.0.1:{S.SR_PORT}/subjects", 120)
 
 
-def connect_up(version):
-    """Start (or switch to) the Connect worker for one Debezium version."""
+def storage_id(version):
+    return re.sub(r"[^0-9a-zA-Z]", "", version)
+
+
+def connect_up(version, storage_version=None):
+    """Start (or switch to) the Connect worker for one Debezium version. storage_version names the
+    group and storage topics to use (default: the version's own), so an upgraded worker keeps the
+    offsets and connector configs of the version it replaces."""
     image = build_image(version)
     if _exists(S.CONNECT_CONTAINER):
-        if _image_of(S.CONNECT_CONTAINER) == image:
+        if _image_of(S.CONNECT_CONTAINER) == image and storage_version in (None, version):
             _docker("start", S.CONNECT_CONTAINER)
             _wait_http(f"{CONNECT_URL}/connectors", 180)
             return
         _docker("rm", "-f", S.CONNECT_CONTAINER)
-    v = re.sub(r"[^0-9a-zA-Z]", "", version)
+    v = storage_id(storage_version or version)
     # worker settings: offsets flushed every second (offset.flush.interval.ms 1000)
     _docker("run", "-d", "--name", S.CONNECT_CONTAINER, "--network", S.NETWORK, "--label", "olrt=1",
             "-p", f"127.0.0.1:{S.CONNECT_PORT}:8083",
@@ -162,13 +180,28 @@ def _wait_http(url, timeout):
     raise TimeoutError(f"{url} not reachable after {timeout}s")
 
 
-def ensure_dbz_user():
+def ensure_dbz_user(logminer=False):
     with db.root() as c:
         n = c.cursor().execute("SELECT COUNT(*) FROM dba_users WHERE username = 'C##DBZUSER'").fetchone()[0]
-        if n:
-            return
-        sql = (S.ROOT / "docker" / "connect" / "dbz-user.sql").read_text()
-        record.run_script(sql, {1: c}, c, "dbz-user.sql")
+        if not n:
+            sql = (S.ROOT / "docker" / "connect" / "dbz-user.sql").read_text()
+            record.run_script(sql, {1: c}, c, "dbz-user.sql")
+        if logminer:
+            # GRANT is idempotent; the LogMiner privileges are only needed by the adapter-swap scenarios
+            sql = (S.ROOT / "docker" / "connect" / "dbz-user-logminer.sql").read_text()
+            record.run_script(sql, {1: c}, c, "dbz-user-logminer.sql")
+
+
+def wait_connector(name, want, within):
+    """Connector (not task) state, e.g. STOPPED after PUT /stop."""
+    deadline = time.time() + within
+    s = None
+    while time.time() < deadline:
+        s = task_state(name)
+        if s["connector"] == want:
+            return s
+        time.sleep(1)
+    return s
 
 
 # ---------------------------------------------------------------- Connect REST
@@ -198,17 +231,31 @@ def task_state(name):
             "trace": (t.get("trace") or "")[:4000] or None}
 
 
-def connector_config(sc, spec, prefix, olr_host):
-    """A typical OLR-adapter connector config (Avro, schema history in Kafka), adapted to the lab."""
+def connector_config(sc, spec, prefix, olr_host, adapter=None):
+    """A typical OLR-adapter connector config (Avro, schema history in Kafka), adapted to the lab.
+    adapter "logminer": the same connector on the LogMiner adapter, with the settings the production
+    LogMiner connector uses (hybrid strategy, IN filter mode, transaction retention)."""
     c = spec.get("connector", {})
+    adapter = adapter or c.get("adapter", "olr")
     keys = ";".join(f"{t}:{','.join(cols)}" for t, cols in sc.keys.items())
+    if adapter == "logminer":
+        source = {
+            "database.connection.adapter": "logminer",
+            "log.mining.strategy": "hybrid",
+            "log.mining.query.filter.mode": "in",
+            "log.mining.transaction.retention.ms": "3600000",
+        }
+    else:
+        source = {
+            "database.connection.adapter": "olr",
+            "openlogreplicator.source": S.PDB,
+            "openlogreplicator.host": olr_host,
+            "openlogreplicator.port": "5000",
+        }
     cfg = {
         "connector.class": "io.debezium.connector.oracle.OracleConnector",
         "tasks.max": "1",
-        "database.connection.adapter": "olr",
-        "openlogreplicator.source": S.PDB,
-        "openlogreplicator.host": olr_host,
-        "openlogreplicator.port": "5000",
+        **source,
         "snapshot.mode": c.get("snapshot_mode", "no_data"),
         "snapshot.locking.mode": "none",
         "snapshot.max.threads": "2",
@@ -429,6 +476,10 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
     os.chmod(workdir / "state", 0o777)
     cfg = olr_net.make_config(scenario, profile, spec.get("olr", {}), version=olr.olr_version(image))
     (workdir / "config.json").write_text(json.dumps(cfg, indent=2))
+    storage_v = version  # the Connect group/topics in use; an upgrade step changes the worker, not these
+    if spec.get("connector", {}).get("adapter") == "logminer" or any(
+            st.get("connector") == "adapter" and st.get("adapter") == "logminer" for st in steps):
+        ensure_dbz_user(logminer=True)
 
     events, states = [], []
     run_info = {"image": image, "profile": profile, "debezium": version, "mode": "network",
@@ -488,11 +539,12 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
         start_scn = db.current_scn(rconn)
         tables_before = {t: record.table_info(pconn, t, scenario) for t in scenario.tables}
         before = {t: record.snapshot(pconn, t, tables_before[t], start_scn) for t in scenario.tables}
-        cont.start()
-        time.sleep(2)
-        if cont.status()[0] != "running":
-            run_info["exit_code"] = cont.status()[1]
-            raise RuntimeError("OLR did not start:\n" + cont.logs()[-2000:])
+        if spec.get("olr", {}).get("autostart", True):
+            cont.start()
+            time.sleep(2)
+            if cont.status()[0] != "running":
+                run_info["exit_code"] = cont.status()[1]
+                raise RuntimeError("OLR did not start:\n" + cont.logs()[-2000:])
         reader = kafka.TopicReader(prefix)
 
         for i, step in enumerate(steps):
@@ -583,9 +635,65 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 rc = cont.stop(step.get("signal", "INT"))
                 events.append(f"step {i}: OLR stopped ({step.get('signal', 'INT')}, exit {rc})")
             elif step.get("olr") == "start":
-                subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
+                if step.get("delete_writer_checkpoint"):
+                    p = workdir / "state" / f"{S.PDB}-chkpt.json"
+                    if p.exists():
+                        p.unlink()
+                        events.append(f"step {i}: deleted {p.name}")
+                if cont.status()[0] == "gone":
+                    cont.start()
+                else:
+                    subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
                 time.sleep(2)
                 events.append(f"step {i}: OLR started")
+            elif step.get("connector") == "adapter":
+                adapter = step["adapter"]
+                swap = {"step": i, "adapter": adapter, "t": time.time(), "records_before": len(reader.records)}
+                code, off = rest("GET", f"/connectors/{name}/offsets")
+                swap["offset_before"] = off
+                if step.get("rewind") == "open_transactions":
+                    # Before the stop, so a transaction that starts after the query is covered by the
+                    # mining start and one that commits before the stop is skipped via commit_scn.
+                    s_min = db.scalar(pconn, "SELECT NVL((SELECT MIN(start_scn) FROM v$transaction),"
+                                             " (SELECT current_scn FROM v$database)) FROM dual")
+                    code, body = rest("PUT", f"/connectors/{name}/stop")
+                    st = wait_connector(name, "STOPPED", 60)
+                    code, off = rest("GET", f"/connectors/{name}/offsets")
+                    old = (off or {}).get("offsets", [{}])[0].get("offset", {})
+                    x = int(old["scn"])
+                    # offset scn is the exclusive lower bound of the mining range (Debezium itself resumes at
+                    # oldest open transaction - 1), and the first change of a transaction sits at its start SCN
+                    scn = min(int(s_min), x) - 1
+                    new = {"scn": str(scn), "commit_scn": f"{x}:1:", "snapshot_scn": str(scn)}
+                    code, body = rest("PATCH", f"/connectors/{name}/offsets",
+                                      {"offsets": [{"partition": {"server": prefix}, "offset": new}]})
+                    swap.update(rewind=dict(oldest_open_scn=int(s_min), offset_scn=x, new=new, http=code,
+                                            response=body, connector_state=st and st["connector"]))
+                    events.append(f"step {i}: rewind: oldest open tx {s_min}, offset scn {x} -> {new} (HTTP {code})")
+                    if code not in (200, 204):
+                        raise RuntimeError(f"offset patch: HTTP {code} {body}")
+                cc = connector_config(scenario, spec, prefix, cont.name, adapter=adapter)
+                (workdir / f"connector-{adapter}-{i}.json").write_text(json.dumps(cc, indent=1))
+                code, body = rest("PUT", f"/connectors/{name}/config", cc)
+                if code not in (200, 201):
+                    raise RuntimeError(f"connector adapter {adapter}: HTTP {code} {body}")
+                if step.get("rewind"):
+                    rest("PUT", f"/connectors/{name}/resume")
+                run_info.setdefault("adapter_swaps", []).append(swap)
+                events.append(f"step {i}: connector -> {adapter} (HTTP {code}, {swap['records_before']} records read before)")
+                mid_guard(step, i, swap["records_before"])
+                time.sleep(float(step.get("settle", 3)))
+            elif step.get("worker") == "upgrade":
+                new_v = step["version"]
+                reader.poll(0.2)
+                n_before = len(reader.records)
+                connect_up(new_v, storage_version=storage_v)
+                run_info.setdefault("upgrades", []).append(
+                    {"step": i, "from": version, "to": new_v, "t": time.time(), "records_before": n_before})
+                version = new_v
+                run_info["debezium_final"] = new_v
+                events.append(f"step {i}: worker upgraded to Debezium {new_v} ({n_before} records read before)")
+                wait_task("RUNNING", 120)
             elif "expect_task" in step:
                 want = per_version(step["expect_task"], version)
                 if not want:
@@ -666,7 +774,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
             events.append(f"schema history dump failed: {e}")
         try:
             # Connect's committed source offsets of this connector, with the time they were written
-            offs = kafka.dump_offsets(f"olrt-connect-{re.sub(r'[^0-9a-zA-Z]', '', version)}-offsets", name)
+            offs = kafka.dump_offsets(f"olrt-connect-{storage_id(storage_v)}-offsets", name)
             (workdir / "offsets.jsonl").write_text("".join(json.dumps(o) + "\n" for o in offs))
         except Exception as e:  # noqa: BLE001 - evidence only
             events.append(f"offsets dump failed: {e}")

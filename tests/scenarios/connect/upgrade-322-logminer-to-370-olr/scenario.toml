@@ -1,0 +1,4 @@
+description = "Debezium 3.2.2 on LogMiner upgraded in one step to 3.7.0 on the OLR adapter, a transaction open across it (run with --dbz 3.2.2.Final)"
+tags = ["connect", "swap", "upgrade"]
+tables = ["OLRT_SW4.T"]
+allowed_warnings = ["^10061 network error"]
