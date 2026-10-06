@@ -31,9 +31,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../reader/ReaderFilesystem.h"
 
 // A backup tool may truncate or delete an archived redo log while OpenLogReplicator reads it, or a copy may be short.
-// The reader used to take the early end of file for the end of the log: it reported the log as finished and the
-// replicator went on with the next sequence, skipping the lost redo. The reader has to fail instead. The test writes a
-// synthetic archived log: a 2-block file header with the block count and next scn, and empty data blocks.
+// An early end of file is a read error: taken for the end of the log, it would report the log as finished and the
+// replicator would go on with the next sequence, skipping the lost redo. The test writes a synthetic archived log:
+// a 2-block file header with the block count and next scn, and empty data blocks.
 using namespace OpenLogReplicator;
 
 namespace {
