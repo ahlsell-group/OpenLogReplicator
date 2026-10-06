@@ -173,8 +173,8 @@ namespace OpenLogReplicator {
                     std::array < char, 81 > conContext{};
                     stmt2.defineString(3, conContext.data(), conContext.size());
                     // NULL for a non-CDB and for CDB$ROOT: SYS.V_$PDBS has no row for them. The define has no indicator, so
-                    // a NULL leaves the variable untouched (checkErr ignores ORA-01405). Uninitialized it was stack garbage,
-                    // and a non-zero dbId makes Parser::appendToTransactionBegin skip every transaction begin.
+                    // a NULL leaves the variable untouched (checkErr ignores ORA-01405). It starts at 0 because a non-zero
+                    // dbId makes Parser::appendToTransactionBegin skip every transaction begin.
                     typeDbId dbId = 0;
                     stmt2.defineUInt(4, dbId);
 
