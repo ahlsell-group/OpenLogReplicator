@@ -1,0 +1,3 @@
+description = "NUMBER at the ends of its exponent range: 1e-130 and 9.99e125"
+tables = ["RT_NUMX.T_NUMX"]
+events = { c = 7, u = 2 }

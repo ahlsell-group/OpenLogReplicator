@@ -1,0 +1,6 @@
+# Only the Oracle driver (thin mode, no Instant Client). Pinned with its dependencies.
+oracledb==26.0.1
+cffi==2.1.1
+cryptography==50.0.2
+pycparser==3.0
+typing_extensions==4.16.0
