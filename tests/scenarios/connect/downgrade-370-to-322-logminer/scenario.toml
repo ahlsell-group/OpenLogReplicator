@@ -1,0 +1,3 @@
+description = "Debezium 3.7.0 on LogMiner rolled back to 3.2.2 on the same offsets and schema history, a transaction open across it (run with --dbz 3.7.0.Final on a 23ai instance)"
+tags = ["connect", "swap", "upgrade"]
+tables = ["OLRT_SW5.T"]

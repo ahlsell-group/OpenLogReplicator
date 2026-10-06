@@ -664,7 +664,9 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                     # offset scn is the exclusive lower bound of the mining range (Debezium itself resumes at
                     # oldest open transaction - 1), and the first change of a transaction sits at its start SCN
                     scn = min(int(s_min), x) - 1
-                    new = {"scn": str(scn), "commit_scn": f"{x}:1:", "snapshot_scn": str(scn)}
+                    # the transaction committed at X that OLR delivered last: named in commit_scn so LogMiner skips
+                    # it too (other transactions committed at exactly X would still be re-sent, at-least-once)
+                    new = {"scn": str(scn), "commit_scn": f"{x}:1:{old.get('txId') or ''}", "snapshot_scn": str(scn)}
                     code, body = rest("PATCH", f"/connectors/{name}/offsets",
                                       {"offsets": [{"partition": {"server": prefix}, "offset": new}]})
                     swap.update(rewind=dict(oldest_open_scn=int(s_min), offset_scn=x, new=new, http=code,
