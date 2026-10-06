@@ -125,15 +125,19 @@ def connect_up(version, storage_version=None):
     group and storage topics to use (default: the version's own), so an upgraded worker keeps the
     offsets and connector configs of the version it replaces."""
     image = build_image(version)
+    v = storage_id(storage_version or version)
     if _exists(S.CONNECT_CONTAINER):
-        if _image_of(S.CONNECT_CONTAINER) == image and storage_version in (None, version):
+        # reuse only a worker on the same image and the same group/storage topics (label set below)
+        label = _docker("inspect", "-f", '{{index .Config.Labels "olrt.storage"}}', S.CONNECT_CONTAINER,
+                        check=False).stdout.strip()
+        if _image_of(S.CONNECT_CONTAINER) == image and label == v:
             _docker("start", S.CONNECT_CONTAINER)
             _wait_http(f"{CONNECT_URL}/connectors", 180)
             return
         _docker("rm", "-f", S.CONNECT_CONTAINER)
-    v = storage_id(storage_version or version)
     # worker settings: offsets flushed every second (offset.flush.interval.ms 1000)
     _docker("run", "-d", "--name", S.CONNECT_CONTAINER, "--network", S.NETWORK, "--label", "olrt=1",
+            "--label", f"olrt.storage={v}",
             "-p", f"127.0.0.1:{S.CONNECT_PORT}:8083",
             "-e", f"BOOTSTRAP_SERVERS={S.BROKER_CONTAINER}:9092",
             "-e", f"GROUP_ID=olrt-connect-{v}",
