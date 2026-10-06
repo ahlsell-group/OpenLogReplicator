@@ -3,3 +3,6 @@ __pycache__/
 results/
 *.pyc
 docker/fault-shim/build/
+# patched connector jars for olrt/connect:<version>-ahlsell.N (built locally, not committed)
+docker/connect/overlay/*/
+!docker/connect/overlay/none/

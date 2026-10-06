@@ -1,0 +1,4 @@
+description = "Adapter swap OLR -> LogMiner with the offset rewound to the oldest open transaction (lossless procedure)"
+tags = ["connect", "swap"]
+tables = ["OLRT_SW2.T"]
+allowed_warnings = ["^10061 network error"]

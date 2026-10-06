@@ -251,6 +251,16 @@ Kafka-acknowledged one, so a task restart in the middle of a transaction can los
 a clean OLR shutdown ("Connection lost") fails the task unless `internal.custom.retriable.exception`
 makes it retriable.
 
+Adapter swaps on one connector (`connect/swap-*`, `connect/upgrade-*`; step `connector = "adapter"`,
+`worker = "upgrade"`, `[olr] autostart`): LogMiner -> OLR keeps every row (OLR gets START at LogMiner's
+offset scn, the oldest open transaction, and re-sends the transactions committed after it: duplicates,
+no loss); OLR -> LogMiner as is loses the rows a transaction wrote before the swap (LogMiner mines from
+the OLR offset scn, the last commit SCN); with `rewind = "open_transactions"` the connector is stopped,
+its offset set to scn = min(oldest open transaction start, offset scn) - 1 and commit_scn = "<offset
+scn>:1:" via PATCH /offsets, and nothing is lost or duplicated. Debezium 3.2.2 needs an Oracle whose
+banner starts "Oracle Database" (23ai, `OLRT_ORACLE_IMAGE=gvenzl/oracle-free:23.9-slim` on its own
+`OLRT_INSTANCE`); against 26ai it fails with "Failed to resolve Oracle database version".
+
 ## CI
 
 `.github/workflows/olr-tests.yml` (repository root) runs on `workflow_dispatch` only, on

@@ -1,0 +1,7 @@
+description = "source.scn per row: a transaction whose rows sit at different SCNs must reach Kafka with each row's own SCN, as with LogMiner"
+tags = ["connect", "scn"]
+tables = ["OLRT_SCN.T"]
+
+[known_issue]
+"scn@3.7.0.Final" = "Debezium's OLR adapter stamps every DML with c_scn (OpenLogReplicatorStreamingChangeEventSource DML handler), so all rows of a transaction share one source.scn; fixed in the Ahlsell build 3.7.0.Final-ahlsell.1 (source.scn from the message scn)"
+"scn@3.6.1.Final" = "Debezium's OLR adapter stamps every DML with c_scn, so all rows of a transaction share one source.scn; fixed in the Ahlsell build 3.7.0.Final-ahlsell.1"
