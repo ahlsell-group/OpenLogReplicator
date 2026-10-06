@@ -66,10 +66,15 @@ def _num(v):
     return s
 
 
+def _iso(t: dt.datetime) -> str:
+    # strftime("%Y") up to Python 3.13 is glibc's, which writes year 1 as "1" (not "0001")
+    return f"{t.year:04d}-{t.month:02d}-{t.day:02d}T{t.hour:02d}:{t.minute:02d}:{t.second:02d}"
+
+
 def _from_epoch_ns(ns: int, with_fraction: bool):
     secs, nanos = divmod(int(ns), 10**9)
     t = EPOCH + dt.timedelta(seconds=secs)
-    base = t.strftime("%Y-%m-%dT%H:%M:%S")
+    base = _iso(t)
     return f"{base}.{nanos:09d}" if with_fraction else (base if nanos == 0 else f"{base}.{nanos:09d}")
 
 
@@ -78,7 +83,7 @@ def _datetime(v, k):
     if isinstance(v, (int, decimal.Decimal)) and not isinstance(v, bool):
         return _from_epoch_ns(int(v), with_fraction)
     if isinstance(v, dt.datetime):
-        base = v.strftime("%Y-%m-%dT%H:%M:%S")
+        base = _iso(v)
         return f"{base}.{v.microsecond * 1000:09d}" if with_fraction else base
     s = str(v).strip()
     if s.isdigit() or (s.startswith("-") and s[1:].isdigit()):
@@ -112,5 +117,5 @@ def canon(v, data_type: str):
                 f = struct.unpack("f", struct.pack("f", f))[0]
             return repr(f)
         return v if isinstance(v, str) else str(v)
-    except (decimal.InvalidOperation, ValueError, TypeError) as e:
+    except (decimal.InvalidOperation, ValueError, TypeError, OverflowError) as e:
         return f"unparsed:{v!r} ({e})"
