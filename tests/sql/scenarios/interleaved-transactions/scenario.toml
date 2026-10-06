@@ -1,3 +1,0 @@
-description = "Overlapping transactions in three sessions, committed in a different order than begun"
-tables = ["RT_IL.T"]
-events = { c = 2, u = 6, d = 1 }

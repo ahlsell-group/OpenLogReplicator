@@ -7,5 +7,15 @@ ROLLBACK TO SAVEPOINT a;
 UPDATE olrt_sp.t SET qty = 11 WHERE id = 4;
 SAVEPOINT b;
 UPDATE olrt_sp.t SET txt = 'gone' WHERE id = 5;
+-- nested: rolled back to b, then the same row changed again and kept
 ROLLBACK TO SAVEPOINT b;
+UPDATE olrt_sp.t SET txt = 'kept' WHERE id = 5;
+SAVEPOINT c;
+INSERT INTO olrt_sp.t VALUES (201, 7, 'inserted and rolled back', NULL);
+UPDATE olrt_sp.t SET qty = 12 WHERE id = 6;
+ROLLBACK TO SAVEPOINT c;
 COMMIT;
+-- a transaction rolled back as a whole must leave no trace
+UPDATE olrt_sp.t SET qty = 777 WHERE id = 7;
+INSERT INTO olrt_sp.t VALUES (202, 8, 'never committed', NULL);
+ROLLBACK;

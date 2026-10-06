@@ -1,7 +1,0 @@
-description = "host-timezone given as a tz database name: the tm of every transaction is its UTC time"
-tables = ["RT_TZ.T"]
-events = { c = 2, u = 1 }
-commit_time_column = "UTC_TIME"
-
-[olr_reader]
-host-timezone = "{oracle_tz}"

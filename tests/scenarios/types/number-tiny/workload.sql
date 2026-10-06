@@ -7,4 +7,5 @@ INSERT INTO olrt_tiny.t VALUES (104, 1e125, -1e-129);
 INSERT INTO olrt_tiny.t VALUES (105, 9.99e-129, -9.99e-129);
 COMMIT;
 UPDATE olrt_tiny.t SET a = a * 10 WHERE id <= 5;
+UPDATE olrt_tiny.t SET a = 1e-130, b = 1e-128 WHERE id = 1000;
 COMMIT;

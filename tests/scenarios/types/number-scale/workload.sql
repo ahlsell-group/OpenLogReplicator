@@ -8,6 +8,7 @@ UPDATE olrt_types.num SET qty = 0.000 WHERE id = 100;
 UPDATE olrt_types.num SET qty = qty + 0.001, anynum = 1/3 WHERE id = 1;
 UPDATE olrt_types.num SET qty2 = NULL, anynum = 2/3 WHERE id = 2;
 UPDATE olrt_types.num SET qty = 0.5, qty2 = -0.000 WHERE id = 5;
+UPDATE olrt_types.num SET qty = 0, qty2 = 0.000, small = 0 WHERE id = 101;
 COMMIT;
 DELETE FROM olrt_types.num WHERE id = 3;
 COMMIT;

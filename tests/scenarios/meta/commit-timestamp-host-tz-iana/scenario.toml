@@ -6,7 +6,7 @@ commit_time = true
 fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
 
 [olr_reader]
-host-timezone = "Europe/Berlin"
+host-timezone = "{oracle_tz}"   # the DB container zone (OLRT_ORACLE_TZ, default Europe/Berlin)
 
 [known_issue]
 run = "host-timezone accepts +/-HH:MM only: ERROR 30001 invalid \"host-timezone\" value (fork fix/host-timezone-iana)"

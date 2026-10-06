@@ -1,4 +1,0 @@
-description = "Long transaction open while later ones commit and are confirmed, client restarted before its commit"
-mode = "network"
-tables = ["RT_LO.T"]
-events = { c = 3, u = 1 }

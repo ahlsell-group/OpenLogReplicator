@@ -1,3 +1,0 @@
-description = "SAVEPOINT / ROLLBACK TO SAVEPOINT inside a committed transaction, and a full ROLLBACK"
-tables = ["RT_SP.T"]
-events = { u = 3 }

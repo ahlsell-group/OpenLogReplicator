@@ -1,0 +1,35 @@
+# Session 2 inserts rows 100 and 101 over two redo logs and leaves the transaction open. Then the client
+# connects with a cold START at the current SCN (empty state dir, no checkpoint). Session 1 commits a short
+# update; session 2 inserts 102, updates 100 and commits.
+[[step]]
+sql = "INSERT INTO olrt_ot.t VALUES (100, 'before start 1')"
+session = 2
+[[step]]
+switch_logfile = true
+[[step]]
+sql = "INSERT INTO olrt_ot.t VALUES (101, 'before start 2')"
+session = 2
+[[step]]
+switch_logfile = true
+[[step]]
+client = "connect"
+offset = "current"
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+sql = "UPDATE olrt_ot.t SET v = 'short' WHERE id = 1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+sql = "INSERT INTO olrt_ot.t VALUES (102, 'after start')"
+session = 2
+[[step]]
+sql = "UPDATE olrt_ot.t SET v = 'changed after start' WHERE id = 100"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+read = "idle"
+idle = 8

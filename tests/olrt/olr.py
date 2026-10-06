@@ -39,7 +39,7 @@ PROFILES = {
     "debezium-tz": {
         "format": {"type": "debezium", "scn-type": 4, "timestamp-type": 4, "user-type": 0, "redo-thread": 0},
         "flags": 0,
-        "reader": {"host-timezone": "Europe/Berlin"},
+        "reader": {"host-timezone": "{oracle_tz}"},
     },
 }
 # OLR 1.9.x has no "debezium" format type and no scn-type/timestamp-type bitmasks beyond
@@ -118,6 +118,10 @@ def make_config(rec, scenario, profile, state_dir="work/state", version=(2, 0)):
     src["flags"] |= int(getattr(scenario, "olr_flags", 0) or 0)
     src["reader"].update(p.get("reader", {}))
     src["reader"].update(getattr(scenario, "olr_reader", {}) or {})
+    # "{oracle_tz}" in a reader value: the DB container's time zone (OLRT_ORACLE_TZ)
+    for k, v in src["reader"].items():
+        if isinstance(v, str):
+            src["reader"][k] = v.replace("{oracle_tz}", S.ORACLE_TZ)
     src.update(getattr(scenario, "olr_source", {}) or {})
     cfg["memory"].update(getattr(scenario, "olr_memory", {}) or {})
     if getattr(scenario, "olr_trace", 0):

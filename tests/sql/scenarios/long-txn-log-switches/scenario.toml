@@ -1,3 +1,0 @@
-description = "One transaction spanning three log switches, with a short transaction committing inside"
-tables = ["RT_LS.T"]
-events = { c = 500, u = 7, d = 100 }

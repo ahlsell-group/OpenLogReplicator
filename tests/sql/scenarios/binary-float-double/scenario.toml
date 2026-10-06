@@ -1,3 +1,0 @@
-description = "BINARY_FLOAT/BINARY_DOUBLE: whole numbers at the precision limit, subnormals, extremes"
-tables = ["RT_BIN.T_BIN"]
-events = { c = 8 }

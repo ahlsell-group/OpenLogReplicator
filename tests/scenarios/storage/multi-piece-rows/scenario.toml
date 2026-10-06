@@ -1,0 +1,3 @@
+description = "300-column rows (two row pieces): updates per piece, NULLs, row migration, sparse insert"
+tags = ["storage", "wide", "chained"]
+tables = ["OLRT_PIECE.WIDE_C"]

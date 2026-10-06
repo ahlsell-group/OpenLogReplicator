@@ -1,3 +1,0 @@
-description = "DATE and TIMESTAMP(0/3/6/9): pre-1970, years 0001 and 9999, DST wall times, fractions"
-tables = ["RT_DATE.T_DATE"]
-events = { c = 5, u = 3, d = 1 }

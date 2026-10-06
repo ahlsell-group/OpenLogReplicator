@@ -1,6 +1,0 @@
-description = "An archived log in the middle of the range is missing: OLR stops with an error and a non-zero exit code"
-tables = ["RT_GAP.T"]
-checks = ["run"]
-archive_gap = { index = 1 }
-expect_exit = "nonzero"
-expect_log = ["^1000[0-9] "]

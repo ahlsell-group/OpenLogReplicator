@@ -1,2 +1,0 @@
-description = "300-column rows (two row pieces): updates per piece, NULLs, row migration, sparse insert"
-tables = ["RT_PIECE.WIDE_C"]

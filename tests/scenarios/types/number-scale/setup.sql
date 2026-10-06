@@ -13,4 +13,5 @@ CREATE TABLE olrt_types.num (
 );
 ALTER TABLE olrt_types.num ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
 INSERT INTO olrt_types.num VALUES (100, 1.000, 2.500, 1, 1, 1.00, 1);
+INSERT INTO olrt_types.num VALUES (101, 5.250, 0.000, 7, 7, 0.50, 2.5);
 COMMIT;

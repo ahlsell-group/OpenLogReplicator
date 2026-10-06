@@ -9,3 +9,5 @@ digits. `-0.0f` reads back as `0.0` through the driver, so -0 is covered by the 
 Root cause (fixed in fork branch fix/binary-float-double): BuilderJson wrote the values with
 std::ostream's default 6 significant digits (16777216 -> 1.67772e+07), and decodeFloat/decodeDouble
 used exponent -127/-1023 for subnormals, which halved them (1e-40 -> 5e-41).
+
+Rows 10-12 repeat the precision limits and subnormals with typed literals and add a typed zero.

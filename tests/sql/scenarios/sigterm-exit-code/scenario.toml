@@ -1,6 +1,0 @@
-description = "OLR stopped with SIGTERM (docker stop) after it wrote everything: clean stop, exit code 0"
-tables = ["RT_TERM.T"]
-events = { c = 10, u = 3 }
-stop = "TERM"
-expect_exit = "zero"
-expect_log = ["^10015 caught signal: 15"]

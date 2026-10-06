@@ -109,7 +109,7 @@ show them as skipped.
 | `debezium` | `{"type":"debezium","scn-type":4,"timestamp-type":4,"user-type":0,"redo-thread":0}` | 0 | the format the Debezium OLR adapter expects |
 | `json` | `{"type":"json","column":2,"schema":1,...}` | 32 (SHOW_DDL) | plain JSON with all columns; DDL messages visible |
 | `debezium-ddl` | as `debezium` | 32 | Debezium format with TRUNCATE/ALTER visible |
-| `debezium-tz` | as `debezium`, reader `host-timezone: Europe/Berlin` | 0 | needs an image that accepts tz database names (fork fix/host-timezone-iana) |
+| `debezium-tz` | as `debezium`, reader `host-timezone` = the DB container zone | 0 | needs an image that accepts tz database names (fork fix/host-timezone-iana) |
 
 For OLR 1.9.x the harness writes a 1.9 config (`"version":"1.9.0"`, memory/state inside the
 source, no debezium preset: the JSON block from Debezium's OLR docs instead). See `olrt/olr.py`.
@@ -124,7 +124,8 @@ source, no debezium preset: the JSON block from Debezium's OLR docs instead). Se
   `expect_exit_code`, `expect_nonzero_exit`, `expect_warning` (regex: allowed everywhere, and check
   run fails without it on images matching `expect_warning_images`), `commit_time` (also compare event
   timestamps with the real commit time), `xid_exact` (xid format 3 must equal LogMiner's XID),
-  `olr_flags`, `[olr_reader]` (merged into the reader config), `olr_timeout`, `container = "root"` (tables, OLR user `C##OLR` and OLR's
+  `olr_flags`, `[olr_reader]` (merged into the reader config; `{oracle_tz}` in a value is the DB
+  container's zone), `olr_timeout`, `container = "root"` (tables, OLR user `C##OLR` and OLR's
   connection in CDB$ROOT instead of the PDB: there `SYS.V_$PDBS` has no row for the container, the
   same as on a non-CDB), `[known_issue]` and `fixed_in` (see above), `exactly_once` (diff fails on a
   transaction delivered twice, except the one re-sent at a START SCN; default: a note).
@@ -195,7 +196,7 @@ carries every fix listed; the scenarios list it in `fixed_in`.
 | BINARY_FLOAT/DOUBLE written with 6 significant digits, subnormals halved | `types/binary-float-double` | fixed: `fix/binary-float-double` |
 | ERROR 50061 on SELECT FOR UPDATE with ROWDEPENDENCIES (each ingredient alone passes) | `txn/sfu-rowdependencies`, `txn/lock-row-trigger` | fixed: `fix/50061-lkr-rowdeps` |
 | OLR exits 0 after a fatal error in a worker thread, and ignores SIGTERM as PID 1 | `ops/archive-gap`, `meta/olr-sigterm` | fixed: `fix/exit-code-on-error` |
-| A transaction open at a cold start loses its rows (begin not read, or rows stamped below the START SCN and skipped by the client) | `txn/cold-start-mid-transaction`, `connect/cold-start-open-txn-*` | fixed: `fix/cold-start-low-watermark`, `fix/start-boundary-scn` |
+| A transaction open at a cold start loses its rows (begin not read, or rows stamped below the START SCN and skipped by the client) | `txn/cold-start-mid-transaction`, `txn/open-txn-at-start`, `connect/cold-start-open-txn-*` | fixed: `fix/cold-start-low-watermark`, `fix/start-boundary-scn` |
 | Messages stamped with the begin SCN: a long transaction committed after short ones is skipped after CONTINUE (upstream #330) | `txn/long-open-across-client-restart` | fixed: `fix/commit-scn-stamping` |
 | `c_idx` one ahead of the internal position: CONTINUE inside a transaction drops one row (upstream #325) | `adv/net-continue-mid-txn`, `adv/net-kill-mid-big-txn` | fixed: `fix/continue-cidx` |
 | A cold START on a non-CDB (or in CDB$ROOT) reads an uninitialised pdb id and can skip every transaction | `meta/root-container-cold-start` | fixed: `fix/non-cdb-dbid` |

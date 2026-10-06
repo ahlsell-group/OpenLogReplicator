@@ -1,5 +1,0 @@
-description = "Cold start in CDB$ROOT, where SYS.V_$PDBS has no row (as on a non-CDB)"
-container = "root"
-tables = ["C##RT_ROOT.T"]
-events = { c = 2, u = 1 }
-olr_user = { user = "c##rt_olr", password = "olr" }
