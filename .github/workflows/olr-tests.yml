@@ -88,11 +88,11 @@ jobs:
           for spec in $IMAGES; do
             if [[ "$spec" == checkout ]]; then
               tag="olrt/olr:local-${GITHUB_SHA::8}"
-              docker buildx build --load -f tests/docker/olr/Dockerfile -t "$tag" ..
+              docker buildx build --load -f docker/olr/Dockerfile -t "$tag" ..
             elif [[ "$spec" == build:* ]]; then
               repo="${spec#build:}"; repo="${repo%@*}"; ref="${spec##*@}"
               tag="olrt/olr:${ref//\//-}"
-              docker buildx build --load -f tests/docker/olr/Dockerfile -t "$tag" \
+              docker buildx build --load -f docker/olr/Dockerfile -t "$tag" \
                 --build-arg OPENLOGREPLICATOR_REPO="$repo" --build-arg OPENLOGREPLICATOR_VERSION="$ref" ..
             else
               tag="$spec"
