@@ -4,6 +4,7 @@
 # make test IMAGE=olrt/olr:local-<sha>
 # make compare IMAGES="olrt/olr:2.0.0 olrt/olr:local-<sha>"
 # make test IMAGE=... SCENARIOS="wide/ types/number-scale"   (ids, groups or tags)
+# make unit-asan                              ctest under AddressSanitizer + UndefinedBehaviorSanitizer
 PY ?= .venv/bin/python
 IMAGE ?= olrt/olr:$(LOCAL_TAG)
 IMAGES ?= $(IMAGE)
@@ -11,7 +12,7 @@ PROFILES ?= debezium,json
 SCENARIOS ?=
 RUN ?=
 
-.PHONY: venv db-up db-down db-reset test compare record replicate check list image image-ref
+.PHONY: venv db-up db-down db-reset test compare record replicate check list image image-ref unit-asan-image unit-asan
 
 venv: .venv/.installed
 .venv/.installed: requirements.txt
@@ -56,3 +57,21 @@ image-ref:
 	docker build -f docker/olr/Dockerfile -t olrt/olr:$(lastword $(subst @, ,$(REF))) \
 	  --build-arg OPENLOGREPLICATOR_REPO=$(firstword $(subst @, ,$(REF))) \
 	  --build-arg OPENLOGREPLICATOR_VERSION=$(lastword $(subst @, ,$(REF))) ..
+
+# Unit tests (ctest) from this checkout, built with -DWITH_TESTS=ON under ASan + UBSan; any sanitizer report fails the run
+# evaluated once, so the image built and the image run are the same even if HEAD moves during the build
+ifndef UNIT_TAG
+UNIT_TAG := unit-asan-$(shell git rev-parse --short HEAD)
+endif
+UNIT_BUILD_TYPE ?= Debug
+SANITIZE ?= address,undefined
+unit-asan-image:
+	docker build -f docker/olr/Dockerfile -t olrt/olr:$(UNIT_TAG) \
+	  --build-arg BUILD_TYPE=$(UNIT_BUILD_TYPE) --build-arg WITHTESTS=1 \
+	  --build-arg EXTRA_CXXFLAGS="-fsanitize=$(SANITIZE) -fno-omit-frame-pointer" \
+	  --build-arg EXTRA_LDFLAGS="-fsanitize=$(SANITIZE)" ..
+
+unit-asan: unit-asan-image
+	docker run --rm --user 0 --entrypoint ctest \
+	  -e ASAN_OPTIONS=halt_on_error=1 -e UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+	  olrt/olr:$(UNIT_TAG) --test-dir /opt/OpenLogReplicator-src/cmake-build-$(UNIT_BUILD_TYPE)-x86_64 --output-on-failure

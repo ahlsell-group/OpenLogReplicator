@@ -29,6 +29,11 @@
 #
 # A version is tried as tag v<version> first, then as any ref (branch or commit).
 # `make -C tests image` and `make -C tests image-ref REF=<repo>@<ref>` wrap these.
+#
+# WITHTESTS=1 adds -DWITH_TESTS=ON, builds every target and keeps the build tree
+# (/opt/OpenLogReplicator-src/cmake-build-<BUILD_TYPE>-<ARCH>) so ctest can run in the image.
+# EXTRA_CXXFLAGS and EXTRA_LDFLAGS apply to the OpenLogReplicator build only (not the libraries),
+# e.g. sanitizer flags. `make -C tests unit-asan` uses all three.
 
 ARG IMAGE=debian
 ARG VERSION=13.0
@@ -46,6 +51,9 @@ ARG WITHKAFKA=1
 ARG WITHPROMETHEUS
 ARG WITHORACLE=1
 ARG WITHPROTOBUF=1
+ARG WITHTESTS
+ARG EXTRA_CXXFLAGS
+ARG EXTRA_LDFLAGS
 
 LABEL org.opencontainers.image.authors="Adam Leszczynski <aleszczynski@bersler.com>"
 
@@ -169,13 +177,22 @@ RUN set -eu ; \
     fi ; \
     mkdir cmake-build-${BUILD_TYPE}-${ARCH} ; \
     cd cmake-build-${BUILD_TYPE}-${ARCH} ; \
-    cmake ${BUILDARGS} ; \
-    cmake --build ./ --target OpenLogReplicator -j ; \
+    if [ "${WITHTESTS:-}" != "" ]; then \
+        CXXFLAGS="${EXTRA_CXXFLAGS:-}" LDFLAGS="${EXTRA_LDFLAGS:-}" cmake ${BUILDARGS} -DWITH_TESTS=ON ; \
+        cmake --build ./ -j ; \
+    else \
+        CXXFLAGS="${EXTRA_CXXFLAGS:-}" LDFLAGS="${EXTRA_LDFLAGS:-}" cmake ${BUILDARGS} ; \
+        cmake --build ./ --target OpenLogReplicator -j ; \
+    fi ; \
     mkdir /opt/OpenLogReplicator ; \
     mkdir /opt/OpenLogReplicator/log ; \
     mkdir /opt/OpenLogReplicator/tmp ; \
     mkdir /opt/OpenLogReplicator/scripts ; \
-    mv ./OpenLogReplicator /opt/OpenLogReplicator ; \
+    if [ "${WITHTESTS:-}" != "" ]; then \
+        cp -p ./OpenLogReplicator /opt/OpenLogReplicator ; \
+    else \
+        mv ./OpenLogReplicator /opt/OpenLogReplicator ; \
+    fi ; \
     cp -p /opt/OpenLogReplicator-src/scripts/gencfg.sql /opt/OpenLogReplicator/scripts/gencfg.sql ; \
     mkdir /home/user1 ; \
     groupadd -g ${GIDOLR} user1 ; \
@@ -188,7 +205,7 @@ RUN set -eu ; \
     chown -R user1:user1 /home/user1 ; \
     chown -R user1:user1 /opt/OpenLogReplicator ; \
     rm -rf /tmp/local ; \
-    if [ "${BUILD_TYPE}" != "Debug" ]; then \
+    if [ "${BUILD_TYPE}" != "Debug" ] && [ "${WITHTESTS:-}" = "" ]; then \
         rm -rf /opt/OpenLogReplicator-src /opt/rapidjson /opt/rapidjson-${RAPIDJSON_VERSION} ; \
         if [ "${COMPILEKAFKA}" != "" ]; then \
             rm -rf /opt/librdkafka-${LIBRDKAFKA_VERSION} ; \

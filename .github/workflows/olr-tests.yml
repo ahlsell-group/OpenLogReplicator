@@ -1,8 +1,12 @@
 name: OLR differential tests
-run-name: OLR tests ${{ inputs.images }} on ${{ github.ref_name }} by @${{ github.actor }}
+run-name: ${{ github.event_name == 'push' && format('OLR unit sanitizers on {0}', github.ref_name) || format('OLR tests {0} on {1} by @{2}', inputs.images, github.ref_name, github.actor) }}
 
-# Runs the scenario suite in tests/ (see tests/README.md) against one or more OpenLogReplicator
-# images on a local Oracle Free container. Manual trigger only.
+# Job `test` runs the scenario suite in tests/ (see tests/README.md) against one or more
+# OpenLogReplicator images on a local Oracle Free container. Manual trigger only.
+#
+# Job `unit-sanitizers` builds the checkout with -DWITH_TESTS=ON under AddressSanitizer and
+# UndefinedBehaviorSanitizer and runs ctest (`make -C tests unit-asan`); any sanitizer report fails
+# it. It runs on the manual trigger and on pushes to ahlsell that change src/ or tests/docker/.
 #
 # `images` is a space-separated list. Entries:
 #   checkout                 build the checked-out ref with tests/docker/olr/Dockerfile (default)
@@ -36,6 +40,12 @@ on:
         required: false
         default: 'debezium,json'
         type: string
+  push:
+    branches:
+      - ahlsell
+    paths:
+      - 'src/**'
+      - 'tests/docker/**'
 
 permissions:
   contents: read
@@ -47,6 +57,7 @@ env:
 
 jobs:
   test:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     defaults:
@@ -132,3 +143,13 @@ jobs:
       - name: Fail on unexpected failures
         if: steps.run.outcome == 'failure'
         run: exit 1
+
+  unit-sanitizers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build with ASan + UBSan and run ctest
+        run: make -C tests unit-asan
