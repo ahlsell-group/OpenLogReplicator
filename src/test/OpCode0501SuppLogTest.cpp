@@ -27,14 +27,15 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/exception/RedoLogException.h"
 #include "../parser/OpCode0501.h"
 
-// Two undo records whose supplemental log was read from the wrong field, ERROR 50061 "too short field supplemental log":
+// Two undo records with a field between the KDO header and the supplemental log; reading the supplemental log from
+// that field fails with ERROR 50061 "too short field supplemental log":
 //
 // 1. SELECT ... FOR UPDATE on a table created with ROWDEPENDENCIES: KDO op LKR with row dependencies enabled. Like the
 //    IRP, DRP and URP undo of such a table it carries the row's dependent SCN in an own field (8 bytes) before the
 //    supplemental log fields.
 // 2. A row piece without columns: the head piece of a migrated row (fb H, cc 0) only points at the next piece. Its
 //    KDO op IRP/ORP undo still has the row data field (flags, lock, column count, next rowid: 9 bytes, the size in
-//    the KDO header) before the supplemental log fields. Seen on bulk inserts into a ROW STORE COMPRESS ADVANCED table.
+//    the KDO header) before the supplemental log fields. Bulk inserts into a ROW STORE COMPRESS ADVANCED table produce it.
 namespace {
     int failures = 0;
 
