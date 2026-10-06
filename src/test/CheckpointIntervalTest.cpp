@@ -24,9 +24,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include "../metadata/Metadata.h"
 
-// state.interval-s and state.interval-mb are documented as "0 disables this trigger". The size check used to be
-// "elapsed MB < interval-mb" on unsigned values, which with interval-mb 0 is never true, so a checkpoint was written on
-// every 100 ms checkpoint-thread loop and keep-checkpoints held only seconds of history.
+// state.interval-s and state.interval-mb are documented as "0 disables this trigger". Guards against a size check
+// "elapsed MB < interval-mb" on unsigned values: with interval-mb 0 it is never true, so a checkpoint would be written
+// on every 100 ms checkpoint-thread loop and keep-checkpoints would hold only seconds of history.
 namespace {
     int failures = 0;
 
@@ -44,7 +44,7 @@ namespace {
 }
 
 int main() {
-    // production block: interval-s 1800, interval-mb 0
+    // time trigger only: interval-s 1800, interval-mb 0
     check("mb 0 disabled, nothing elapsed", !due(0, 0, 1800, 0));
     check("mb 0 disabled, 1 s and 3 MB elapsed", !due(1, 3, 1800, 0));
     check("mb 0 disabled, time reached", due(1800, 0, 1800, 0));
