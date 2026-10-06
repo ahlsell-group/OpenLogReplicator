@@ -1,0 +1,134 @@
+name: OLR differential tests
+run-name: OLR tests ${{ inputs.images }} on ${{ github.ref_name }} by @${{ github.actor }}
+
+# Runs the scenario suite in tests/ (see tests/README.md) against one or more OpenLogReplicator
+# images on a local Oracle Free container. Manual trigger only.
+#
+# `images` is a space-separated list. Entries:
+#   checkout                 build the checked-out ref with tests/docker/olr/Dockerfile (default)
+#   build:<repo>@<ref>       build a GitHub repository at a tag (without the leading v), branch or
+#                            commit, e.g. build:bersler/OpenLogReplicator@2.0.0
+#   <image ref>              pull a public image, e.g. bersler/openlogreplicator:2.0.0
+# Each build takes about 12 minutes (librdkafka, protobuf and OLR are compiled).
+#
+# Disk budget: free disk on the hosted runner is limited. Oracle Free needs ~3 GB for the image plus
+# its datafiles and archived logs (FRA capped at 20 GB in tests/docker/oracle-init), each OLR image
+# ~1.7 GB, and results/ grows with every recording and OLR output. A full run of all scenarios over
+# two images needs more than the default free disk, so the first step removes preinstalled
+# toolchains, the build cache is pruned after each image, and `df -h` is logged between steps.
+# If a run still runs out of space, split it with the `scenarios` input (e.g. one group per run).
+
+on:
+  workflow_dispatch:
+    inputs:
+      images:
+        description: 'Space-separated: checkout, build:<repo>@<ref> or a public image ref'
+        required: false
+        default: 'checkout'
+        type: string
+      scenarios:
+        description: 'Scenario ids, groups (wide/) or tags; empty = all'
+        required: false
+        default: ''
+        type: string
+      profiles:
+        description: 'Output profiles (debezium, json, debezium-ddl, debezium-tz)'
+        required: false
+        default: 'debezium,json'
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGES: ${{ inputs.images || 'checkout' }}
+  SCENARIOS: ${{ inputs.scenarios }}
+  PROFILES: ${{ inputs.profiles || 'debezium,json' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: tests
+    steps:
+      - name: Free disk space
+        working-directory: /
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Install harness
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -r requirements.txt
+
+      - name: Start Oracle Free (pulls ~3 GB, first start ~3 min)
+        run: .venv/bin/python -m olrt db-up
+
+      - name: Prepare images
+        id: images
+        run: |
+          set -euo pipefail
+          refs=""
+          for spec in $IMAGES; do
+            if [[ "$spec" == checkout ]]; then
+              tag="olrt/olr:local-${GITHUB_SHA::8}"
+              docker buildx build --load -f tests/docker/olr/Dockerfile -t "$tag" ..
+            elif [[ "$spec" == build:* ]]; then
+              repo="${spec#build:}"; repo="${repo%@*}"; ref="${spec##*@}"
+              tag="olrt/olr:${ref//\//-}"
+              docker buildx build --load -f tests/docker/olr/Dockerfile -t "$tag" \
+                --build-arg OPENLOGREPLICATOR_REPO="$repo" --build-arg OPENLOGREPLICATOR_VERSION="$ref" ..
+            else
+              tag="$spec"
+              docker pull "$tag"
+            fi
+            refs="$refs --image $tag"
+            docker buildx prune -af >/dev/null || true
+            df -h /
+          done
+          echo "refs=$refs" >> "$GITHUB_OUTPUT"
+
+      - name: Run scenarios
+        id: run
+        continue-on-error: true
+        run: .venv/bin/python -m olrt run --run ci ${{ steps.images.outputs.refs }} --profile "$PROFILES" $SCENARIOS
+
+      - name: Summary
+        if: always()
+        run: |
+          df -h /
+          if [ -f results/ci/summary.md ]; then cat results/ci/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: olr-results
+          path: |
+            tests/results/ci/summary.md
+            tests/results/ci/results.json
+            tests/results/ci/junit.xml
+            tests/results/ci/olr/**/olr.log
+            tests/results/ci/olr/**/checks.json
+            tests/results/ci/olr/**/run.json
+          retention-days: 30
+
+      - name: Fail on unexpected failures
+        if: steps.run.outcome == 'failure'
+        run: exit 1
