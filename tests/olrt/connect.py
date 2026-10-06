@@ -8,6 +8,7 @@ A scenario opts in with connect.toml next to scenario.toml:
   [connector]
   snapshot_mode = "no_data"        # or "initial"
   adapter = "olr"                   # or "logminer": the connector starts on the LogMiner adapter
+  check_scn = true                  # check "scn": source.scn per row equals LogMiner's redo-record SCN
   heartbeat_ms = 5000               # Debezium default is 0 (off)
   config = { "skipped.operations" = "none" }   # extra connector properties (optional)
   final_task_state = "RUNNING"      # expected task state at the end (default RUNNING, "" = any);
@@ -92,12 +93,19 @@ def connect_image(version):
 
 
 def build_image(version):
+    """olrt/connect:<version>. A version with an -ahlsell.N suffix starts from the upstream image of the
+    version before the suffix and overlays docker/connect/overlay/<version>/ (a patched connector jar) onto
+    the Oracle connector's plugin directory, replacing the upstream jar of the same name."""
     tag = connect_image(version)
     if _docker("image", "inspect", tag, check=False).returncode == 0:
         return tag
-    print(f"[connect] building {tag}", flush=True)
-    subprocess.run(["docker", "build", "-t", tag, "--build-arg", f"DEBEZIUM_VERSION={version}",
-                    str(S.ROOT / "docker" / "connect")], check=True)
+    base = re.sub(r"-ahlsell\.\d+$", "", version)
+    overlay = f"overlay/{version}" if base != version else "overlay/none"
+    if base != version and not (S.ROOT / "docker" / "connect" / overlay).is_dir():
+        raise FileNotFoundError(f"docker/connect/{overlay}/ with the patched connector jar is missing")
+    print(f"[connect] building {tag} from {base} with {overlay}", flush=True)
+    subprocess.run(["docker", "build", "-t", tag, "--build-arg", f"DEBEZIUM_VERSION={base}",
+                    "--build-arg", f"OVERLAY={overlay}", str(S.ROOT / "docker" / "connect")], check=True)
     return tag
 
 
@@ -430,6 +438,37 @@ def check_delivery(rec, txns, since_scn):
             r.note(f"txn {xid}: on the topics, not in LogMiner's range ({sum(len(d['events']) for d in ds)} rows)")
     r.note(f"{lost} rows lost, {dup} rows duplicated, {nwrong} rows with other values")
     r.lost = lost
+    return r
+
+
+def check_scn(rec, records, since_scn):
+    """source.scn of every row equals the SCN of the row's redo record as LogMiner reports it (the LogMiner
+    adapter's semantics), compared as multisets per transaction. Transactions delivered with a different
+    row count (duplicates, losses) are left to the delivery check."""
+    r = checks.Result("scn")
+    raw_map = {t["xid_raw"].upper(): tuple(t["xid"]) for t in rec["logminer"]["transactions"]}
+    got = {}
+    for rec_ in records:
+        v = rec_.get("value")
+        if not isinstance(v, dict) or v.get("op") not in ("c", "u", "d"):
+            continue
+        src = v["source"]
+        got.setdefault(checks.parse_xid(src.get("txId"), raw_map), []).append(int(src.get("scn") or 0))
+    checked = bad = 0
+    for t in rec["logminer"]["transactions"]:
+        if not t["events"] or (t.get("commit_scn") or 0) <= since_scn:
+            continue
+        want = sorted(e["scn"] for e in t["events"])
+        have = sorted(got.get(tuple(t["xid"]), []))
+        if len(have) != len(want):
+            r.note(f"txn {tuple(t['xid'])}: {len(have)} rows on the topics, {len(want)} in LogMiner, scn not compared")
+            continue
+        checked += 1
+        if have != want:
+            bad += 1
+            r.fail(f"txn {tuple(t['xid'])}: source.scn {sorted(set(have))[:4]} vs LogMiner row SCNs {sorted(set(want))[:4]} "
+                   f"({len(want)} rows, {len(set(want))} distinct in LogMiner, {len(set(have))} on the topics)")
+    r.note(f"{checked} transactions compared, {bad} with other row SCNs")
     return r
 
 
@@ -811,7 +850,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
 
 # ---------------------------------------------------------------- checks
 
-CHECKS = ["run", "delivery", "loss_warn", "diff", "replay"]
+CHECKS = ["run", "delivery", "loss_warn", "scn", "diff", "replay"]
 
 
 def apply_known(sc, profile, version, res, image=None):
@@ -898,6 +937,8 @@ def check(sc, workdir):
     lw = check_loss_warn(sc, workdir, run_info.get("image"), res["delivery"].lost)
     if lw is not None:
         res["loss_warn"] = lw
+    if (load_spec(sc) or {}).get("connector", {}).get("check_scn"):
+        res["scn"] = check_scn(rec, records, snap_scn)
     # diff/replay see one delivery per transaction: the deliveries spliced in order (a worker
     # kill leaves a partial first delivery and Debezium may continue in the middle of the
     # transaction; duplicates are the delivery check's business)

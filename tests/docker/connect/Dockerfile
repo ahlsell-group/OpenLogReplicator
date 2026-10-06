@@ -3,6 +3,10 @@
 #   docker build -t olrt/connect:3.7.0.Final --build-arg DEBEZIUM_VERSION=3.7.0.Final docker/connect
 ARG DEBEZIUM_VERSION=3.6.1.Final
 FROM quay.io/debezium/connect:${DEBEZIUM_VERSION}
+# A patched connector build: everything under overlay/<tag>/ replaces files in the Oracle connector's plugin
+# directory (olrt.connect.build_image passes OVERLAY=overlay/<tag> for a version like 3.7.0.Final-ahlsell.1,
+# which starts from the upstream 3.7.0.Final image). overlay/none/ is empty.
+ARG OVERLAY=overlay/none
 
 ARG OJDBC_VERSION=23.9.0.25.07
 ARG OJDBC_SHA256=f52e9335276cd3999c23bb5a364fa01a628f3468945444d03cb7f92271bca1da
@@ -23,4 +27,5 @@ RUN curl -fsSLo /kafka/connect/debezium-connector-oracle/ojdbc11.jar \
  && cp confluentinc-kafka-connect-avro-converter-${AVRO_VERSION}/lib/*.jar /kafka/connect/avro-converter/ \
  && rm -rf /tmp/avro.zip /tmp/confluentinc-kafka-connect-avro-converter-* \
  && chown -R kafka:kafka /kafka/connect/debezium-connector-oracle/ojdbc11.jar /kafka/connect/avro-converter
+COPY --chown=kafka:kafka ${OVERLAY}/ /kafka/connect/debezium-connector-oracle/
 USER kafka
