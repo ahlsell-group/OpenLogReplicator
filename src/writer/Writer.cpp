@@ -174,7 +174,7 @@ namespace OpenLogReplicator {
     }
 
     // A queue full of messages with the scn of the next one holds one transaction only. A client which confirms only when the scn
-    // grows (Debezium 3.6) can never confirm any of them, so replication stops without an error. Say so, every minute.
+    // grows can never confirm any of them, so replication stops without an error; warn every minute while that lasts.
     void Writer::warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned) {
         if (currentQueueSize < ctx->queueSize || queue[0]->lwnScn != msg->lwnScn)
             return;
