@@ -1,0 +1,3 @@
+description = "DATE and TIMESTAMP(0/3/6/9): pre-1970, year 9999, DST wall times, fractions"
+tags = ["types", "date"]
+tables = ["OLRT_DT.T"]

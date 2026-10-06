@@ -1,0 +1,9 @@
+[connector]
+snapshot_mode = "no_data"
+
+[[step]]
+connector = "create"
+[[step]]
+sql_file = "workload.sql"
+[[step]]
+wait = "idle"

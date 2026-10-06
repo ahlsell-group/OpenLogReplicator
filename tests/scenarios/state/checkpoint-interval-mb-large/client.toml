@@ -1,0 +1,102 @@
+# Control for state/checkpoint-every-loop: same workload, interval-mb so large that only interval-s
+# (and log switches) trigger a checkpoint. This is the setting that gives keep-checkpoints 200 x
+# interval-s 1800 = 100 h of history.
+[olr]
+state_interval_s = 1800
+state_interval_mb = 1048576
+keep_checkpoints = 200
+trace = 16384
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "UPDATE olrt_st2.t SET v = 'warmup' WHERE id = 1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+
+# the long transaction begins (session 2) and stays open
+[[step]]
+sql = "INSERT INTO olrt_st2.t SELECT 1000 + LEVEL, 'long-a-' || LEVEL, LEVEL, DATE '2027-01-01' FROM dual CONNECT BY LEVEL <= 10"
+session = 2
+[[step]]
+mark = "long"
+session = 2
+
+# mixed churn: 9 of 10 transactions roll back (inserts and updates), every 10th commits
+[[step]]
+sql = """
+BEGIN
+  FOR i IN 1..400 LOOP
+    INSERT INTO olrt_st2.t VALUES (100000 + i, 'churn-' || i, i / 8, DATE '2026-06-01' + MOD(i, 30));
+    UPDATE olrt_st2.t SET q = q + 1, v = 'touched-' || i WHERE id = 2 + MOD(i, 40);
+    IF MOD(i, 10) = 0 THEN COMMIT; ELSE ROLLBACK; END IF;
+  END LOOP;
+END;"""
+[[step]]
+switch_logfile = true
+[[step]]
+sql = "UPDATE olrt_st2.t SET v = 'long-b', q = 42.125 WHERE id = 1005"
+session = 2
+[[step]]
+sql = """
+BEGIN
+  FOR i IN 401..800 LOOP
+    INSERT INTO olrt_st2.t VALUES (100000 + i, 'churn-' || i, i / 8, DATE '2026-06-01' + MOD(i, 30));
+    UPDATE olrt_st2.t SET q = q - 1 WHERE id = 2 + MOD(i, 40);
+    IF MOD(i, 10) = 0 THEN COMMIT; ELSE ROLLBACK; END IF;
+  END LOOP;
+END;"""
+[[step]]
+read = "commits"
+count = 80
+timeout = 60
+[[step]]
+client = "commit_offset"
+
+# rollback-only churn for ~90 s: OLR keeps checkpointing, the client receives nothing, its offset stays put
+[[step]]
+sql = """
+BEGIN
+  FOR i IN 801..1700 LOOP
+    INSERT INTO olrt_st2.t VALUES (100000 + i, 'rolled-back-' || i, i, SYSDATE);
+    UPDATE olrt_st2.t SET v = 'rolled-back' WHERE id = 2 + MOD(i, 40);
+    ROLLBACK;
+    DBMS_SESSION.SLEEP(0.1);
+  END LOOP;
+END;"""
+[[step]]
+read = "idle"
+idle = 5
+[[step]]
+checkpoints = "before-restart"
+covers = "long"
+
+# OLR restart that deletes the writer checkpoint first (as an init container might), Debezium CONTINUEs
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "restart"
+signal = "INT"
+delete_writer_checkpoint = true
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO olrt_st2.t VALUES (1011, 'long-c', 11, DATE '2027-01-11')"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+sql = "UPDATE olrt_st2.t SET v = 'after-restart' WHERE id = 3"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "idle"
+idle = 8
+[[step]]
+checkpoints = "end"

@@ -1,0 +1,11 @@
+description = "OLR stopped with SIGTERM after it streamed everything: clean shutdown, exit status 0"
+tags = ["meta", "network", "regression"]
+tables = ["OLRT_TERM.T"]
+# fork fix/exit-code-on-error (4deb4dd2) handles SIGTERM like SIGINT: logs
+# "caught signal: 15" and ends with 0. 2.0.0 ignores SIGTERM as PID 1 and is killed after the grace period.
+expect_olr_error = "^10015 caught signal: 15"
+expect_exit_code = 0
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "SIGTERM not handled: no clean shutdown, killed after docker stop's grace period (fork fix/exit-code-on-error)"

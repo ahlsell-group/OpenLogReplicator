@@ -1,0 +1,3 @@
+The harness renames the second recorded archived log away while OLR runs and restores it afterwards. A missing log in the middle of the range means lost transactions; the only acceptable outcomes are a loud error plus non-zero exit (the process must not skip to the third log and carry on). The 'run' check enforces: an ERROR is logged, exit status is non-zero, OLR did not claim to have exhausted its log switches.
+
+Expected on upstream 2.0.0 and the fork: OLR logs ERROR 10003 (file missing) every ~11 s, gives up with ERROR 10009 after 10 tries (~110 s) and exits 1; only the transactions of the first log are emitted, nothing after the gap. That is the accepted loud stop. The scenario would fail if OLR skipped the log, exited 0, or kept retrying forever (timeout).

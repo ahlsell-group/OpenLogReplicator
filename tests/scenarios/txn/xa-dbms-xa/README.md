@@ -1,0 +1,1 @@
+Prepared XA branches are finished from a different session: branch 1001 commits (two-phase), 1002 is prepared then rolled back, 1003 commits in one phase. OLR must emit the committed branches once and nothing for the rolled-back one. The LogMiner reference lists the rolled-back branch's rows with a ROLLBACK record; the harness drops transactions that rolled back without a commit.

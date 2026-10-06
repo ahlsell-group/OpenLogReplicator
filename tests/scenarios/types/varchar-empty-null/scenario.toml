@@ -1,0 +1,3 @@
+description = "VARCHAR2 empty string vs NULL vs single blank"
+tags = ["types", "varchar"]
+tables = ["OLRT_VC.T"]

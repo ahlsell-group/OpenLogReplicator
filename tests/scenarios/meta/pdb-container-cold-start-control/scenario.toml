@@ -1,0 +1,3 @@
+description = "Control for meta/root-container-cold-start: the same cold START and workload in the PDB"
+tags = ["meta", "network", "regression"]
+tables = ["OLRT_ROOTC.T"]

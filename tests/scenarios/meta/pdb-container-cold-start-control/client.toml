@@ -1,0 +1,40 @@
+# Debezium-style cold START (empty state dir, no checkpoint): the pdb id comes from the database,
+# not from a checkpoint file. Three transactions, one of them with a partial rollback, which is
+# what logs WARN 60010 when OLR has not registered the transaction's begin.
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO olrt_rootc.t VALUES (2, 'first', 1.5)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+timeout = 20
+
+[[step]]
+sql = "INSERT INTO olrt_rootc.t VALUES (3, 'kept', 2)"
+[[step]]
+sql = "SAVEPOINT sp1"
+[[step]]
+sql = "INSERT INTO olrt_rootc.t VALUES (4, 'rolled back', 3)"
+[[step]]
+sql = "ROLLBACK TO SAVEPOINT sp1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+timeout = 20
+
+[[step]]
+sql = "UPDATE olrt_rootc.t SET v = 'updated', q = 0.25 WHERE id = 1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+timeout = 20
+[[step]]
+read = "idle"
+idle = 5

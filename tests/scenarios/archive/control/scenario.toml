@@ -1,0 +1,14 @@
+description = "Control: the archived log is left intact; the same slow-read setup as the fault cases must deliver every row"
+tags = ["archive", "archive-fault"]
+checks = ["run", "diff", "replay", "gap"]
+tables = ["OLRT_AV.T"]
+olr_timeout = 240
+olr_trace = 64
+[olr_source]
+arch-read-sleep-us = 1000000
+arch-read-tries = 5
+[archive_fault]
+index = 1
+action = "none"
+when = "open"
+slow_us = 300000

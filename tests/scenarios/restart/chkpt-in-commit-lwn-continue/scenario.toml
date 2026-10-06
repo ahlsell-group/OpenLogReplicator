@@ -1,0 +1,5 @@
+description = "SIGKILL 700 rows into a 20 500-row transaction over a log switch, 2 log switches before the restart, CONTINUE (writer checkpoint kept); schema checkpoint right after the COMMIT LWN"
+tags = ["restart", "network", "start-log-switch"]
+tables = ["OLRT_RSL2.T", "OLRT_RSL2.W"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32"]   # the client disconnects on purpose while OLR is sending

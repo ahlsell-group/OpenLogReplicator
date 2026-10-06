@@ -1,0 +1,16 @@
+BEGIN EXECUTE IMMEDIATE 'DROP USER olrt_types CASCADE';
+EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF; END;
+/
+CREATE USER olrt_types IDENTIFIED BY olrt QUOTA UNLIMITED ON users DEFAULT TABLESPACE users;
+CREATE TABLE olrt_types.num (
+    id      NUMBER(10) PRIMARY KEY,
+    qty     NUMBER(15,3),
+    qty2    NUMBER(15,3),
+    anynum  NUMBER,
+    intnum  NUMBER(38),
+    small   NUMBER(5,2),
+    flt     FLOAT
+);
+ALTER TABLE olrt_types.num ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
+INSERT INTO olrt_types.num VALUES (100, 1.000, 2.500, 1, 1, 1.00, 1);
+COMMIT;

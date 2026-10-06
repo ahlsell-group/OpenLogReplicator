@@ -1,0 +1,4 @@
+description = "SAVEPOINT rollback of changes to a 313-column multi-piece row after SELECT FOR UPDATE"
+tags = ["txn", "rollback", "wide"]
+tables = ["WIDE.WIDE_278", "WIDE.WIDE_313"]
+fixtures = ["wide"]

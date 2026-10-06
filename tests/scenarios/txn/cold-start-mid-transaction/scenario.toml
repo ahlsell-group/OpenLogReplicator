@@ -1,0 +1,10 @@
+description = "Cold start (no checkpoint) while a transaction that began two logs earlier is open"
+tags = ["txn", "restart", "network"]
+tables = ["OLRT_A2.T"]
+# fixed by fork b3770204 (never send a row with an scn below the start SCN); open on images without it
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "cold-start boundary: the open transaction's pre-START row is sent without its BEGIN (DML without begin); fixed in fork b3770204"
+diff = "cold-start boundary: the open transaction's pre-START row is sent without its BEGIN (DML without begin); fixed in fork b3770204"
+replay = "cold-start boundary: the open transaction's pre-START row is sent without its BEGIN (DML without begin); fixed in fork b3770204"

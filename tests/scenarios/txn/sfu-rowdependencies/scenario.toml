@@ -1,0 +1,10 @@
+description = "SELECT FOR UPDATE on a ROWDEPENDENCIES table, then DML"
+tags = ["txn", "lockrow"]
+tables = ["OLRT_SFURD.T"]
+# fixed by fork fix/50061-lkr-rowdeps (lock row undo on a ROWDEPENDENCIES table skips the dependent scn field)
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "ERROR 50061 too short field supplemental log: 8: the KDO LKR undo of a ROWDEPENDENCIES row carries the dependent scn (8 bytes) before the supplemental log; OpCode0501 reads it as the supplemental log header (fork fix/50061-lkr-rowdeps)"
+diff = "consequence of the OLR abort: no events delivered"
+replay = "consequence of the OLR abort: no events delivered"

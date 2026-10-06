@@ -1,0 +1,3 @@
+description = "SELECT FOR UPDATE on a narrow table, then DML in the same transaction"
+tags = ["txn", "lockrow"]
+tables = ["OLRT_SFU.T"]

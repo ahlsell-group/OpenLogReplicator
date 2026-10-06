@@ -1,0 +1,16 @@
+description = "Connector task restart (REST) while a 50 000-row transaction is being delivered"
+tags = ["connect", "restart"]
+tables = ["OLRT_C6.T"]
+allowed_warnings = ["^10061 network error", "^60039 client continues from "]
+# OLR builds with the CONTINUE gap warning (fork fix/warn-continue-before-confirmed): Debezium 3.6.1 confirms what it
+# has read, continues from what Kafka stored after the restart, and OLR has already released the rows in between. Such a
+# run must log warning 60039; a run without loss must not (check loss_warn).
+warn_on_loss_images = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+# the one-row loss is upstream #325 (c_idx off by one), fixed by fork 2dfbd467: must pass on the release candidate
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+"delivery@3.6.1.Final" = "Debezium 3.6.1 + fork b631f01d: CONTINUE(c_scn, c_idx) after a task restart resumes one row late and rows of the transaction are lost (1 to 17 431 rows depending on timing); 3.7.0 replays the transaction from idx 0 and discards what was emitted"
+"diff@3.6.1.Final" = "Debezium 3.6.1 + fork b631f01d: CONTINUE(c_scn, c_idx) after a task restart resumes one row late and rows of the transaction are lost (1 to 17 431 rows depending on timing); 3.7.0 replays the transaction from idx 0 and discards what was emitted"
+"replay@3.6.1.Final" = "Debezium 3.6.1 + fork b631f01d: CONTINUE(c_scn, c_idx) after a task restart resumes one row late and rows of the transaction are lost (1 to 17 431 rows depending on timing); 3.7.0 replays the transaction from idx 0 and discards what was emitted"

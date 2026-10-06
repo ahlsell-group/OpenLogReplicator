@@ -1,0 +1,4 @@
+description = "MODIFY VARCHAR2 width and NUMBER precision/scale, then DML with values only valid after the change"
+tags = ["ddl"]
+tables = ["OLRT_DDL7.T"]
+logminer_dict = "redo"

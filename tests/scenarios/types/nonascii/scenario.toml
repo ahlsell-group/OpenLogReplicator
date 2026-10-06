@@ -1,0 +1,3 @@
+description = "Non-ASCII text: Nordic letters, euro sign, CJK, emoji, combining marks"
+tags = ["types", "charset"]
+tables = ["OLRT_TXT.T"]

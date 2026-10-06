@@ -1,0 +1,1 @@
+Control for the archive/ group. Same workload and the same slowed-down OLR (every read of the victim delayed by 0.3 s through the pread shim) as the fault cases, but the archived log is not touched. Must pass run, diff, replay and gap; if it does not, the fault cases say nothing.

@@ -1,0 +1,11 @@
+INSERT INTO olrt_tn.t (id, a, b) VALUES (10, 'x', 0);
+INSERT INTO olrt_tn.t (id, c, d) VALUES (11, DATE '2026-02-02', NULL);
+INSERT INTO olrt_tn.t VALUES (12, NULL, NULL, NULL, NULL, NULL);
+UPDATE olrt_tn.t SET d = NULL, e = NULL WHERE id = 1;
+UPDATE olrt_tn.t SET e = 9 WHERE id = 2;
+UPDATE olrt_tn.t SET a = NULL WHERE id = 2;
+UPDATE olrt_tn.t SET b = 0, d = 'dd' WHERE id = 3;
+UPDATE olrt_tn.t SET a = NULL, b = NULL, c = NULL, d = NULL, e = NULL WHERE id = 4;
+DELETE FROM olrt_tn.t WHERE id IN (2, 3);
+DELETE FROM olrt_tn.t WHERE id = 10;
+COMMIT;

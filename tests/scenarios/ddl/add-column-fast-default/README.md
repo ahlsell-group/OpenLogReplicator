@@ -1,0 +1,3 @@
+ADD COLUMN with a NOT NULL default is metadata-only since 11g: old rows have no stored value, but the column is part of the schema from then on. Tests rows written before the ADD, on a narrow table and on one that grows to 313 columns.
+
+Finding: OLR reads the metadata-only default from the dictionary and emits FLAG='N' / QTY=0 (C313=7.5) in the before and after image of every event on rows that were written before the ADD; diff and replay confirm the values. `assert_columns` makes the scenario fail if a build ever leaves the new columns out of those images. (Debezium's handling of the schema change is covered by tests/connect.)

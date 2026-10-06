@@ -1,0 +1,3 @@
+description = "One transaction spanning three log switches, with a short one inside"
+tags = ["txn", "logswitch"]
+tables = ["OLRT_LS.T"]

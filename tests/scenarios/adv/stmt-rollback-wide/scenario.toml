@@ -1,0 +1,4 @@
+description = "Statement-level rollbacks inside multi-row DML on 257/313-column rows"
+tags = ["adv", "rollback", "wide"]
+tables = ["OLRT_ADVS.W313", "OLRT_ADVS.W257", "OLRT_ADVS.W5", "OLRT_ADVS.CHILD"]
+olr_timeout = 600

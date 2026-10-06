@@ -1,0 +1,3 @@
+description = "Long transaction open across an OLR restart with the writer checkpoint deleted (START path)"
+tags = ["txn", "restart", "network"]
+tables = ["OLRT_A1S.T"]

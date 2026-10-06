@@ -1,0 +1,12 @@
+description = "state.interval-mb = 0 (checkpoint every loop in 2.0.0), rollback churn and a long open transaction across an OLR restart"
+tags = ["state", "network", "restart", "checkpoint"]
+tables = ["OLRT_ST1.T"]
+olr_timeout = 600
+exactly_once = true
+allowed_warnings = ["^10061 network error, errno: 32"]   # the client disconnects on purpose
+
+# fixed by fork fix/checkpoint-interval-zero (1137a4c4): 0 disables the trigger, as documented
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "interval-mb 0 checkpoints every 100 ms loop (unsigned elapsed < 0 never true in Metadata::writeCheckpoint): the 200 kept checkpoints span seconds, none is at or below the client offset (control: checkpoint-interval-mb-large)"

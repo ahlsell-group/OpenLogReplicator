@@ -1,0 +1,3 @@
+description = "SAVEPOINT + ROLLBACK TO SAVEPOINT inside a committed transaction"
+tags = ["txn", "rollback"]
+tables = ["OLRT_SP.T"]

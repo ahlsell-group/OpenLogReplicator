@@ -1,0 +1,4 @@
+description = "ALTER TABLE MOVE inside the range (dataobj changes), then DML"
+tags = ["ddl", "move"]
+tables = ["OLRT_DDL6.T"]
+logminer_dict = "redo"

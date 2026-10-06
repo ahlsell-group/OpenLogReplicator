@@ -1,0 +1,3 @@
+description = "Distributed transaction through DBMS_XA: start/end/prepare/commit from another session, rollback of a prepared branch, one-phase commit"
+tags = ["txn", "xa"]
+tables = ["OLRT_XA.T"]

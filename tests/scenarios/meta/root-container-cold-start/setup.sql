@@ -1,0 +1,9 @@
+-- Runs as SYS in CDB$ROOT (container = "root"). A common user owns the table in the root.
+BEGIN EXECUTE IMMEDIATE 'DROP USER c##olrt_root CASCADE';
+EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF; END;
+/
+CREATE USER c##olrt_root IDENTIFIED BY olrt QUOTA UNLIMITED ON users DEFAULT TABLESPACE users;
+CREATE TABLE c##olrt_root.t (id NUMBER(10) PRIMARY KEY, v VARCHAR2(40), q NUMBER(15,3));
+ALTER TABLE c##olrt_root.t ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
+INSERT INTO c##olrt_root.t VALUES (1, 'initial', 0);
+COMMIT;

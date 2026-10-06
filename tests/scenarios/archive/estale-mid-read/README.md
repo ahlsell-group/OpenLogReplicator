@@ -1,0 +1,1 @@
+Emulates RMAN deleting an archived log on an NFS-mounted archive while OLR reads it: the client's READ gets NFS4ERR_STALE and pread returns -1/ESTALE. The lab has no NFS server, so an LD_PRELOAD shim (docker/fault-shim) makes every pread on that file fail with ESTALE once OLR has started reading it. Safe: ERROR and non-zero exit, no row after the gap.

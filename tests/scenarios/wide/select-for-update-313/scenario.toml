@@ -1,0 +1,4 @@
+description = "SELECT FOR UPDATE on the 313-column table, then DML in the same transaction"
+tags = ["wide", "lockrow"]
+tables = ["WIDE.WIDE_278", "WIDE.WIDE_313"]
+fixtures = ["wide"]

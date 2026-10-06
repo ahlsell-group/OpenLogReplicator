@@ -1,0 +1,10 @@
+UPDATE olrt_ddl14.t SET a = 'before' WHERE id = 1;
+COMMIT;
+ALTER TABLE olrt_ddl14.t RENAME COLUMN a TO name;
+UPDATE olrt_ddl14.t SET name = 'renamed-col' WHERE id = 2;
+INSERT INTO olrt_ddl14.t VALUES (20, 'n20', 20, DATE '2027-01-01');
+DELETE FROM olrt_ddl14.t WHERE id = 3;
+COMMIT;
+ALTER TABLE olrt_ddl14.t RENAME COLUMN qty TO amount;
+UPDATE olrt_ddl14.t SET amount = amount * 2 WHERE id <= 6;
+COMMIT;

@@ -1,0 +1,1 @@
+OLR stopped (SIGINT) for 120 s, then started. With `errors.max.retries=3` and the default retry back-off (initial 300 ms, max 10 s) the reconnect attempts are expected to run out and the task to end FAILED; run.json `task_states` shows when. Final state not asserted.

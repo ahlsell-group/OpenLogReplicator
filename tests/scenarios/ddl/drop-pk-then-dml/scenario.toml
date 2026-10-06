@@ -1,0 +1,4 @@
+description = "DROP PRIMARY KEY and add a PK back, then DML (table without key in between)"
+tags = ["ddl"]
+tables = ["OLRT_DDL11.T"]
+logminer_dict = "redo"

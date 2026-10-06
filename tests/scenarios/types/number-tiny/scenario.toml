@@ -1,0 +1,10 @@
+description = "NUMBER values near the bottom of the exponent range (1e-130 .. 1e-60)"
+tags = ["types", "number"]
+tables = ["OLRT_TINY.T"]
+
+# upstream 2.0.0 decodes exponent byte 0x80 as 0; fork branch fix/number-tiny decodes it
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+diff = "NUMBER below 1e-128 (exponent byte 0x80) decoded as 0, fixed in fork fix/number-tiny"
+replay = "NUMBER below 1e-128 (exponent byte 0x80) decoded as 0, fixed in fork fix/number-tiny"

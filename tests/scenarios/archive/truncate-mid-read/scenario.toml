@@ -1,0 +1,18 @@
+description = "Archived log truncated to 60 % of its size while OLR reads it"
+tags = ["archive", "archive-fault"]
+checks = ["run", "gap"]
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+tables = ["OLRT_AV.T"]
+olr_timeout = 240
+olr_trace = 64
+[olr_source]
+arch-read-sleep-us = 1000000
+arch-read-tries = 5
+[archive_fault]
+index = 1
+action = "truncate"
+when = "open"
+slow_us = 300000
+keep = 0.6
+[known_issue]
+gap = "the short read is taken for the end of the log: FINISHED, next sequence, rows missing, exit 0 (ERROR 10005 only); fix: fork fix/archive-short-read (ERROR 40013)"

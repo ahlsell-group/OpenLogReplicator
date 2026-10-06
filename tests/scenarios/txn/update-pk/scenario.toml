@@ -1,0 +1,3 @@
+description = "UPDATE of primary key values"
+tags = ["txn", "pk"]
+tables = ["OLRT_PK.T"]

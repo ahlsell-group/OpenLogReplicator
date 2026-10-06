@@ -1,0 +1,64 @@
+[olr]
+queue_size = 65536
+state_interval_s = 0
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "UPDATE olrt_rsl4.t SET v = 'warmup' WHERE id = 1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "INSERT INTO olrt_rsl4.t SELECT 1000 + LEVEL, 'big-' || LEVEL, LEVEL / 1000, DATE '2026-01-01' + MOD(LEVEL, 365) FROM dual CONNECT BY LEVEL <= 20000"
+# OLR catches up first, so the checkpoint written on the switch lies inside the transaction
+[[step]]
+sleep = 3
+[[step]]
+switch_logfile = true
+[[step]]
+sleep = 3
+[[step]]
+sql = "INSERT INTO olrt_rsl4.w (id, c2, c255, c256, c257, c299, c300) SELECT 1000 + LEVEL, 'w' || LEVEL, DATE '2027-01-01', LEVEL / 7, 'p2-' || LEVEL, 'hi-' || LEVEL, DATE '2028-01-01' + LEVEL FROM dual CONNECT BY LEVEL <= 500"
+[[step]]
+sql = "COMMIT"
+# idle: OLR parses the COMMIT LWN and checkpoints right after it
+[[step]]
+sleep = 3
+[[step]]
+read = "messages"
+count = 700
+timeout = 60
+[[step]]
+client = "commit_offset"
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "stop"
+signal = "KILL"
+delete_writer_checkpoint = false
+# 6 log switches while OLR is down
+[[step]]
+switch_logfile = true
+hard = true
+count = 3
+[[step]]
+olr = "start"
+[[step]]
+client = "connect"
+[[step]]
+read = "idle"
+idle = 10
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "INSERT INTO olrt_rsl4.t VALUES (2, 'after', 2, DATE '2026-02-02')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1

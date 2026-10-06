@@ -1,0 +1,12 @@
+UPDATE olrt_ddl11.t SET qty = 100 WHERE id = 1;
+COMMIT;
+ALTER TABLE olrt_ddl11.t DROP PRIMARY KEY;
+UPDATE olrt_ddl11.t SET qty = 200 WHERE id = 2;
+INSERT INTO olrt_ddl11.t VALUES (20, 'nopk', 20);
+DELETE FROM olrt_ddl11.t WHERE id = 3;
+COMMIT;
+ALTER TABLE olrt_ddl11.t ADD CONSTRAINT t_pk PRIMARY KEY (id);
+UPDATE olrt_ddl11.t SET qty = 300 WHERE id = 4;
+INSERT INTO olrt_ddl11.t VALUES (21, 'pk-again', 21);
+DELETE FROM olrt_ddl11.t WHERE id = 5;
+COMMIT;

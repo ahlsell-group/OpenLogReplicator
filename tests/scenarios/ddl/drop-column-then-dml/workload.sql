@@ -1,0 +1,20 @@
+UPDATE olrt_ddl6.t SET a = 'before-drop' WHERE id = 1;
+COMMIT;
+ALTER TABLE olrt_ddl6.t DROP COLUMN b;
+UPDATE olrt_ddl6.t SET d = 'after-drop', e = 99 WHERE id BETWEEN 2 AND 5;
+INSERT INTO olrt_ddl6.t VALUES (100, 'n', DATE '2027-01-01', 'nd', 1);
+DELETE FROM olrt_ddl6.t WHERE id = 6;
+COMMIT;
+ALTER TABLE olrt_ddl6.t SET UNUSED (a);
+UPDATE olrt_ddl6.t SET c = DATE '2028-08-08' WHERE id BETWEEN 7 AND 9;
+INSERT INTO olrt_ddl6.t (id, c, d, e) VALUES (101, DATE '2027-02-02', 'x', 2);
+COMMIT;
+ALTER TABLE olrt_ddl6.t DROP UNUSED COLUMNS;
+UPDATE olrt_ddl6.t SET e = e + 1 WHERE id BETWEEN 10 AND 15;
+INSERT INTO olrt_ddl6.t VALUES (102, DATE '2027-03-03', 'y', 3);
+COMMIT;
+-- add a new column after the drops
+ALTER TABLE olrt_ddl6.t ADD (f VARCHAR2(10));
+UPDATE olrt_ddl6.t SET f = 'newf' WHERE id BETWEEN 16 AND 18;
+INSERT INTO olrt_ddl6.t VALUES (103, DATE '2027-04-04', 'z', 4, 'f103');
+COMMIT;

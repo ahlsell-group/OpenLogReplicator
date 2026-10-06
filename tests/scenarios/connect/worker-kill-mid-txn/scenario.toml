@@ -1,0 +1,8 @@
+description = "Connect worker SIGKILL while a 50 000-row transaction is being delivered"
+tags = ["connect", "restart"]
+tables = ["OLRT_C7.T"]
+allowed_warnings = ["^10061 network error", "^60039 client continues from "]
+# OLR builds with the CONTINUE gap warning (fork fix/warn-continue-before-confirmed): Debezium 3.6.1 confirms what it
+# has read, continues from what Kafka stored after the restart, and OLR has already released the rows in between. Such a
+# run must log warning 60039; a run without loss must not (check loss_warn).
+warn_on_loss_images = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]

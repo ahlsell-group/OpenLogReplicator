@@ -1,0 +1,12 @@
+description = "SIGKILL 700 rows into a 20 500-row transaction over a log switch, 6 log switches before the restart, START (writer checkpoint deleted); schema checkpoint right after the COMMIT LWN"
+tags = ["restart", "network", "start-log-switch"]
+tables = ["OLRT_RSL3.T", "OLRT_RSL3.W"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32"]   # the client disconnects on purpose while OLR is sending
+
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "checkpoint after the COMMIT LWN has no min-tran for a transaction committed at or above its SCN; START/CONTINUE from the commit SCN skips the transaction (fork fix/checkpoint-min-tran-commit-lwn)"
+diff = "checkpoint after the COMMIT LWN has no min-tran for a transaction committed at or above its SCN; START/CONTINUE from the commit SCN skips the transaction (fork fix/checkpoint-min-tran-commit-lwn)"
+replay = "checkpoint after the COMMIT LWN has no min-tran for a transaction committed at or above its SCN; START/CONTINUE from the commit SCN skips the transaction (fork fix/checkpoint-min-tran-commit-lwn)"

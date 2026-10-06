@@ -1,0 +1,3 @@
+description = "MERGE, INSERT ALL, INSERT .. SELECT, multi-row UPDATE/DELETE"
+tags = ["txn", "multirow"]
+tables = ["OLRT_MR.T", "OLRT_MR.T2"]

@@ -1,0 +1,6 @@
+description = "Table without primary key (supplemental log group + key in the filter) and a unique-index-only table"
+tags = ["txn", "nopk"]
+tables = ["OLRT_NOPK.T", "OLRT_NOPK.U"]
+[keys]
+"OLRT_NOPK.T" = ["ITEM_NO", "PACK_NO"]
+"OLRT_NOPK.U" = ["K"]

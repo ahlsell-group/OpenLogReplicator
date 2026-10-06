@@ -1,0 +1,10 @@
+description = "ROW STORE COMPRESS ADVANCED (OLTP compression) conventional and bulk DML"
+tags = ["storage", "compression"]
+tables = ["OLRT_OC.T"]
+force_logging = true
+# No fixed_in: fork fix/50061-lkr-rowdeps removes the abort (run), but the compressed row pieces are still not decoded (diff, replay).
+
+[known_issue]
+run = "unfixed images: ERROR 50061 too short field supplemental log: 9 on the bulk insert, the IRP undo of a migrated row's head piece (fb H, cc 0) still has its 9-byte row data field, which OpCode0501 reads as the supplemental log header (fixed in fork fix/50061-lkr-rowdeps); fixed images: run to the end but WARN 60008 can't decode character, because the row pieces of OLTP-compressed blocks (QMI rows and single-field IRP/ORP pieces, symbol table format) are decoded as plain columns"
+diff = "OLR does not decode the row pieces of OLTP-compressed blocks: the bulk-inserted rows come out as garbage values (fixed builds) or not at all (ERROR 50061 abort on unfixed builds)"
+replay = "consequence of the diff failure: compressed rows are wrong or missing"

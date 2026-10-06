@@ -1,0 +1,7 @@
+description = "Event timestamps with reader host-timezone set to the DB host's offset"
+tags = ["meta", "timestamp"]
+tables = ["OLRT_TSH.T"]
+commit_time = true
+
+[olr_reader]
+host-timezone = "+02:00"

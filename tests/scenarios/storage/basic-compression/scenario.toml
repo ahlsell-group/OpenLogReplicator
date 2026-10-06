@@ -1,0 +1,10 @@
+description = "COMPRESS BASIC table: direct-path load, then conventional DML"
+tags = ["storage", "compression", "directpath"]
+tables = ["OLRT_CMP.T"]
+force_logging = true
+# fix/warn-direct-path-load: the APPEND load is reported instead of dropped silently
+expect_warning = '^60042 direct-path load into replicated table OLRT_CMP\.T \(obj: \d+, dataobj: \d+, scn: [\d-]+, blocks: \d+\)'
+expect_warning_images = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+replay = "direct-path (APPEND) rows: neither LogMiner nor OLR emit them in this lab, so replay misses them; conventional DML after the load is checked. The load is OP 19.1 data blocks only; with fix/warn-direct-path-load OLR logs WARN 60042 for OLRT_CMP.T (check run requires it on the expect_warning_images)"

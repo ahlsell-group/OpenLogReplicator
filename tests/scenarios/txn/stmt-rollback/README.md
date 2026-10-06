@@ -1,0 +1,1 @@
+Statements that fail midway are rolled back by Oracle with undo records in the redo stream; the net result must contain only the rows of statements that succeeded. Narrow 3-column table only: the multi-piece (>255 column) variant that reaches the row-piece partial-rollback code (WARN 70003/70004) is tests/adversarial adv/stmt-rollback-wide.

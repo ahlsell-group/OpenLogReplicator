@@ -1,0 +1,12 @@
+UPDATE olrt_c9.tpk SET qty = 2.25 WHERE id = 1;
+COMMIT;
+UPDATE olrt_c9.tpk SET opt = 'changed' WHERE id = 2;
+COMMIT;
+DELETE FROM olrt_c9.tpk WHERE id = 3;
+COMMIT;
+INSERT INTO olrt_c9.tpk VALUES (100, 7, 'new', DATE '2026-05-01', NULL);
+COMMIT;
+UPDATE olrt_c9.tv SET qty = 9 WHERE id = 1;
+INSERT INTO olrt_c9.tv (id, qty) VALUES (100, 3);
+DELETE FROM olrt_c9.tv WHERE id = 2;
+COMMIT;

@@ -1,0 +1,3 @@
+description = "Rolled-back transaction next to committed ones"
+tags = ["txn"]
+tables = ["OLRT_RB.T"]

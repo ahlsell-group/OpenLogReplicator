@@ -1,0 +1,4 @@
+description = "Table created after the start SCN, then written"
+tags = ["ddl"]
+tables = ["OLRT_DDL4.T", "OLRT_DDL4.NEWT"]
+logminer_dict = "redo"

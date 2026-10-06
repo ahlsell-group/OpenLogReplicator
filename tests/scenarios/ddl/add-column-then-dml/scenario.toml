@@ -1,0 +1,4 @@
+description = "ALTER TABLE ADD COLUMN mid-stream, then DML using the new column"
+tags = ["ddl"]
+tables = ["OLRT_DDL1.T"]
+logminer_dict = "redo"

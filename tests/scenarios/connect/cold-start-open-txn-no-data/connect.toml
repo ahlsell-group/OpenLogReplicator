@@ -1,0 +1,31 @@
+[connector]
+snapshot_mode = "no_data"
+[[step]]
+sql = "UPDATE olrt_c12.t SET txt = 'long, began before start' WHERE id = 1"
+session = 2
+[[step]]
+switch_logfile = true
+[[step]]
+switch_logfile = true
+[[step]]
+sql = "INSERT INTO olrt_c12.t VALUES (10, 10, 'committed before start')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+connector = "create"
+[[step]]
+wait = "idle"
+idle = 4
+[[step]]
+sql = "INSERT INTO olrt_c12.t VALUES (100, 100, 'long, after start')"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+sql = "INSERT INTO olrt_c12.t VALUES (11, 11, 'after start')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 8

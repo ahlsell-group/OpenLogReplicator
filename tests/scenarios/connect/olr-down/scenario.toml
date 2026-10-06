@@ -1,0 +1,9 @@
+description = "OLR down for 120 s (connection refused) with errors.max.retries=3: does the task give up?"
+tags = ["connect", "restart", "retry"]
+tables = ["OLRT_C14.T"]
+allowed_warnings = ["^10061 network error"]
+
+[known_issue]
+delivery = "task FAILED by design: OLR unreachable for 120 s exhausts errors.max.retries=3; rows after the restart are not expected"
+diff = "task FAILED by design: OLR unreachable for 120 s exhausts errors.max.retries=3; rows after the restart are not expected"
+replay = "task FAILED by design: OLR unreachable for 120 s exhausts errors.max.retries=3; rows after the restart are not expected"

@@ -1,0 +1,3 @@
+description = "Plain DML on a ROWDEPENDENCIES table"
+tags = ["txn", "lockrow"]
+tables = ["OLRT_RDEP.T"]

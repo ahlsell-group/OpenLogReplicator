@@ -1,0 +1,3 @@
+description = "NUMBER(1,0)/NUMBER(5) with 0, 1, NULL and updates to NULL and back"
+tags = ["types"]
+tables = ["OLRT_N1.T"]

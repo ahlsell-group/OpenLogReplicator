@@ -1,0 +1,4 @@
+description = "OLR restart (SIGINT, writer checkpoint deleted) with a transaction open across it; task restarted by hand"
+tags = ["connect", "restart"]
+tables = ["OLRT_C8.T"]
+allowed_warnings = ["^10061 network error"]

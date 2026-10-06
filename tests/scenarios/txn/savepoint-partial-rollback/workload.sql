@@ -1,0 +1,11 @@
+UPDATE olrt_sp.t SET qty = 10 WHERE id = 1;
+SAVEPOINT a;
+UPDATE olrt_sp.t SET qty = 666 WHERE id = 2;
+INSERT INTO olrt_sp.t VALUES (200, 6, 'phantom', NULL);
+DELETE FROM olrt_sp.t WHERE id = 3;
+ROLLBACK TO SAVEPOINT a;
+UPDATE olrt_sp.t SET qty = 11 WHERE id = 4;
+SAVEPOINT b;
+UPDATE olrt_sp.t SET txt = 'gone' WHERE id = 5;
+ROLLBACK TO SAVEPOINT b;
+COMMIT;

@@ -1,0 +1,4 @@
+description = "OLR killed right before the COMMIT of a 5 000-row transaction spanning three log switches"
+tags = ["adv", "network", "restart"]
+tables = ["OLRT_ADVN5.T", "OLRT_ADVN5.W"]
+olr_timeout = 600

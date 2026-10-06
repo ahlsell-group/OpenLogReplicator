@@ -1,0 +1,14 @@
+description = "Event timestamps with reader host-timezone set to the DB host's IANA zone name"
+tags = ["meta", "timestamp", "regression"]
+tables = ["OLRT_TSI.T"]
+commit_time = true
+# fork fix/host-timezone-iana (dc4d0cdd): a zone name, DST applied per timestamp
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[olr_reader]
+host-timezone = "Europe/Berlin"
+
+[known_issue]
+run = "host-timezone accepts +/-HH:MM only: ERROR 30001 invalid \"host-timezone\" value (fork fix/host-timezone-iana)"
+diff = "host-timezone accepts +/-HH:MM only: OLR does not start (fork fix/host-timezone-iana)"
+replay = "host-timezone accepts +/-HH:MM only: OLR does not start (fork fix/host-timezone-iana)"

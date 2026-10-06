@@ -1,0 +1,1 @@
+Partitioned tables with ROW MOVEMENT: an UPDATE of the partition key is a delete plus insert across segments. Also interval partitions created on demand, and TRUNCATE PARTITION (not visible without SHOW_DDL, replay known issue in the debezium profile if it deletes data).

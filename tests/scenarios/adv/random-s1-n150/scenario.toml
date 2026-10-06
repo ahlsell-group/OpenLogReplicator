@@ -1,0 +1,4 @@
+description = "Seeded random DML mix, seed 1, 150 steps, widths 5/64/129/257"
+tags = ["adv", "random", "wide"]
+tables = ["OLRT_ADVR1.W5", "OLRT_ADVR1.W64", "OLRT_ADVR1.W129", "OLRT_ADVR1.W257"]
+olr_timeout = 600

@@ -1,0 +1,10 @@
+description = "Direct-path (APPEND) insert into a plain LOGGING table, FORCE LOGGING on"
+tags = ["storage", "directpath"]
+tables = ["OLRT_DP.T"]
+force_logging = true
+# fix/warn-direct-path-load: OLR names the table it cannot decode instead of dropping the rows silently
+expect_warning = '^60042 direct-path load into replicated table OLRT_DP\.T \(obj: \d+, dataobj: \d+, scn: [\d-]+, blocks: \d+\)'
+expect_warning_images = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+replay = "OLR gap, not a cheap fix: the APPEND load is logged only as whole formatted blocks (OP:19.1 Direct Loader block redo entry with block type 6, no 11.x row vectors). LogMiner decodes them as DIRECT INSERT rows (listed as unsupported in the diff notes, so diff passes); OLR does not decode the blocks and drops the 50 rows, so the later UPDATE of id 101 finds no row. Upstream 2.0.0 drops them without a message; with fix/warn-direct-path-load OLR logs WARN 60042 naming OLRT_DP.T, scn and block count (check run requires it on the expect_warning_images). Needs a data-block decoder in OLR; until then keep direct-path loads off captured tables"

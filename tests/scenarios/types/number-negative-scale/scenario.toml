@@ -1,0 +1,3 @@
+description = "NUMBER(10,-2) column (negative scale)"
+tags = ["types", "number"]
+tables = ["OLRT_NEGSC.T"]
