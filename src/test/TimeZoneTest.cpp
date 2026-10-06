@@ -55,7 +55,7 @@ namespace {
 int main() {
     using OpenLogReplicator::TimeZone;
 
-    // Fixed offsets, unchanged behaviour
+    // Fixed offsets
     TimeZone fixed;
     std::string error;
     check("fixed parse +02:00", fixed.parse("+02:00", error) ? 1 : 0, 1);
