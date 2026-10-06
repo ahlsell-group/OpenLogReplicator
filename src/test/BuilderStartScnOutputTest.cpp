@@ -40,7 +40,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 // at 300; it is sent in full because it committed after the start SCN. A client which started at 150 without an index
 // drops messages with a lower scn (Debezium's skipToStartScn), so no message may carry an scn below 150: the begin and
 // the first insert are sent with 150, the second insert and the commit keep their SCN. Only the builders' public
-// interface is used, so the test also runs on a build without Builder::outputScn.
+// interface is used.
 using namespace OpenLogReplicator;
 
 namespace {

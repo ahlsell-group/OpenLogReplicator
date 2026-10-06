@@ -1262,7 +1262,7 @@ namespace OpenLogReplicator {
         // started from: a transaction which began before that SCN but committed after it is sent in full (Parser keeps
         // transactions by commit SCN), and a client which started at that SCN may drop what it reads as earlier.
         // Debezium's OpenLogReplicator client compares the scn of every message with its start SCN and discards the
-        // messages below it, so the begin and the changes made before the start SCN were lost.
+        // messages below it; with the redo record's SCN it would lose the begin and the changes made before the start SCN.
         [[nodiscard]] Scn outputScn(Scn scn) const {
             if (format.isScnTypeCommitValue())
                 return commitScn;
