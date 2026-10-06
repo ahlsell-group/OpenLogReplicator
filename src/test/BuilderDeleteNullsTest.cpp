@@ -37,10 +37,10 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 // Redo does not store trailing NULL columns. For a DELETE the builder fills NULL for every column the record does not
 // carry (all columns with column format 1, the primary key otherwise) and marks them in valuesSet. releaseValues()
-// clears valuesSet only up to valuesMax, so a filled column must raise valuesMax. When it did not, a DELETE of a row
-// whose stored columns end below a 64-column boundary left the bits of the filled columns above it set. The next DML
-// iterated them: an UPDATE on a table with fewer columns stopped with ERROR 50073 "missmatch in column details", and on
-// a wider table the leaked columns were sent as NULL before-images.
+// clears valuesSet only up to valuesMax, so a filled column must raise valuesMax. Otherwise a DELETE of a row whose
+// stored columns end below a 64-column boundary leaves the bits of the filled columns above it set, and the next DML
+// iterates them: an UPDATE on a table with fewer columns stops with ERROR 50073 "missmatch in column details", and on
+// a wider table the leaked columns are sent as NULL before-images.
 using namespace OpenLogReplicator;
 
 namespace {
