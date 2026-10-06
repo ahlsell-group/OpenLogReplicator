@@ -1,0 +1,4 @@
+description = "Extended statistics created mid-stream, then a column added and used"
+tags = ["ddl", "extstats"]
+tables = ["OLRT_DDL2.T"]
+logminer_dict = "redo"

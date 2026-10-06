@@ -1,0 +1,13 @@
+description = "Cold START in a container without a SYS.V_$PDBS row (CDB$ROOT, like a non-CDB): OLR reads a NULL pdb id"
+tags = ["meta", "network", "non-cdb", "regression"]
+# Everything in CDB$ROOT: OLR connects to the root service as C##OLR, the table lives in the root.
+# SQL_GET_CON_INFO's subquery on SYS.V_$PDBS returns no row there, exactly as on a non-CDB
+# so the pdb id OLR defines without an OCI indicator is never written.
+container = "root"
+tables = ["C##OLRT_ROOT.T"]
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "uninitialized pdb id from SYS.V_$PDBS: a non-zero value skips every transaction begin (build-dependent; fork fix/non-cdb-dbid)"
+diff = "uninitialized pdb id from SYS.V_$PDBS: a non-zero value skips every transaction begin (build-dependent; fork fix/non-cdb-dbid)"
+replay = "uninitialized pdb id from SYS.V_$PDBS: a non-zero value skips every transaction begin (build-dependent; fork fix/non-cdb-dbid)"

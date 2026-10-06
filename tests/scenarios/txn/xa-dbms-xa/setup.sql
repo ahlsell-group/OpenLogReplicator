@@ -1,0 +1,18 @@
+-- idempotent: roll back branches left in doubt by an aborted earlier run
+DECLARE rc PLS_INTEGER;
+BEGIN
+  FOR i IN 1001 .. 1003 LOOP
+    BEGIN rc := sys.dbms_xa.xa_rollback(sys.dbms_xa_xid(i)); EXCEPTION WHEN OTHERS THEN NULL; END;
+  END LOOP;
+END;
+/
+BEGIN EXECUTE IMMEDIATE 'DROP USER olrt_xa CASCADE';
+EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF; END;
+/
+CREATE USER olrt_xa IDENTIFIED BY olrt QUOTA UNLIMITED ON users DEFAULT TABLESPACE users;
+GRANT EXECUTE ON sys.dbms_xa TO olrt_xa;
+GRANT FORCE ANY TRANSACTION TO olrt_xa;
+CREATE TABLE olrt_xa.t (id NUMBER(10) PRIMARY KEY, txt VARCHAR2(40));
+ALTER TABLE olrt_xa.t ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
+INSERT INTO olrt_xa.t VALUES (1, 'base');
+COMMIT;

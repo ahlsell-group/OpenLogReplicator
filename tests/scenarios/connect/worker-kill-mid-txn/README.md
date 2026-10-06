@@ -1,0 +1,1 @@
+Same as restart-task-mid-txn, but the Connect worker is SIGKILLed (no clean offset commit, like a pod OOM kill). The task resumes from the last committed Kafka offset; OLR may already have been CONFIRMed further (received-not-written).

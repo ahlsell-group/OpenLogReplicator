@@ -1,0 +1,3 @@
+description = "313-column VARCHAR2/NUMBER/DATE table: 2000-row batch with INSERT ALL, MERGE, FORALL, PK update, NULL-only update, multi-column update of high columns"
+tags = ["wide", "txn", "multirow"]
+tables = ["OLRT_WB.T", "OLRT_WB.T2"]

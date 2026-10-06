@@ -1,0 +1,13 @@
+description = "flags 1 (archived logs only) with the online reader and no checkpoint"
+tags = ["meta", "config"]
+tables = ["OLRT_ARCH.T"]
+olr_flags = 1
+olr_timeout = 45
+
+# fixed by fork fix/arch-only-resetlogs (8ee9c541): the incarnation is read at startup with flags 1 too
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "flags 1 on a cold start waits forever: the incarnation list (resetlogs id) is only loaded with the online log list, which flags 1 skips; V$ARCHIVED_LOG is then queried with RESETLOGS_ID = 0"
+diff = "no output (see run)"
+replay = "no output (see run)"

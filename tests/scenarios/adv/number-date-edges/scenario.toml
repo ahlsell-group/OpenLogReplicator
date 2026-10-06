@@ -1,0 +1,4 @@
+description = "NUMBER/DATE edge values, insert/update/delete, low and high column positions of a wide table"
+tags = ["adv", "types"]
+tables = ["OLRT_ADVE.T", "OLRT_ADVE.W257"]
+olr_timeout = 600

@@ -1,0 +1,4 @@
+description = "Open transaction on a 300-column row survives two OLR restarts (INT right after BEGIN, KILL mid-way) on the CONTINUE path"
+tags = ["adv", "network", "restart"]
+tables = ["OLRT_ADVN3.T", "OLRT_ADVN3.W"]
+olr_timeout = 600

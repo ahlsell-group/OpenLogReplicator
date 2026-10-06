@@ -1,0 +1,7 @@
+description = "NOLOGGING direct-path insert without FORCE LOGGING"
+tags = ["storage", "nologging"]
+tables = ["OLRT_NOLOG.T"]
+force_logging = false
+
+[known_issue]
+replay = "Oracle limit: an APPEND insert into a NOLOGGING table without FORCE LOGGING writes no row redo (LogMiner shows one UNSUPPORTED record), so no redo-based CDC sees the rows. Use FORCE LOGGING"

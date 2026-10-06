@@ -1,0 +1,9 @@
+description = "Archived log in the middle of the range is missing when OLR reads it: OLR must stop with an error and non-zero exit, never skip silently"
+tags = ["ops", "archive-gap"]
+tables = ["OLRT_GAP.T"]
+checks = ["run"]
+expect_olr_error = "1000[39] "
+expect_nonzero_exit = true
+olr_timeout = 200
+[archive_gap]
+index = 1

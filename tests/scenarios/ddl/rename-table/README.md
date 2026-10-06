@@ -1,0 +1,1 @@
+OLR identifies tables by object id while the filter is by name; the table is listed under both names. The replay check maps the old table's snapshot and events to the new name by object id (olrt.checks.rename_maps), so it fails if events stop or carry wrong values after the rename.

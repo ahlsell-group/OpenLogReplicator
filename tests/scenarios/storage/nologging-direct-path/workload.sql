@@ -1,0 +1,4 @@
+INSERT /*+ APPEND */ INTO olrt_nolog.t SELECT LEVEL, LEVEL FROM dual CONNECT BY LEVEL <= 100;
+COMMIT;
+UPDATE olrt_nolog.t SET qty = 0 WHERE id = 1;
+COMMIT;

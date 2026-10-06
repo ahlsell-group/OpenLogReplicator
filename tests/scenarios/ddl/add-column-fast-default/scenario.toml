@@ -1,0 +1,7 @@
+description = "ADD COLUMN DEFAULT x NOT NULL (metadata-only), then UPDATE/DELETE of rows that existed before the add; also on a 313-column table"
+tags = ["ddl"]
+tables = ["OLRT_DDL9.T", "OLRT_DDL9.W"]
+logminer_dict = "redo"
+[assert_columns]
+"OLRT_DDL9.T" = ["FLAG", "QTY"]
+"OLRT_DDL9.W" = ["C313"]

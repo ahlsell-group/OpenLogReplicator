@@ -1,0 +1,9 @@
+-- Control for root-container-cold-start: identical workload in the PDB, where SYS.V_$PDBS has a row.
+BEGIN EXECUTE IMMEDIATE 'DROP USER olrt_rootc CASCADE';
+EXCEPTION WHEN OTHERS THEN IF SQLCODE != -1918 THEN RAISE; END IF; END;
+/
+CREATE USER olrt_rootc IDENTIFIED BY olrt QUOTA UNLIMITED ON users DEFAULT TABLESPACE users;
+CREATE TABLE olrt_rootc.t (id NUMBER(10) PRIMARY KEY, v VARCHAR2(40), q NUMBER(15,3));
+ALTER TABLE olrt_rootc.t ADD SUPPLEMENTAL LOG DATA (ALL) COLUMNS;
+INSERT INTO olrt_rootc.t VALUES (1, 'initial', 0);
+COMMIT;

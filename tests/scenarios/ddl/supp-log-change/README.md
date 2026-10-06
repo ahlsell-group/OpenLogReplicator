@@ -1,0 +1,1 @@
+Supplemental logging is what makes before images complete. Dropping it on a table mid-stream (a DBA mistake) changes the redo shape of subsequent UPDATE/DELETE. Replay is expected to detect missing key columns; the known issue states the expected outcome.

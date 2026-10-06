@@ -1,0 +1,3 @@
+description = "One transaction with 60 000 rows (insert, update, delete)"
+tags = ["txn", "volume"]
+tables = ["OLRT_BIG.T"]

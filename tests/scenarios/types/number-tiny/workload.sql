@@ -1,0 +1,11 @@
+INSERT INTO olrt_tiny.t SELECT LEVEL, POWER(10, -131 + LEVEL * 3), -POWER(10, -131 + LEVEL * 3) FROM dual CONNECT BY LEVEL <= 25;
+INSERT INTO olrt_tiny.t VALUES (100, 1e-130, -1e-130);
+INSERT INTO olrt_tiny.t VALUES (101, 1.5e-129, -1.5e-129);
+INSERT INTO olrt_tiny.t VALUES (102, 9.99e-126, 1.23456789e-100);
+INSERT INTO olrt_tiny.t VALUES (103, 9.99e125, -9.99e125);
+INSERT INTO olrt_tiny.t VALUES (104, 1e125, -1e-129);
+INSERT INTO olrt_tiny.t VALUES (105, 9.99e-129, -9.99e-129);
+COMMIT;
+UPDATE olrt_tiny.t SET a = a * 10 WHERE id <= 5;
+UPDATE olrt_tiny.t SET a = 1e-130, b = 1e-128 WHERE id = 1000;
+COMMIT;

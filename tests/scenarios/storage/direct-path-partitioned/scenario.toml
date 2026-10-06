@@ -1,0 +1,10 @@
+description = "Direct-path (APPEND) insert into a range-partitioned table spanning two partitions, FORCE LOGGING on"
+tags = ["storage", "directpath", "partition"]
+tables = ["OLRT_DPP.T"]
+force_logging = true
+# the 19.1 blocks carry the partition's data object id; OLR maps it back to the table
+expect_warning = '^60042 direct-path load into replicated table OLRT_DPP\.T \(obj: \d+, dataobj: \d+, scn: [\d-]+, blocks: \d+\)'
+expect_warning_images = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+replay = "OLR gap (see storage/direct-path-insert): the APPEND rows in both partitions are only 19.1 data blocks, OLR drops them and the later UPDATEs find no row. With fix/warn-direct-path-load OLR logs WARN 60042 for OLRT_DPP.T"

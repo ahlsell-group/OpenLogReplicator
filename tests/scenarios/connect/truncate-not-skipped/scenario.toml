@@ -1,0 +1,7 @@
+description = "TRUNCATE mid-stream with skipped.operations = none"
+tags = ["connect", "ddl", "truncate"]
+tables = ["OLRT_C4.T"]
+logminer_dict = "redo"
+
+[known_issue]
+"replay@debezium" = "flags 0: OLR sends no TRUNCATE"

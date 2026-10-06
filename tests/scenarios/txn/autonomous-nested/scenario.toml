@@ -1,0 +1,3 @@
+description = "Autonomous transaction commits inside an open outer txn; outer then commits or rolls back"
+tags = ["txn"]
+tables = ["OLRT_AUT.T"]

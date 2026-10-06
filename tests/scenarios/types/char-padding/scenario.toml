@@ -1,0 +1,3 @@
+description = "CHAR/NCHAR blank padding, CHAR(1) flags, all-blank values"
+tags = ["types", "char"]
+tables = ["OLRT_CHR.T"]

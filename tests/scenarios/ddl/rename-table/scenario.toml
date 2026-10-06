@@ -1,0 +1,5 @@
+description = "RENAME TABLE of a captured table while OLR runs, DML under the new name (both names in the filter)"
+tags = ["ddl"]
+tables = ["OLRT_DDL13.T", "OLRT_DDL13.T_NEW"]
+logminer_dict = "redo"
+

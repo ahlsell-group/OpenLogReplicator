@@ -1,0 +1,1 @@
+Rows that grow on a full block are migrated (head row piece pointing to the new location) or chained. 500+ migrated rows get updated and deleted; before/after images must stay complete. Narrow-table counterpart of wide/v12-chained.

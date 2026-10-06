@@ -1,0 +1,17 @@
+UPDATE olrt_ddl7.t SET v = 'x' WHERE id = 1;
+COMMIT;
+ALTER TABLE olrt_ddl7.t MODIFY (v VARCHAR2(60));
+UPDATE olrt_ddl7.t SET v = 'a value that is much longer than five characters' WHERE id = 1;
+INSERT INTO olrt_ddl7.t VALUES (3, RPAD('z', 55, 'z'), 1, 1);
+COMMIT;
+ALTER TABLE olrt_ddl7.t MODIFY (n NUMBER(12,5));
+UPDATE olrt_ddl7.t SET n = 1234567.12345 WHERE id = 1;
+INSERT INTO olrt_ddl7.t VALUES (4, 'p', 0.00001, 2);
+COMMIT;
+ALTER TABLE olrt_ddl7.t MODIFY (n2 NUMBER(20,10));
+UPDATE olrt_ddl7.t SET n2 = 1234567890.1234567891 WHERE id = 2;
+INSERT INTO olrt_ddl7.t VALUES (5, 'q', 1, 0.0000000001);
+COMMIT;
+ALTER TABLE olrt_ddl7.t MODIFY (v VARCHAR2(100 CHAR));
+UPDATE olrt_ddl7.t SET v = 'x' WHERE id = 4;
+COMMIT;

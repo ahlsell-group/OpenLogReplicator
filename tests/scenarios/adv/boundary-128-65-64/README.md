@@ -1,0 +1,1 @@
+Smallest 50073 shape for one width pair: DELETE of a 128-column row whose last non-NULL column is 64, then in the same transaction UPDATEs of a 65-column table at column 65 and 65. Part of the per-pair matrix behind width-boundary-mix (`fixtures/adv/gen.py`).

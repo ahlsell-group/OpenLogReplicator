@@ -1,0 +1,23 @@
+# OLR starts with an empty state dir (cold); the client START comes after T_long began.
+[[step]]
+sql = "UPDATE olrt_a2.t SET v = 'long-before-start' WHERE id = 1"
+session = 2
+[[step]]
+switch_logfile = true
+[[step]]
+switch_logfile = true
+[[step]]
+client = "connect"
+offset = "current"
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+sql = "INSERT INTO olrt_a2.t VALUES (100, 'long-after-start', 1)"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+read = "idle"
+idle = 8

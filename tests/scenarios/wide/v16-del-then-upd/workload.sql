@@ -1,0 +1,4 @@
+-- v16-del-then-upd: minimal: delete B, update A (date+status)
+DELETE FROM WIDE.WIDE_313 WHERE ID = 1161 AND POS = 10 AND SUBPOS = 0 AND SEQ = 1;
+UPDATE WIDE.WIDE_278 SET C2 = 'XX', C3 = DATE '2026-10-02' WHERE ID = 163;
+COMMIT;

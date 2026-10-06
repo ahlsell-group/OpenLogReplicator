@@ -1,0 +1,3 @@
+description = "Long transaction open across a client reconnect (CONTINUE)"
+tags = ["txn", "restart", "network"]
+tables = ["OLRT_A1.T"]

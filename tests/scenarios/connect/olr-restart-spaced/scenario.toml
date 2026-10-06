@@ -1,0 +1,4 @@
+description = "Four single OLR restarts 15 s apart with errors.max.retries=3: does the retry budget reset after a successful reconnect?"
+tags = ["connect", "restart", "retry"]
+tables = ["OLRT_C15.T"]
+allowed_warnings = ["^10061 network error"]

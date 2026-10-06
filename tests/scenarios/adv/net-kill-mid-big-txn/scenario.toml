@@ -1,0 +1,12 @@
+description = "OLR killed while sending a 20 000-row transaction the client has partly received; checkpoint kept (CONTINUE path)"
+tags = ["adv", "network", "restart"]
+tables = ["OLRT_ADVN2.T", "OLRT_ADVN2.W"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32"]   # the client disconnects on purpose while OLR is sending
+
+# F1 is fixed by fork 2dfbd467 (c_idx = message index): xfail on images without it, PASS required on the fixed_in images
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+diff = "F1: c_idx is one ahead (upstream #325), so CONTINUE skips one row (fixed by fork 2dfbd467); see docs/findings-adversarial.md"
+replay = "F1: c_idx is one ahead (upstream #325), so CONTINUE skips one row (fixed by fork 2dfbd467); see docs/findings-adversarial.md"

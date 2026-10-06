@@ -1,0 +1,4 @@
+INSERT /*+ APPEND */ INTO olrt_dp.t SELECT 100 + LEVEL, LEVEL, 'direct' FROM dual CONNECT BY LEVEL <= 50;
+COMMIT;
+UPDATE olrt_dp.t SET qty = 0 WHERE id = 101;
+COMMIT;

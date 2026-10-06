@@ -1,0 +1,4 @@
+description = "SET UNUSED column, DEFAULT ON NULL and identity columns"
+tags = ["ddl"]
+tables = ["OLRT_DDL5.T"]
+logminer_dict = "redo"

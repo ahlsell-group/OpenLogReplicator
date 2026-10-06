@@ -1,0 +1,6 @@
+description = "Supplemental logging changed on a captured table mid-stream (ALL -> PK only -> none -> ALL)"
+tags = ["ddl", "supplog"]
+tables = ["OLRT_DDL10.T"]
+logminer_dict = "redo"
+[known_issue]
+replay = "Oracle/configuration limit, not OLR: after DROP SUPPLEMENTAL LOG DATA (PRIMARY KEY) only database-level minimal supplemental logging is left, so the redo of UPDATE id 5 carries the changed column and no key; OLR emits u with before {QTY: 5} and no ID (LogMiner has the same, diff passes), no consumer can tell which row changed. The PK-only phase (ids 2-4) replays correctly."

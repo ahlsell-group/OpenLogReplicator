@@ -1,0 +1,8 @@
+description = "Columns OLR cannot send (no ALL supplemental logging, virtual column): what Debezium puts on the topic"
+tags = ["connect", "types"]
+tables = ["OLRT_C9.TPK", "OLRT_C9.TV"]
+
+[known_issue]
+delivery = "columns OLR does not send (PK-only supplemental logging, virtual columns) become empty string / 0 / 1970-01-01 / the virtual expression text in Debezium, no warning"
+diff = "columns OLR does not send (PK-only supplemental logging, virtual columns) become empty string / 0 / 1970-01-01 / the virtual expression text in Debezium, no warning"
+replay = "columns OLR does not send (PK-only supplemental logging, virtual columns) become empty string / 0 / 1970-01-01 / the virtual expression text in Debezium, no warning"

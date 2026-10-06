@@ -1,0 +1,3 @@
+description = "Connect smoke: no_data start, inserts/updates/deletes over NUMBER, DATE, TIMESTAMP, CHAR, NOT NULL"
+tags = ["connect"]
+tables = ["OLRT_C1.T"]

@@ -1,0 +1,65 @@
+[olr]
+state_interval_s = 1
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO olrt_advn5.t SELECT 1000 + LEVEL, 'long-' || LEVEL, LEVEL / 3, SYSDATE FROM dual CONNECT BY LEVEL <= 2000"
+session = 2
+[[step]]
+switch_logfile = true
+[[step]]
+sql = "UPDATE olrt_advn5.t SET v = 'short-1' WHERE id = 1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "INSERT INTO olrt_advn5.w (id, c2, c255, c256, c257, c299, c300) SELECT 1000 + LEVEL, 'w' || LEVEL, DATE '2027-01-01', LEVEL, 'p2', 'hi-' || LEVEL, DATE '2028-01-01' FROM dual CONNECT BY LEVEL <= 1000"
+session = 2
+[[step]]
+switch_logfile = true
+[[step]]
+sql = "INSERT INTO olrt_advn5.t VALUES (2, 'short-2', 2, SYSDATE)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "UPDATE olrt_advn5.t SET q = -q, v = NULL WHERE id BETWEEN 1001 AND 2000"
+session = 2
+[[step]]
+sql = "UPDATE olrt_advn5.w SET c300 = NULL, c2 = 'upd' WHERE id BETWEEN 1001 AND 2000"
+session = 2
+[[step]]
+switch_logfile = true
+[[step]]
+sql = "INSERT INTO olrt_advn5.t VALUES (3, 'short-3', 3, SYSDATE)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+[[step]]
+sleep = 3
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "restart"
+signal = "KILL"
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+client = "connect"
+[[step]]
+read = "idle"
+idle = 10

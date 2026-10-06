@@ -1,0 +1,7 @@
+description = "Event timestamps vs the real commit time on a DB host in Europe/Berlin"
+tags = ["meta", "timestamp"]
+tables = ["OLRT_TS.T"]
+commit_time = true
+
+[known_issue]
+diff = "configuration, not a code bug: without reader host-timezone OLR takes redo timestamps (wall time of the DB host, Europe/Berlin here) as UTC, so tm is off by the host's UTC offset (+7200 s in summer time). Fix: host-timezone, an IANA name on the fork (fix/host-timezone-iana; meta/commit-timestamp-host-tz, profile debezium-tz)"

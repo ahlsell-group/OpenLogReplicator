@@ -1,0 +1,72 @@
+[connector]
+snapshot_mode = "no_data"
+final_task_state = "RUNNING"
+config = { "internal.custom.retriable.exception" = ".*Connection lost.*", "errors.max.retries" = "3" }
+[olr]
+state_interval_s = 10
+[[step]]
+connector = "create"
+[[step]]
+sql = "INSERT INTO olrt_c15.t VALUES (10, 10, 'r0')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 4
+timeout = 90
+[[step]]
+olr = "restart"
+signal = "INT"
+delete_writer_checkpoint = true
+[[step]]
+sleep = 15
+[[step]]
+sql = "INSERT INTO olrt_c15.t VALUES (11, 11, 'r1')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 6
+timeout = 90
+[[step]]
+olr = "restart"
+signal = "INT"
+delete_writer_checkpoint = true
+[[step]]
+sleep = 15
+[[step]]
+sql = "INSERT INTO olrt_c15.t VALUES (12, 12, 'r2')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 6
+timeout = 90
+[[step]]
+olr = "restart"
+signal = "INT"
+delete_writer_checkpoint = true
+[[step]]
+sleep = 15
+[[step]]
+sql = "INSERT INTO olrt_c15.t VALUES (13, 13, 'r3')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 6
+timeout = 90
+[[step]]
+olr = "restart"
+signal = "INT"
+delete_writer_checkpoint = true
+[[step]]
+sleep = 15
+[[step]]
+sql = "INSERT INTO olrt_c15.t VALUES (14, 14, 'r4')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 6
+timeout = 90

@@ -1,0 +1,11 @@
+description = "Connect: NUMBER scale (0.000, 12.500), NUMBER below 1e-128 and at 9.99e125, BINARY_FLOAT/DOUBLE through real Debezium"
+tags = ["connect", "types", "number"]
+tables = ["OLRT_CV.T"]
+
+# fixed by fork fix/number-tiny + fix/binary-float-double: xfail on images without them, PASS required on the fixed_in images
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+delivery = "upstream 2.0.0 writes NUMBER below 1e-128 as 0 and BINARY_FLOAT/DOUBLE with 6 significant digits, halving subnormals (fixed by fork fix/number-tiny, fix/binary-float-double)"
+diff = "upstream 2.0.0 writes NUMBER below 1e-128 as 0 and BINARY_FLOAT/DOUBLE with 6 significant digits, halving subnormals (fixed by fork fix/number-tiny, fix/binary-float-double)"
+replay = "upstream 2.0.0 writes NUMBER below 1e-128 as 0 and BINARY_FLOAT/DOUBLE with 6 significant digits, halving subnormals (fixed by fork fix/number-tiny, fix/binary-float-double)"

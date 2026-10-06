@@ -1,0 +1,9 @@
+description = "Cold start while a transaction that began two redo logs earlier is open; it commits after the start SCN"
+tags = ["txn", "restart", "network"]
+tables = ["OLRT_OT.T"]
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+run = "open transaction at a cold start: begin not read (WARN 60011) or pre-START rows sent with an scn below START; fixed in the fork (cold-start low watermark, start-boundary SCN)"
+diff = "open transaction at a cold start: rows before START dropped or the whole transaction skipped; fixed in the fork (cold-start low watermark, start-boundary SCN)"
+replay = "open transaction at a cold start: rows before START dropped or the whole transaction skipped; fixed in the fork (cold-start low watermark, start-boundary SCN)"

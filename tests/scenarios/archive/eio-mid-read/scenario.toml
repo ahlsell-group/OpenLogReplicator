@@ -1,0 +1,14 @@
+description = "Archived log read fails with EIO mid-file (NFS soft mount timeout, emulated)"
+tags = ["archive", "archive-fault"]
+checks = ["run", "gap"]
+tables = ["OLRT_AV.T"]
+olr_timeout = 240
+olr_trace = 64
+[olr_source]
+arch-read-sleep-us = 1000000
+arch-read-tries = 5
+[archive_fault]
+index = 1
+action = "eio"
+when = "open"
+slow_us = 300000

@@ -1,0 +1,11 @@
+description = "Cold start (empty OLR state) with snapshot.mode=initial while a transaction that began two logs earlier is open"
+tags = ["connect", "restart", "a2"]
+tables = ["OLRT_C11.T"]
+
+# cold-start boundary case fixed by fork b3770204 (start-boundary-scn): must pass on the release candidate
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+delivery = "cold-start boundary: the long transaction began before START; its pre-START row carries scn < START and Debezium skipToStartScn drops it (3.6.1 and 3.7.0, fork b631f01d); fix/start-boundary-scn"
+diff = "cold-start boundary: the long transaction began before START; its pre-START row carries scn < START and Debezium skipToStartScn drops it (3.6.1 and 3.7.0, fork b631f01d); fix/start-boundary-scn"
+replay = "cold-start boundary: the long transaction began before START; its pre-START row carries scn < START and Debezium skipToStartScn drops it (3.6.1 and 3.7.0, fork b631f01d); fix/start-boundary-scn"

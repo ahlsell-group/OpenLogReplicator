@@ -1,0 +1,3 @@
+description = "PCTFREE 0 narrow table with rows grown by UPDATE (migrated rows), then deleted and updated again"
+tags = ["storage"]
+tables = ["OLRT_CH.T"]

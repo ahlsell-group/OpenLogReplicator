@@ -1,0 +1,5 @@
+description = "OLR killed while sending a 20 000-row transaction the client has partly received; writer checkpoint deleted (START path)"
+tags = ["adv", "network", "restart"]
+tables = ["OLRT_ADVN6.T", "OLRT_ADVN6.W"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32"]   # the client disconnects on purpose while OLR is sending

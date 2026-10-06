@@ -1,0 +1,8 @@
+description = "TRUNCATE mid-stream with the default connector config (skipped.operations default = t)"
+tags = ["connect", "ddl", "truncate"]
+tables = ["OLRT_C3.T"]
+logminer_dict = "redo"
+
+[known_issue]
+"replay@debezium" = "flags 0: OLR sends no TRUNCATE"
+"replay@debezium-ddl" = "Debezium skipped.operations defaults to t: the truncate event is dropped (the default connector config does not set it)"

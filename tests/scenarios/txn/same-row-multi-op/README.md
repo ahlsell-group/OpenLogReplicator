@@ -1,0 +1,1 @@
+Several operations on one row inside one transaction (including insert+delete of a never-committed row and delete+reinsert of an existing key), plus 50 updates of one row from a PL/SQL loop. A second DELETE of an already deleted key matches no row and writes no redo, so only one d event is expected.

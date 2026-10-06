@@ -1,0 +1,4 @@
+description = "DROP COLUMN (physical) and DROP UNUSED COLUMNS, SET UNUSED in the middle, then DML on old and new rows"
+tags = ["ddl"]
+tables = ["OLRT_DDL6.T"]
+logminer_dict = "redo"

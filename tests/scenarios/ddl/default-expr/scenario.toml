@@ -1,0 +1,4 @@
+description = "Column DEFAULT expressions (0.000, SYSDATE, sequence nextval), insert omitting the column, SET col = DEFAULT"
+tags = ["ddl"]
+tables = ["OLRT_DDL12.T"]
+logminer_dict = "redo"

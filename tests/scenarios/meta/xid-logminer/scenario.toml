@@ -1,0 +1,7 @@
+description = "xid format 3 (debezium preset) equals V$LOGMNR_CONTENTS.XID byte for byte"
+tags = ["meta", "xid", "regression"]
+tables = ["OLRT_XID.T"]
+# Guard for fork fix/xid-logminer-byte-order. The container is little-endian, where 2.0.0 already writes the
+# LogMiner bytes in JSON; the bug (fields in little-endian order on a big-endian host) cannot be reproduced here.
+# The unit tests XidTest/BuilderXidTest cover the big-endian case.
+xid_exact = true

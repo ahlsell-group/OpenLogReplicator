@@ -1,0 +1,7 @@
+description = "Range and interval partitioned tables: UPDATE of the partition key with ROW MOVEMENT, auto-created interval partitions, TRUNCATE PARTITION"
+tags = ["storage", "partition"]
+tables = ["OLRT_PT.R", "OLRT_PT.I"]
+logminer_dict = "redo"
+
+[known_issue]
+replay = "Oracle limit: ALTER TABLE ... TRUNCATE PARTITION p1 writes no row redo, so neither OLR nor LogMiner emits deletes for the 13 rows then in P1 (ids 25-29, 34, 40-45 moved there by the workload); they stay after replay as they would at a CDC consumer. With flags 32 (json) OLR emits only the DDL text, which replay does not apply (it would need the partition bounds). Row-movement UPDATEs and interval partitions pass diff and replay."

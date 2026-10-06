@@ -1,0 +1,12 @@
+# Pinned; the harness only needs the Oracle driver (thin mode, no Instant Client).
+oracledb==26.0.1
+cffi==2.1.1
+cryptography==50.0.2
+pycparser==3.0
+typing_extensions==4.16.0
+# network-writer client (olrt/netclient.py); generated code in olrt/proto needs >= 7.35.1
+protobuf==7.36.2
+# regenerating olrt/proto/OraProtoBuf_pb2.py only (not needed to run): grpcio-tools==1.84.0
+# Debezium Connect mode (olrt/connect.py): topic consumer + Avro decoding
+confluent-kafka==2.12.1
+fastavro==1.12.1

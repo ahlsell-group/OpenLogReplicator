@@ -1,0 +1,1 @@
+RMAN deletes an archived log while OLR has it open. Here the file sits on a local docker volume: unlink only removes the name, OLR's open descriptor keeps the inode, so all data must still arrive. Over NFS the same delete done on the server makes the client's next read fail with ESTALE: see archive/estale-mid-read.

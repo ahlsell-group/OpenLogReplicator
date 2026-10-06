@@ -1,0 +1,6 @@
+description = "Control for checkpoint-every-loop: state.interval-mb 1048576 (time trigger only), same workload and restart"
+tags = ["state", "network", "restart", "checkpoint"]
+tables = ["OLRT_ST2.T"]
+olr_timeout = 600
+exactly_once = true
+allowed_warnings = ["^10061 network error, errno: 32"]   # the client disconnects on purpose

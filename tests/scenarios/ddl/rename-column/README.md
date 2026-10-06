@@ -1,0 +1,1 @@
+RENAME COLUMN then DML on old rows and new rows; OLR must emit the new column name. The replay check maps the before snapshot and events carrying the old names to the new names by COLUMN_ID (olrt.checks.rename_maps), so values are checked across the rename.

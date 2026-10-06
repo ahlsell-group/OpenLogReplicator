@@ -1,0 +1,4 @@
+description = "Builder state leaks across 63..257-column tables (50073 class, word boundaries)"
+tags = ["adv", "wide", "builder"]
+tables = ["OLRT_ADVB.W63", "OLRT_ADVB.W64", "OLRT_ADVB.W65", "OLRT_ADVB.W127", "OLRT_ADVB.W128", "OLRT_ADVB.W129", "OLRT_ADVB.W255", "OLRT_ADVB.W256", "OLRT_ADVB.W257"]
+olr_timeout = 600

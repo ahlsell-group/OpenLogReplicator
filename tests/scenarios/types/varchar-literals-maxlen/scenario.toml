@@ -1,0 +1,3 @@
+description = "VARCHAR2 with quotes, pipes, semicolons, backslashes, newlines, trailing spaces, 4000-byte values (single- and multi-byte)"
+tags = ["types"]
+tables = ["OLRT_VL.T"]

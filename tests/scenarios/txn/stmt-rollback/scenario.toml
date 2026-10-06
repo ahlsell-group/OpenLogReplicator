@@ -1,0 +1,3 @@
+description = "Statement-level rollback: multi-row statements that fail midway (PK dup, check constraint, ORA-01438) inside a larger txn"
+tags = ["txn"]
+tables = ["OLRT_SRB.T"]

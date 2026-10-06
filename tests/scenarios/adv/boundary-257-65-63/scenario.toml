@@ -1,0 +1,4 @@
+description = "50073 shape: DELETE W257 (last non-NULL c63) then UPDATE W65"
+tags = ["adv", "wide", "builder", "boundary"]
+tables = ["OLRT_ADVP257_65.W257", "OLRT_ADVP257_65.W65"]
+olr_timeout = 600

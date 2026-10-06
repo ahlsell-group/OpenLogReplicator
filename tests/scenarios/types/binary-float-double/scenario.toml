@@ -1,0 +1,10 @@
+description = "BINARY_FLOAT/BINARY_DOUBLE whole numbers, fractions, subnormals"
+tags = ["types", "binary"]
+tables = ["OLRT_BIN.T"]
+
+# upstream 2.0.0 writes 6 significant digits; fork branch fix/binary-float-double writes exact values
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.3*", "olrt/olr:ahlsell-rc3*"]
+
+[known_issue]
+diff = "BINARY_FLOAT/DOUBLE written with 6 significant digits and subnormals halved, fixed in fork fix/binary-float-double"
+replay = "BINARY_FLOAT/DOUBLE written with 6 significant digits and subnormals halved, fixed in fork fix/binary-float-double"

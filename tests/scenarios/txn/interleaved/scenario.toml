@@ -1,0 +1,3 @@
+description = "Two sessions interleaved, T2 begins after and commits before T1"
+tags = ["txn"]
+tables = ["OLRT_IL.T"]

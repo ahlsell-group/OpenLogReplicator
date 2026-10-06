@@ -1,0 +1,9 @@
+description = "OLR crash loop (5 x SIGKILL + start) with the Connection lost retry pattern and errors.max.retries=3"
+tags = ["connect", "restart", "retry"]
+tables = ["OLRT_C13.T"]
+allowed_warnings = ["^10061 network error"]
+
+[known_issue]
+"delivery@3.7.0.Final" = "3.7.0: the boundary transaction is deduplicated, so reconnects produce no change data, the retry counter never resets and the task ends FAILED after errors.max.retries=3; the row after the loop is not delivered"
+"diff@3.7.0.Final" = "3.7.0: the boundary transaction is deduplicated, so reconnects produce no change data, the retry counter never resets and the task ends FAILED after errors.max.retries=3; the row after the loop is not delivered"
+"replay@3.7.0.Final" = "3.7.0: the boundary transaction is deduplicated, so reconnects produce no change data, the retry counter never resets and the task ends FAILED after errors.max.retries=3; the row after the loop is not delivered"

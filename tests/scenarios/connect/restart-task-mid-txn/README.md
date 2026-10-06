@@ -1,0 +1,1 @@
+Task-only restart (POST /tasks/0/restart, a clean stop with offset commit) once a few thousand rows of a 50 000-row transaction are on the topic. Debezium resumes with CONTINUE(c_scn, c_idx) and has no client-side dedupe; the delivery check counts rows lost or duplicated.

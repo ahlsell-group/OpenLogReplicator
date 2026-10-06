@@ -1,0 +1,4 @@
+description = "ALTER TABLE MOVE mid-stream: with flags 32 OLR sends garbage DDL messages; task state and data"
+tags = ["connect", "ddl", "move"]
+tables = ["OLRT_C5.T"]
+logminer_dict = "redo"

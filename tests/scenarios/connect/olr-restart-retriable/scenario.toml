@@ -1,0 +1,4 @@
+description = "OLR restart with internal.custom.retriable.exception = .*Connection lost.* (retriable reconnect mitigation)"
+tags = ["connect", "restart"]
+tables = ["OLRT_C10.T"]
+allowed_warnings = ["^10061 network error"]

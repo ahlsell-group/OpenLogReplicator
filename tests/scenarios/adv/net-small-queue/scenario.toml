@@ -1,0 +1,9 @@
+description = "Transactions larger than the network writer queue-size (200), client confirms like Debezium 3.6.1"
+tags = ["adv", "network", "queue"]
+tables = ["OLRT_ADVN4.T", "OLRT_ADVN4.W"]
+olr_timeout = 600
+
+[known_issue]
+run = "F2 queue-size deadlock (upstream #24), see docs/findings-adversarial.md; a transaction longer than queue-size cannot be confirmed by Debezium 3.6.1 (confirms only on a growing scn); with fork fix/queue-full-warning OLR logs WARN 60040 after 10 s instead of hanging silently. Remedy: queue-size above the largest transaction"
+diff = "F2 queue-size deadlock (upstream #24), see docs/findings-adversarial.md"
+replay = "F2 queue-size deadlock (upstream #24), see docs/findings-adversarial.md"

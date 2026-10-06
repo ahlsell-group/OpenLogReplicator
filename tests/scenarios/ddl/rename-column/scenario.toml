@@ -1,0 +1,5 @@
+description = "RENAME COLUMN, then DML"
+tags = ["ddl"]
+tables = ["OLRT_DDL14.T"]
+logminer_dict = "redo"
+

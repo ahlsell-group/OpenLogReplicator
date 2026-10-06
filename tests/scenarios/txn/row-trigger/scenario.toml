@@ -1,0 +1,3 @@
+description = "Plain DML on a table with a BEFORE INSERT OR UPDATE FOR EACH ROW trigger"
+tags = ["txn", "trigger"]
+tables = ["OLRT_RTRG.T"]

@@ -1,0 +1,14 @@
+description = "Archived log removed on the NFS server while OLR reads it (pread fails with ESTALE, emulated)"
+tags = ["archive", "archive-fault"]
+checks = ["run", "gap"]
+tables = ["OLRT_AV.T"]
+olr_timeout = 240
+olr_trace = 64
+[olr_source]
+arch-read-sleep-us = 1000000
+arch-read-tries = 5
+[archive_fault]
+index = 1
+action = "estale"
+when = "open"
+slow_us = 300000

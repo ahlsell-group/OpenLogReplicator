@@ -1,0 +1,3 @@
+description = "Narrow table: rows ending in NULL columns, UPDATE to and from trailing NULLs, delete of such rows"
+tags = ["txn", "types"]
+tables = ["OLRT_TN.T"]

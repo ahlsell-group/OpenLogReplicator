@@ -1,0 +1,6 @@
+description = "TRUNCATE TABLE mid-stream, then inserts"
+tags = ["ddl", "truncate"]
+tables = ["OLRT_DDL3.T"]
+logminer_dict = "redo"
+[known_issue]
+"replay@debezium" = "TRUNCATE is invisible without flags SHOW_DDL (32); the debezium profile runs flags 0"

@@ -1,0 +1,10 @@
+description = "ALTER TABLE ADD COLUMN while Debezium streams: does the new column reach the topic schema? (flags 0 vs 32)"
+tags = ["connect", "ddl"]
+tables = ["OLRT_C2.T"]
+logminer_dict = "redo"
+
+[known_issue]
+"delivery@debezium" = "flags 0: OLR sends no DDL, Debezium never learns NEWCOL/NEWNUM, so they are missing from the topic schema and every row image"
+"diff@debezium" = "flags 0: NEWCOL/NEWNUM missing from the topic"
+"replay@debezium" = "flags 0: NEWCOL/NEWNUM missing from the topic"
+"replay@debezium-ddl" = "rows untouched since ADD COLUMN ... DEFAULT 0 NOT NULL read 0 in the DB, but no change event carries that (metadata-only default; LogMiner CDC behaves the same)"
