@@ -39,7 +39,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 // xid format 3 must equal V$LOGMNR_CONTENTS.XID of the source database: the raw bytes of usn, slt and sqn in the byte
 // order of the database host, which the redo log header tells (Ctx::isBigEndian). Transaction 0x0012.005.0003f2a1 is
 // 001200050003f2a1 on a big-endian host (e.g. AIX) and 12000500a1f20300 on a little-endian one. Only the builders'
-// public interface is used, so the test runs unchanged on builds without Xid::toRaw.
+// public interface is used.
 using namespace OpenLogReplicator;
 
 namespace {
