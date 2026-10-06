@@ -83,7 +83,7 @@ int main() {
     }
 
     {
-        // No open transaction has redo left: previous behaviour, start at the starting scn, all older ones lost
+        // No open transaction has redo left: start at the starting scn, all older ones lost
         const ColdStart::Choice c = ColdStart::choose({tx(1, 3500, 600), tx(2, 4200, 500)}, firstData, 0, redo(19));
         check("nothing available: start at the starting scn", c.positionScn == firstData && c.sequence == Seq(19));
         check("nothing available: both named lost", c.lost.size() == 2);
