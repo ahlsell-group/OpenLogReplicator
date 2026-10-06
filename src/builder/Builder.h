@@ -427,6 +427,8 @@ namespace OpenLogReplicator {
             valueBufferPurge();
             // Up to 64 leading zero pairs (exponent byte 0x80/0x7F) or 63 integer pairs come on top of the mantissa
             valueBufferCheck((size * 2) + 140, fileOffset);
+            if (unlikely(size == 0))
+                throw RedoLogException(50009, "error parsing numeric value at offset: " + fileOffset.toString());
 
             uint8_t digits = data[0];
             // Just zero; 0x80 followed by mantissa bytes is a positive number below 1e-128
@@ -459,8 +461,8 @@ namespace OpenLogReplicator {
                         --digits;
 
                         while (digits > 0) {
-                            value = data[j] - 1;
                             if (j <= jMax) {
+                                value = data[j] - 1;
                                 valueBufferAppend(Data::map10(value / 10));
                                 valueBufferAppend(Data::map10(value % 10));
                                 ++j;
