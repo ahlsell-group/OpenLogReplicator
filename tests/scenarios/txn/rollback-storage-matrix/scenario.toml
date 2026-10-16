@@ -1,0 +1,4 @@
+description = "Savepoint and full rollbacks over every storage shape: migrated and chained rows, >255-column multi-piece rows, partition row movement, IOT, LOB, compression, multi-row DML, MERGE, trigger and cascade"
+tags = ["txn", "rollback", "storage", "wide"]
+tables = ["OLRT_RB.MIG", "OLRT_RB.WIDE", "OLRT_RB.PART", "OLRT_RB.IOT", "OLRT_RB.LOBT", "OLRT_RB.BC", "OLRT_RB.PARENT", "OLRT_RB.CHILD", "OLRT_RB.AUD"]
+logminer_dict = "redo"
