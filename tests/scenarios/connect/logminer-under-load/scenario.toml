@@ -1,0 +1,4 @@
+description = "Control for rollback-under-load: the same load on the LogMiner adapter from the start, no switch"
+tags = ["connect", "load", "stress", "control"]
+fixtures = ["wide"]
+tables = ["WIDE.WIDE_313", "WIDE.WIDE_278", "OLRT_RL.LOCALPART"]

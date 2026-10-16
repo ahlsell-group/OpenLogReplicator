@@ -1,7 +1,10 @@
 -- OLR user in the PDB. Grants as in OLR's installation docs (installation.adoc) plus the
 -- undocumented XDB objects. OLR never reads row data over SQL, only the dictionary.
 WHENEVER SQLERROR EXIT FAILURE
-ALTER SESSION SET CONTAINER=FREEPDB1;
+SET VERIFY OFF
+COLUMN name NEW_VALUE pdb
+SELECT name FROM v$pdbs WHERE name <> 'PDB$SEED';
+ALTER SESSION SET CONTAINER=&pdb;
 
 CREATE USER olr IDENTIFIED BY "olr" DEFAULT TABLESPACE users;
 GRANT CREATE SESSION TO olr;

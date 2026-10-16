@@ -68,7 +68,7 @@ class Scenario:
     @property
     def db_name(self):
         """Service name OLR connects to and its config "name" (state file prefix, network database name)."""
-        return "FREE" if self.container == "root" else S.PDB
+        return S.CDB if self.container == "root" else S.PDB
 
     @property
     def con_name(self):
