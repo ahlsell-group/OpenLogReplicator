@@ -33,8 +33,9 @@ REDO = os.environ.get("OLRT_REDO", "")
 
 OLR_TIMEOUT_S = int(os.environ.get("OLRT_OLR_TIMEOUT", "300"))
 OLR_PARALLEL = int(os.environ.get("OLRT_OLR_PARALLEL", "4"))
-# OLR container memory limit in MB; unset: the config's max-mb + 1024 (at least 2048), 0: no limit
-OLR_MEMORY_MB = os.environ.get("OLRT_OLR_MEMORY_MB", "")
+# OLR container memory limit in MB (docker run --memory); unset or 0: no limit. OLR uses more than its max-mb (dictionary),
+# a limit of max-mb + 1024 killed file-mode runs with 137
+OLR_MEMORY_MB = int(os.environ.get("OLRT_OLR_MEMORY_MB", "0") or 0)
 
 # Debezium Connect mode (olrt.connect): broker with schema registry + one Kafka Connect worker
 BROKER_IMAGE = os.environ.get("OLRT_BROKER_IMAGE", "redpandadata/redpanda:v24.2.7")

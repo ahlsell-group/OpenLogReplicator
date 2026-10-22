@@ -69,12 +69,8 @@ ARCH_ONLY = 0  # flags bit 0 (archived logs only) never starts from an empty sta
 
 
 def memory_args(scenario):
-    """docker run limit for an OLR container: an OLR that outgrows its max-mb is killed alone (exit 137) instead of
-    pushing the Docker VM, and with it the host, out of memory."""
-    if S.OLR_MEMORY_MB != "":
-        mb = int(S.OLR_MEMORY_MB)
-    else:
-        mb = max(2048, int((getattr(scenario, "olr_memory", {}) or {}).get("max-mb", 1024)) + 1024)
+    """docker run limit for an OLR container (OLRT_OLR_MEMORY_MB): an OLR that outgrows it is killed alone (exit 137)."""
+    mb = S.OLR_MEMORY_MB
     return ["--memory", f"{mb}m", "--memory-swap", f"{mb}m"] if mb > 0 else []
 
 def slug(image):
