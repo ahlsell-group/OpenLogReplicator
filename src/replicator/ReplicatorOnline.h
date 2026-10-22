@@ -672,6 +672,7 @@ namespace OpenLogReplicator {
         void checkTableForGrantsFlashback(const std::string& tableName, Scn scn);
         bool getOpenTransactions(std::vector<ColdStart::OpenTransaction>& transactions);
         ColdStart::RedoPosition locateRedo(Scn scn);
+        bool archivedLogsReadable(Seq sequence);
         Seq getSequenceFromScn(Scn scn);
         std::string getModeName() const override;
         void verifySchema(Scn currentScn) override;

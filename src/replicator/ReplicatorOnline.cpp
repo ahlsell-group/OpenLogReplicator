@@ -18,7 +18,9 @@ License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
 #include <algorithm>
+#include <map>
 #include <regex>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "../builder/Builder.h"
@@ -475,7 +477,52 @@ namespace OpenLogReplicator {
         if (!position.available)
             ctx->info(0, "redo logs from seq: " + position.sequence.toString() + " (scn: " + scn.toString() + ") not all available, found " +
                       std::to_string(count) + " up to seq: " + std::to_string(maxSequence));
+        else if (!archivedLogsReadable(position.sequence))
+            position.available = false;
         return position;
+    }
+
+    // The controlfile also lists archived logs deleted on disk or kept where OLR has no access; OLR reads a listed log from its
+    // archived copy, so starting with one that can't be opened ends in 10009 on every start while the transaction stays open
+    bool ReplicatorOnline::archivedLogsReadable(Seq sequence) {
+        std::vector<ColdStart::ArchivedCopy> copies;
+        std::map<uint64_t, std::string> missing;
+        DatabaseStatement stmt(conn);
+        if (unlikely(ctx->isTraceSet(Ctx::TRACE::SQL))) {
+            ctx->logTrace(Ctx::TRACE::SQL, std::string(SQL_GET_ARCHIVE_LOG_LIST));
+            ctx->logTrace(Ctx::TRACE::SQL, "PARAM1: " + sequence.toString());
+            ctx->logTrace(Ctx::TRACE::SQL, "PARAM2: " + std::to_string(metadata->resetlogs));
+        }
+        stmt.createStatement(SQL_GET_ARCHIVE_LOG_LIST);
+        stmt.bindUInt(1, sequence);
+        stmt.bindUInt(2, metadata->resetlogs);
+        std::array<char, 513> path{};
+        stmt.defineString(1, path.data(), path.size());
+        Seq logSequence;
+        stmt.defineUInt(2, logSequence);
+        Scn firstScn;
+        stmt.defineUInt(3, firstScn);
+        Scn nextScn;
+        stmt.defineUInt(4, nextScn);
+
+        int ret = stmt.executeQuery();
+        while (ret != 0) {
+            std::string mappedPath(path.data());
+            applyMapping(mappedPath);
+            struct stat fileStat{};
+            const bool ok = stat(mappedPath.c_str(), &fileStat) == 0;
+            copies.push_back({logSequence, ok});
+            if (!ok)
+                missing.emplace(logSequence.getData(), mappedPath);
+            ret = stmt.next();
+        }
+
+        const Seq unreadable = ColdStart::firstUnreadable(copies);
+        if (unreadable == Seq::none())
+            return true;
+        ctx->info(0, "archived redo log seq: " + unreadable.toString() + " is listed by the database but can't be opened: " +
+                  missing[unreadable.getData()]);
+        return false;
     }
 
     // Transactions open now which have generated redo, false if the view can't be read
