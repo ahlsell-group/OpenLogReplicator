@@ -52,6 +52,8 @@ A scenario opts in with connect.toml next to scenario.toml:
                          # (OLRT_GITOPS_CHART, values as an operator types them); min_straddlers = N: fail
                          # "rewind" as inconclusive unless N transactions were open across the offset SCN
   [[step]]
+  connector = "reset_offsets"   # stop, DELETE the offsets, resume: a new snapshot while OLR keeps streaming
+  [[step]]
   load = "start" | "stop"   # background DML load ([load] in connect.toml, olrt.load), running across steps
   [[step]]
   load = "batch_begin"   # table = "OWNER.T", rows = N: one large transaction left open; "batch_commit" ends it
@@ -1003,6 +1005,28 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                     subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
                 time.sleep(2)
                 events.append(f"step {i}: OLR started")
+            elif step.get("connector") == "reset_offsets":
+                # A new snapshot while OLR keeps streaming: the offsets are deleted, so the connector snapshots
+                # again (snapshot.mode) and continues from the new snapshot SCN without an index
+                old_snap = snap_scn
+                code, body = rest("PUT", f"/connectors/{name}/stop")
+                st = wait_connector(name, "STOPPED", 60)
+                code, body = rest("DELETE", f"/connectors/{name}/offsets")
+                if code not in (200, 204):
+                    raise RuntimeError(f"offset delete: HTTP {code} {body}")
+                reset_since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1))
+                rest("PUT", f"/connectors/{name}/resume")
+                wait_task("RUNNING", 60)
+                new_snap = None
+                deadline = time.time() + float(step.get("timeout", 120))
+                while time.time() < deadline and new_snap in (None, old_snap):
+                    new_snap, src = snapshot_scn(name, reset_since)
+                    if new_snap in (None, old_snap):
+                        reader.poll(1.0)
+                run_info.setdefault("resnapshots", []).append({"step": i, "old": old_snap, "new": new_snap,
+                                                               "connector_state": st and st["connector"]})
+                events.append(f"step {i}: offsets deleted, new snapshot scn {new_snap} (was {old_snap})")
+                reader.drain_until_idle(idle=float(step.get("idle", 4)), timeout=60)
             elif step.get("connector") == "adapter":
                 adapter = step["adapter"]
                 swap = {"step": i, "adapter": adapter, "t": time.time(), "records_before": len(reader.records)}
