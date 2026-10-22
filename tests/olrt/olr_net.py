@@ -170,8 +170,8 @@ def make_config(scenario, profile, olr_opts, version=(2, 0)):
 
 
 class OlrContainer:
-    def __init__(self, image, workdir, port):
-        self.image, self.workdir, self.port = image, workdir, port
+    def __init__(self, image, workdir, port, scenario=None):
+        self.image, self.workdir, self.port, self.scenario = image, workdir, port, scenario
         self.name = "olrt-olrnet-" + str(abs(hash(str(workdir))))[:12]
 
     def start(self):
@@ -181,7 +181,7 @@ class OlrContainer:
                         "-p", f"127.0.0.1:{self.port}:5000",
                         "-v", f"{S.VOLUME}:/opt/oracle/oradata:ro",
                         "-v", f"{self.workdir.resolve()}:/opt/OpenLogReplicator/work",
-                        "--label", "olrt=1",
+                        "--label", "olrt=1", *olr.memory_args(self.scenario),
                         "--entrypoint", "/opt/OpenLogReplicator/OpenLogReplicator",
                         self.image, "-f", "work/config.json"], check=True, capture_output=True)
 
@@ -286,7 +286,7 @@ def run(image, scenario, profile, workdir, token="adhoc"):
     rconn, pconn = db.root(), db.scenario_conn(scenario)
     sessions = {1: pconn}
     port = free_port()
-    cont = OlrContainer(image, workdir, port)
+    cont = OlrContainer(image, workdir, port, scenario)
     client = None
     requests = []        # every request sent by any client instance
     offset = None        # (scn, idx) as Debezium would store it

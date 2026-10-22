@@ -758,7 +758,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
     run_info["connector"] = name
     rconn, pconn = db.root(), db.pdb()
     sessions = {1: pconn}
-    cont = olr_net.OlrContainer(image, workdir, olr_net.free_port())
+    cont = olr_net.OlrContainer(image, workdir, olr_net.free_port(), scenario)
     # instance-scoped name: other suites on the engine use olrt-olrnet-* too
     cont.name = f"olrt-olrcon-{S.INSTANCE or 'default'}-{abs(hash(str(workdir))) % 10**10}"
     reader = None
