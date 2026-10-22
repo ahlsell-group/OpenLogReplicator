@@ -1,0 +1,34 @@
+# Cold start while a transaction that began two logs earlier is open, and the archived log holding its begin is gone
+# from disk although the controlfile still lists it (OS-level cleanup, or a destination OLR cannot read)
+[[step]]
+sql = "UPDATE olrt_a6.t SET v = 'long-before-start' WHERE id = 1"
+session = 2
+[[step]]
+mark = "long"
+session = 2
+[[step]]
+switch_logfile = true
+count = 2
+[[step]]
+remove_archive = "long"
+[[step]]
+client = "connect"
+offset = "current"
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+sql = "INSERT INTO olrt_a6.t VALUES (100, 'long-after-start', 1)"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+sql = "INSERT INTO olrt_a6.t VALUES (101, 'after start', 1)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "idle"
+idle = 8
+[[step]]
+sleep = 120

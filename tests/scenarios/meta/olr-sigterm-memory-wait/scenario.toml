@@ -1,0 +1,11 @@
+description = "SIGTERM while the parser waits for builder memory (client not confirming): clean shutdown, exit status 0"
+tags = ["meta", "network", "regression"]
+tables = ["OLRT_TERMW.T"]
+checks = ["run"]
+open_transactions_ok = true
+olr_memory = { "write-buffer-min-mb" = 4, "write-buffer-max-mb" = 4 }
+# A thread woken from the memory wait by the shutdown stops with 10018; before fork 8268c7e3 it got nullptr and the
+# parser or builder dereferenced it (segfault, no final checkpoint)
+expect_olr_error = "^(10015 caught signal: 15|10018 shutdown during memory allocation)"
+expect_exit_code = 0
+allowed_warnings = ["^60040 "]

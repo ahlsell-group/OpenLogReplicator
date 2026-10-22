@@ -126,7 +126,7 @@ def chart_offsets(prefix, scn, commit_scn, snapshot_scn, workdir):
     """The offsets.json the gitops chart renders for debezium.alterOffsets, with the SCNs written as
     plain YAML numbers (as an operator types them into values.yaml)."""
     vals = workdir / "alter-offsets-values.yaml"
-    vals.write_text(f"debezium:\n  topicPrefix: {prefix}\n  alterOffsets:\n    scn: {scn}\n"
+    vals.write_text(f"debezium:\n  enabled: true\n  topicPrefix: {prefix}\n  alterOffsets:\n    scn: {scn}\n"
                     f"    commitScn: \"{commit_scn}\"\n    snapshotScn: {snapshot_scn}\n")
     out = subprocess.run(["helm", "template", "olrt", GITOPS_CHART, "-f", os.path.join(GITOPS_CHART, GITOPS_VALUES),
                           "-f", str(vals)], capture_output=True, text=True, check=True).stdout
@@ -231,12 +231,15 @@ def connect_up(version, storage_version=None):
 
 def debug_env():
     """OLRT_CONNECT_DEBUG=1: DEBUG for Debezium's OLR adapter (CONFIRM / CONTINUE positions) and
-    io.debezium.connector.common (offsets handed to commitOffset)."""
-    if not os.environ.get("OLRT_CONNECT_DEBUG"):
+    io.debezium.connector.common (offsets handed to commitOffset). OLRT_CONNECT_DEBUG=trace: TRACE for
+    the OLR adapter (every received and skipped event)."""
+    level = os.environ.get("OLRT_CONNECT_DEBUG")
+    if not level:
         return []
-    return ["-e", "CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_ORACLE_OLR=DEBUG",
+    olr = "TRACE" if level.lower() == "trace" else "DEBUG"
+    return ["-e", f"CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_ORACLE_OLR={olr}",
             "-e", "CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_COMMON=DEBUG",
-            "-e", "CONNECT_LOG4J_APPENDER_STDOUT_THRESHOLD=DEBUG"]
+            "-e", f"CONNECT_LOG4J_APPENDER_STDOUT_THRESHOLD={olr}"]
 
 
 NETADMIN_IMAGE = "olrt/netadmin:local"
