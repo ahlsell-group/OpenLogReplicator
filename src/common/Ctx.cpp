@@ -453,8 +453,12 @@ namespace OpenLogReplicator {
                 if (module == MEMORY::PARSER)
                     outOfMemoryParser = true;
 
-                if (hardShutdown)
-                    return nullptr;
+                // Only swap callers handle nullptr; the others would dereference it
+                if (hardShutdown) {
+                    if (swap)
+                        return nullptr;
+                    throw RuntimeException(10018, "shutdown during memory allocation");
+                }
 
                 if (unlikely(isTraceSet(TRACE::SLEEP)))
                     logTrace(TRACE::SLEEP, "Ctx:getMemoryChunk");
