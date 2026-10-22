@@ -82,8 +82,10 @@ int main() {
     BuilderJson builder(&ctx, &locales, &metadata, format, 0);
     builder.initialize();
 
-    // Three messages: two at scn 500, one at scn 600
+    // A checkpoint at scn 500, a change at 500 (counted as the parser's messages are), a checkpoint at 500, one at 600
     builder.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
+    ++builder.lwnIdx;
+    const typeIdx changeIdx = builder.lwnIdx;
     builder.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
     builder.processCheckpoint(Seq(1), Scn(600), Time(0), FileOffset(0), false);
 
@@ -92,21 +94,22 @@ int main() {
     const BuilderMsg* m3 = nextMsg(m2);
 
     check("first message of an scn has index 1", m1->lwnScn == Scn(500) && m1->lwnIdx == 1);
-    check("second message of the scn has index 2", m2->lwnScn == Scn(500) && m2->lwnIdx == 2);
+    check("the change after it has index 2", changeIdx == 2);
+    check("a checkpoint that does not move the position takes the last index", m2->lwnScn == Scn(500) && m2->lwnIdx == changeIdx);
     check("index restarts at a new scn", m3->lwnScn == Scn(600) && m3->lwnIdx == 1);
     check("header c_idx is the index of the first message", headerIdx(m1) == m1->lwnIdx);
-    check("header c_idx is the index of the second message", headerIdx(m2) == m2->lwnIdx);
+    check("header c_idx is the index of the second checkpoint", headerIdx(m2) == m2->lwnIdx);
     check("header c_idx is the index of the message at the new scn", headerIdx(m3) == m3->lwnIdx);
 
     // The client received the first message and continues with its (c_scn, c_idx)
     metadata.clientScn = m1->lwnScn;
     metadata.clientIdx = headerIdx(m1);
     check("the message the client received is not sent again", !metadata.isNewData(m1->lwnScn, m1->lwnIdx));
-    check("the message after the one the client received is sent", metadata.isNewData(m2->lwnScn, m2->lwnIdx));
+    check("the change after the one the client received is sent", metadata.isNewData(Scn(500), changeIdx));
 
-    // The client received the second message
-    metadata.clientIdx = headerIdx(m2);
-    check("the last message of the scn is not sent again", !metadata.isNewData(m2->lwnScn, m2->lwnIdx));
+    // The client received the change
+    metadata.clientIdx = changeIdx;
+    check("the checkpoint at the client's position is not sent again", !metadata.isNewData(m2->lwnScn, m2->lwnIdx));
     check("the first message of the next scn is sent", metadata.isNewData(m3->lwnScn, m3->lwnIdx));
 
     // The client continues at (c_scn, 0): everything at that scn is sent again

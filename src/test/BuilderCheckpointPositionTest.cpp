@@ -31,7 +31,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 // T1 commits at SCN 462 inside the LWN with SCN 455, then the checkpoint for LWN 455 is built, then T2 commits at 462
 // too. The checkpoint must not move the position back to 455, or T2 restarts the index at 462 and reuses positions
-// T1 already had: a client that continues from T1's last position would then skip T2's first messages.
+// T1 already had: a client that continues from T1's last position would then skip T2's first messages. The checkpoint
+// must not take an index either: after a restart from a start SCN above 455 it is not sent, and T2's positions must
+// be the same as before.
 namespace {
     int failures = 0;
 
@@ -87,16 +89,44 @@ int main() {
     // T2 commits at the same scn in the next LWN: its positions follow T1's
     builder.processBegin(Xid(2, 2, 2), 1, Seq(1), Scn(458), Time(0), Seq(1), Scn(462), Time(0), &attributes);
     check("T2 keeps the position scn", builder.lwnScn == t1Scn);
-    check("T2 continues the index after T1", builder.lwnIdx > t1LastIdx);
+    check("checkpoint takes no index of its own", chkpt->lwnIdx == t1LastIdx && builder.lwnIdx == t1LastIdx);
 
-    // A client that received all of T1 gets T2
+    // A client that received all of T1 gets T2's first message
     metadata.clientScn = t1Scn;
     metadata.clientIdx = t1LastIdx;
-    check("T2 is new data for a client at T1's last position", metadata.isNewData(builder.lwnScn, builder.lwnIdx));
+    check("T2 is new data for a client at T1's last position", metadata.isNewData(builder.lwnScn, builder.lwnIdx + 1));
 
     // A checkpoint at a higher scn still moves the position forward
     builder.processCheckpoint(Seq(1), Scn(470), Time(0), FileOffset(0), false);
     check("checkpoint at a higher scn moves the position forward", builder.lwnScn == Scn(470));
+
+    // T3 commits at a lower scn in a later LWN: its positions follow, they are not reused at 465
+    builder.processBegin(Xid(3, 3, 3), 1, Seq(1), Scn(466), Time(0), Seq(1), Scn(475), Time(0), &attributes);
+    builder.lwnIdx = 2;
+    const typeIdx t3LastIdx = builder.lwnIdx;
+    builder.processBegin(Xid(4, 4, 4), 1, Seq(1), Scn(464), Time(0), Seq(1), Scn(465), Time(0), &attributes);
+    check("lower commit scn keeps the position scn", builder.lwnScn == Scn(475));
+    check("lower commit scn continues the index", builder.lwnIdx == t3LastIdx);
+    metadata.clientScn = Scn(475);
+    metadata.clientIdx = t3LastIdx;
+    check("T4 is new data for a client at T3's last position", metadata.isNewData(builder.lwnScn, builder.lwnIdx + 1));
+
+    // The same T1 and T2 without the checkpoint (a restart with a start SCN above 455) give T2 the same positions
+    {
+        BuilderJson replay(&ctx, &locales, &metadata, format, 0);
+        replay.initialize();
+        replay.processBegin(Xid(1, 1, 1), 1, Seq(1), Scn(450), Time(0), Seq(1), Scn(462), Time(0), &attributes);
+        replay.lwnIdx = 3;
+        replay.processBegin(Xid(2, 2, 2), 1, Seq(1), Scn(458), Time(0), Seq(1), Scn(462), Time(0), &attributes);
+
+        BuilderJson live(&ctx, &locales, &metadata, format, 0);
+        live.initialize();
+        live.processBegin(Xid(1, 1, 1), 1, Seq(1), Scn(450), Time(0), Seq(1), Scn(462), Time(0), &attributes);
+        live.lwnIdx = 3;
+        live.processCheckpoint(Seq(1), Scn(455), Time(0), FileOffset(0), false);
+        live.processBegin(Xid(2, 2, 2), 1, Seq(1), Scn(458), Time(0), Seq(1), Scn(462), Time(0), &attributes);
+        check("T2 positions do not depend on the checkpoint being sent", live.lwnScn == replay.lwnScn && live.lwnIdx == replay.lwnIdx);
+    }
 
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";
