@@ -52,6 +52,12 @@ namespace OpenLogReplicator {
             bool available{false};
         };
 
+        // One copy of an archived redo log as V$ARCHIVED_LOG lists it, and whether OLR can open it
+        struct ArchivedCopy {
+            Seq sequence;
+            bool readable;
+        };
+
         struct Lost {
             OpenTransaction transaction;
             std::string reason;
@@ -62,6 +68,17 @@ namespace OpenLogReplicator {
             Seq sequence{Seq::none()};
             std::vector<Lost> lost;
         };
+
+        // The lowest sequence none of whose listed copies can be opened, Seq::none() if every sequence has one
+        static Seq firstUnreadable(const std::vector<ArchivedCopy>& copies) {
+            std::map<uint64_t, bool> readable;
+            for (const ArchivedCopy& copy: copies)
+                readable[copy.sequence.getData()] |= copy.readable;
+            for (const auto& [sequence, ok]: readable)
+                if (!ok)
+                    return Seq(static_cast<uint32_t>(sequence));
+            return Seq::none();
+        }
 
         // transactions: open at startup, in any order. firstDataScn: the starting SCN. maxAgeS: 0 = no limit.
         // locate: looks up the redo position of an SCN.

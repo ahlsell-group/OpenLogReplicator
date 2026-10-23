@@ -128,6 +128,17 @@ int main() {
         check("lookups cached", lookups == 3);
     }
 
+    {
+        // A sequence counts as readable when one of its copies is
+        using Copy = ColdStart::ArchivedCopy;
+        check("no archived logs listed", ColdStart::firstUnreadable({}) == Seq::none());
+        check("all copies readable", ColdStart::firstUnreadable({{Seq(10), true}, {Seq(11), true}}) == Seq::none());
+        check("missing log found", ColdStart::firstUnreadable({{Seq(10), true}, {Seq(11), false}, {Seq(12), true}}) == Seq(11));
+        check("second copy of a sequence is enough",
+              ColdStart::firstUnreadable({Copy{Seq(10), false}, Copy{Seq(10), true}, Copy{Seq(11), true}}) == Seq::none());
+        check("lowest missing sequence", ColdStart::firstUnreadable({{Seq(12), false}, {Seq(10), true}, {Seq(11), false}}) == Seq(11));
+    }
+
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;

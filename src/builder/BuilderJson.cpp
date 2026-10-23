@@ -658,7 +658,8 @@ namespace OpenLogReplicator {
 
     void BuilderJson::processCheckpoint(Seq sequence, Scn scn, Time timestamp, FileOffset fileOffset, bool redo) {
         // Never move the position back: the commits of an LWN carry SCNs above the LWN's own SCN
-        if (lwnScn == Scn::none() || scn > lwnScn) {
+        const bool moved = lwnScn == Scn::none() || scn > lwnScn;
+        if (moved) {
             lwnScn = scn;
             lwnIdx = 0;
         }
@@ -667,6 +668,10 @@ namespace OpenLogReplicator {
         if (redo)
             flags = static_cast<BuilderMsg::OUTPUT_BUFFER>(static_cast<uint>(flags) | static_cast<uint>(BuilderMsg::OUTPUT_BUFFER::REDO));
         builderBegin(sequence, scn, 0, flags);
+        // A checkpoint that does not move the position takes no index of its own: it is sent only above the start SCN, so an
+        // index it took would shift the positions of the messages that follow it after a restart from a lower start SCN
+        if (!moved)
+            msg->lwnIdx = --lwnIdx;
         append('{');
         hasPreviousValue = false;
         appendHeader(scn, timestamp, true, false, false, false);
