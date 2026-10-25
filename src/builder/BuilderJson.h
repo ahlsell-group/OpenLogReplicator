@@ -716,7 +716,8 @@ namespace OpenLogReplicator {
 
         template<bool fast = false>
         void appendEscape(const char* str, uint64_t size) {
-            if (fast || likely(lastBuilderSize + messagePosition + size * 5 < OUTPUT_BUFFER_DATA_SIZE)) {
+            // a control character takes 6 bytes (\u00XX)
+            if (fast || likely(lastBuilderSize + messagePosition + size * 6 < OUTPUT_BUFFER_DATA_SIZE)) {
                 appendEscapeInternal<true>(str, size);
             } else {
                 appendEscapeInternal<false>(str, size);
@@ -773,8 +774,9 @@ namespace OpenLogReplicator {
                     case 28:
                     case 29:
                     case 30:
+                    case 31:
                         append<fast>(std::string_view("\\u00"));
-                        appendDecN<2, fast>(*str);
+                        appendHex2<fast>(static_cast<uint8_t>(*str));
                         break;
                     case '"':
                     case '\\':
