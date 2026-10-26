@@ -20,12 +20,14 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <cstdio>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #include <rapidjson/document.h>
 
 #include "../builder/BuilderJson.h"
 #include "../common/Ctx.h"
 #include "../common/Format.h"
+#include "../common/RedoLogRecord.h"
 #include "../common/Thread.h"
 #include "../common/types/FileOffset.h"
 #include "../locales/Locales.h"
@@ -47,6 +49,18 @@ namespace OpenLogReplicator {
             std::string json(reinterpret_cast<const char*>(message->data), message->size);
             builder.releaseDdl();
             return json;
+        }
+
+        // The JSON message the builder writes for these 0x18010000 redo records
+        static std::string ddlRedoJson(BuilderJson& builder, const std::vector<const RedoLogRecord*>& records) {
+            builder.releaseDdl();
+            const uint64_t before = builder.lastBuilderSize;
+            const auto* message = reinterpret_cast<const BuilderMsg*>(builder.lastBuilderQueue->data + before);
+            for (const RedoLogRecord* record: records)
+                static_cast<Builder&>(builder).processDdl(Seq::zero(), Scn::zero(), Time(0), record);
+            if (builder.lastBuilderSize == before)
+                return "";
+            return {reinterpret_cast<const char*>(message->data), message->size};
         }
 
         static uint64_t ddlChunkCount(const Builder& builder) {
@@ -86,9 +100,44 @@ namespace {
         std::string getName() const override { return "test"; }
     };
 
+    // A little-endian 0x18010000 record: field 1 carries seq and cnt, then the given fields
+    class DdlRecord {
+    public:
+        OpenLogReplicator::RedoLogRecord record{};
+
+        DdlRecord(uint16_t seq, uint16_t cnt, const std::vector<std::string>& fields) {
+            std::string field1(24, '\0');
+            field1[18] = static_cast<char>(seq & 0xFF);
+            field1[19] = static_cast<char>(seq >> 8);
+            field1[20] = static_cast<char>(cnt & 0xFF);
+            field1[21] = static_cast<char>(cnt >> 8);
+            std::vector<std::string> all{field1};
+            all.insert(all.end(), fields.begin(), fields.end());
+
+            const uint64_t headerSize = ((all.size() + 1) * 2 + 3) & ~3ULL;
+            data.assign(headerSize, 0);
+            for (uint64_t i = 0; i < all.size(); ++i) {
+                data[(i + 1) * 2] = static_cast<uint8_t>(all[i].size() & 0xFF);
+                data[(i + 1) * 2 + 1] = static_cast<uint8_t>(all[i].size() >> 8);
+                data.insert(data.end(), all[i].begin(), all[i].end());
+                data.resize((data.size() + 3) & ~3ULL, 0);
+            }
+
+            record.clear();
+            record.dataExt = data.data();
+            record.obj = 1;
+            record.fieldCnt = static_cast<typeField>(all.size());
+            record.fieldSizesDelta = 0;
+            record.fieldPos = static_cast<typePos>(headerSize);
+            record.size = static_cast<uint32_t>(data.size());
+        }
+
+    private:
+        std::vector<uint8_t> data;
+    };
+
     // The DDL message parses as JSON and its "sql" is the expected UTF-8 text
-    void ddlMessage(OpenLogReplicator::BuilderJson& builder, const std::string& label, const std::string& redo, const std::string& expected) {
-        const std::string json = OpenLogReplicator::BuilderTestAccess::ddlJson(builder, redo);
+    void checkSql(const std::string& label, const std::string& json, const std::string& expected) {
 
         rapidjson::Document document;
         document.Parse(json.c_str(), json.size());
@@ -105,6 +154,10 @@ namespace {
         if (sql != expected)
             std::cerr << "     expected " << expected << ", got " << sql << "\n";
         check(label + ": sql is the text in UTF-8", sql == expected);
+    }
+
+    void ddlMessage(OpenLogReplicator::BuilderJson& builder, const std::string& label, const std::string& redo, const std::string& expected) {
+        checkSql(label, OpenLogReplicator::BuilderTestAccess::ddlJson(builder, redo), expected);
     }
 }
 
@@ -126,6 +179,7 @@ int main() {
                   Format::SCHEMA_FORMAT::DEFAULT, Format::COLUMN_FORMAT::CHANGED, Format::UNKNOWN_TYPE::HIDE, Format::USER_TYPE::DEFAULT);
     BuilderJson builder(&ctx, &locales, &metadata, format, 0);
     builder.initialize();
+    ctx.flags = static_cast<uint>(Ctx::REDO_FLAGS::SHOW_DDL);
 
     // WE8ISO8859P1: one byte per character, 0xF6 is ö
     metadata.defaultCharacterMapId = 31;
@@ -134,6 +188,15 @@ int main() {
     ddlMessage(builder, "WE8ISO8859P1 quote and newline", "ALTER TABLE T ADD (\"K\xD6\" NUMBER)\n",
                "ALTER TABLE T ADD (\"K\xC3\x96\" NUMBER)\n");
     ddlMessage(builder, "ASCII", "TRUNCATE TABLE EHDA.T", "TRUNCATE TABLE EHDA.T");
+
+    // The redo-record path: a DDL that fits in one record has its text in field 8, a longer one in field 2 of each later record
+    const std::string latinSql = "COMMENT ON COLUMN EHDA.T.C IS 'f\xF6r \xC5\xC4\xD6'";
+    const std::string utf8Sql = "COMMENT ON COLUMN EHDA.T.C IS 'f\xC3\xB6r \xC3\x85\xC3\x84\xC3\x96'";
+    const DdlRecord single(1, 1, {"EHDA", "", "", "", "", "", latinSql + std::string(1, '\0')});
+    checkSql("one redo record", BuilderTestAccess::ddlRedoJson(builder, {&single.record}), utf8Sql);
+    const DdlRecord first(1, 2, {"EHDA"});
+    const DdlRecord second(2, 2, {latinSql});
+    checkSql("two redo records", BuilderTestAccess::ddlRedoJson(builder, {&first.record, &second.record}), utf8Sql);
 
     // AL32UTF8: the text is already UTF-8 and passes unchanged, also when a character is split between two DDL chunks
     metadata.defaultCharacterMapId = 873;

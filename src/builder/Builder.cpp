@@ -1846,6 +1846,7 @@ namespace OpenLogReplicator {
         if (ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_DDL)) {
             appendDdlChunk(redoLogRecord1->data(fieldPos), fieldSize - 1U);
             if (seq == cnt) {
+                ddlToValueBuffer(redoLogRecord1->fileOffset);
                 processDdl(sequence, scn, timestamp, table, redoLogRecord1->obj);
                 releaseDdl();
             }
