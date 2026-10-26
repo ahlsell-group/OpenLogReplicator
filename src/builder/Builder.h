@@ -58,6 +58,7 @@ namespace OpenLogReplicator {
     class Builder;
     class Ctx;
     class CharacterSet;
+    class DbColumn;
     class DbTable;
     class Locales;
     class Metadata;
@@ -433,6 +434,8 @@ namespace OpenLogReplicator {
                 ctx->warning(60002, "unknown value (column: " + columnName + "): " + std::to_string(size) + " - " + ss.str());
             }
         }
+
+        void columnUnknownDate(const DbTable* table, const DbColumn* column, const uint8_t* data, uint32_t size, FileOffset fileOffset);
 
         void valueBufferAppend(const char* text, uint32_t size) {
             for (uint32_t i = 0; i < size; ++i)
