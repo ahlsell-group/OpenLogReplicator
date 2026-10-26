@@ -198,10 +198,6 @@ namespace OpenLogReplicator {
                         columnUnknown(column->name, data, size);
                     } else {
                         time_t timestamp = Data::valuesToEpoch(year, month, day, hour, minute, second, metadata->dbTimezone);
-                        if (year < 0 && fraction > 0) {
-                            fraction = 1000000000 - fraction;
-                            --timestamp;
-                        }
                         columnTimestamp(column->name, timestamp, fraction);
                     }
                 }
@@ -242,10 +238,6 @@ namespace OpenLogReplicator {
                         columnUnknown(column->name, data, size);
                     } else {
                         time_t timestamp = Data::valuesToEpoch(year, month, day, hour, minute, second, 0);
-                        if (year < 0 && fraction > 0) {
-                            fraction = 1000000000 - fraction;
-                            --timestamp;
-                        }
                         columnTimestamp(column->name, timestamp, fraction);
                     }
                 }
@@ -342,10 +334,6 @@ namespace OpenLogReplicator {
                         columnUnknown(column->name, data, size);
                     } else {
                         time_t timestamp = Data::valuesToEpoch(year, month, day, hour, minute, second, 0);
-                        if (year < 0 && fraction > 0) {
-                            fraction = 1000000000 - fraction;
-                            --timestamp;
-                        }
                         columnTimestampTz(column->name, timestamp, fraction, tz);
                     }
                 }

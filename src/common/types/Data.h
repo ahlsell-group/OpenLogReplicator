@@ -28,7 +28,7 @@ namespace OpenLogReplicator {
     class Data final {
     protected:
         static constexpr time_t UNIX_AD1970_01_01{62167132800L};
-        static constexpr time_t UNIX_BC1970_01_01{62167132800L - (static_cast<long>(365 * 24 * 60 * 60))};
+        static constexpr time_t UNIX_BC1970_01_01{62167219200L};
         static constexpr time_t UNIX_BC4712_01_01{-210831897600L};
         static constexpr time_t UNIX_AD9999_12_31{253402300799L};
 
