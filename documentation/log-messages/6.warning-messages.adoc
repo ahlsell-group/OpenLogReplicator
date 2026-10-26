@@ -191,6 +191,7 @@ Remediation: Verify XML content and source XML dictionary metadata.
 ==== code 60037: "incorrect DDL data, offset: <number>"
 
 DDL-related system data is malformed or unexpected.
+The variant "incorrect DDL data, owner name size: <number>, offset: <number>" means the owner name of the DDL record is longer than 128 bytes; the DDL message is sent without the owner.
 Remediation: Inspect raw DDL records and source metadata; report if reproducible.
 
 ==== code 60038: "can't read SYS.V_$TRANSACTION, transactions open at the starting scn which began in earlier redo logs will be skipped"
