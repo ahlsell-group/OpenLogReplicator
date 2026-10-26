@@ -1811,6 +1811,7 @@ namespace OpenLogReplicator {
                 appendDdlChunk(redoLogRecord1->data(fieldPos), fieldSize);
 
                 if (seq == cnt) {
+                    ddlToValueBuffer(redoLogRecord1->fileOffset);
                     processDdl(sequence, scn, timestamp, table, redoLogRecord1->obj);
                     releaseDdl();
                 }
@@ -2503,6 +2504,22 @@ namespace OpenLogReplicator {
             ddlSize += move;
             size -= move;
             data += move;
+        }
+    }
+
+    // The SQL text in redo is in the database character set; convert it to UTF-8 like a VARCHAR2 value
+    void Builder::ddlToValueBuffer(FileOffset fileOffset) {
+        valueBufferPurge();
+        const uint8_t* chunk = ddlFirst;
+        bool hasPrev = false;
+        while (chunk != nullptr) {
+            const uint8_t* chunkNext = *reinterpret_cast<uint8_t* const*>(chunk);
+            const typeTransactionSize chunkSize = *reinterpret_cast<const typeTransactionSize*>(chunk + sizeof(uint8_t*));
+            const uint8_t* chunkData = chunk + sizeof(uint8_t*) + sizeof(uint64_t);
+            valueBufferCheck((chunkSize + CharacterSet::MAX_CHARACTER_LENGTH) * 4, fileOffset);
+            parseString(chunkData, chunkSize, metadata->defaultCharacterMapId, fileOffset, true, hasPrev, chunkNext != nullptr, true);
+            hasPrev = true;
+            chunk = chunkNext;
         }
     }
 

@@ -1356,6 +1356,7 @@ namespace OpenLogReplicator {
         void releaseBuffers(Thread* t, uint64_t maxId);
         void releaseDdl();
         void appendDdlChunk(const uint8_t* data, typeTransactionSize size);
+        void ddlToValueBuffer(FileOffset fileOffset);
         void sleepForWriterWork(Thread* t, uint64_t queueSize, uint64_t nanoseconds);
         void wakeUp();
 
