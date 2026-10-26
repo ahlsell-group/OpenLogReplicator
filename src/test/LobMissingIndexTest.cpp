@@ -38,10 +38,14 @@ If not, see <http://www.gnu.org/licenses/>. */
 namespace OpenLogReplicator {
     class BuilderTestAccess {
     public:
-        static bool parseLob(Builder& builder, LobCtx& lobCtx, const std::vector<uint8_t>& data, bool isClob, uint64_t& valueSize) {
-            const bool ok = builder.parseLob(&lobCtx, data.data(), data.size(), isClob ? 31 : 0, 12345, FileOffset(4096), isClob, false);
+        static bool parseLob(Builder& builder, LobCtx& lobCtx, const std::vector<uint8_t>& data, bool isClob, uint64_t& valueSize, typeObj obj) {
+            const bool ok = builder.parseLob(&lobCtx, data.data(), data.size(), isClob ? 31 : 0, obj, FileOffset(4096), isClob, false);
             valueSize = builder.valueSize;
             return ok;
+        }
+
+        static void setCommitTimestamp(Builder& builder, uint32_t time) {
+            builder.commitTimestamp = Time(time);
         }
     };
 }
@@ -94,10 +98,10 @@ namespace {
 
     // Runs parseLob with stderr captured, so the warning it logs can be checked
     bool parseLobCaptured(OpenLogReplicator::Builder& builder, OpenLogReplicator::LobCtx& lobCtx, const std::vector<uint8_t>& data, bool isClob,
-                          uint64_t& valueSize, std::string& log) {
+                          uint64_t& valueSize, std::string& log, typeObj obj = 12345) {
         std::ostringstream captured;
         std::streambuf* old = std::cerr.rdbuf(captured.rdbuf());
-        const bool ok = OpenLogReplicator::BuilderTestAccess::parseLob(builder, lobCtx, data, isClob, valueSize);
+        const bool ok = OpenLogReplicator::BuilderTestAccess::parseLob(builder, lobCtx, data, isClob, valueSize, obj);
         std::cerr.rdbuf(old);
         log = captured.str();
         return ok;
@@ -141,9 +145,38 @@ int main() {
         std::cout << "     log: " << log;
 
     // Out-of-row BLOB, LOB index missing: the column is left out, not sent as an empty RAW
-    ok = parseLobCaptured(builder, lobCtx, outOfRowLocator(), false, valueSize, log);
+    ok = parseLobCaptured(builder, lobCtx, outOfRowLocator(), false, valueSize, log, 12346);
     check("BLOB without LOB index: parseLob returns false (column left out)", !ok);
     check("BLOB without LOB index: warning 60050 is logged", log.find("60050") != std::string::npos);
+
+    // Repeats for the same table within 60 s of commit time are counted, not logged
+    int warnings = 0;
+    bool allLeftOut = true;
+    for (int i = 0; i < 1000; ++i) {
+        allLeftOut &= !parseLobCaptured(builder, lobCtx, outOfRowLocator(), true, valueSize, log);
+        if (log.find("60050") != std::string::npos)
+            ++warnings;
+    }
+    check("repeated missing LOB index: every column left out", allLeftOut);
+    check("repeated missing LOB index within 60 s: no further warning", warnings == 0);
+
+    // 60 s of commit time later the next one is logged in full, with the count left out
+    BuilderTestAccess::setCommitTimestamp(builder, 60);
+    ok = parseLobCaptured(builder, lobCtx, outOfRowLocator(), true, valueSize, log);
+    check("missing LOB index after 60 s: column left out", !ok);
+    check("missing LOB index after 60 s: warning 60050 is logged", log.find("60050") != std::string::npos);
+    check("missing LOB index after 60 s: warning names the LOB id", log.find(lobIdText) != std::string::npos);
+    check("missing LOB index after 60 s: warning counts the suppressed ones",
+          log.find("suppressed since last warning: 1000") != std::string::npos);
+    if (!log.empty())
+        std::cout << "     log: " << log;
+    ok = parseLobCaptured(builder, lobCtx, outOfRowLocator(), true, valueSize, log);
+    check("missing LOB index right after: no warning", log.empty());
+
+    // Another table is not held back by the first one
+    ok = parseLobCaptured(builder, lobCtx, outOfRowLocator(), true, valueSize, log, 54321);
+    check("missing LOB index for another table: warning 60050 is logged", log.find("60050") != std::string::npos);
+    check("missing LOB index for another table: no suppressed count", log.find("suppressed") == std::string::npos);
 
     // An empty in-row LOB is still an empty value
     ok = parseLobCaptured(builder, lobCtx, inValueLocator(""), false, valueSize, log);
