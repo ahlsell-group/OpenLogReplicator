@@ -243,6 +243,7 @@ namespace OpenLogReplicator {
 
         void processValue(LobCtx* lobCtx, const XmlCtx* xmlCtx, const DbTable* table, typeCol col, const uint8_t* data, uint32_t size, FileOffset fileOffset,
                           bool after, bool compressed);
+        void warnHiddenType(const DbTable* table, DbColumn* column) const;
 
         // Rare paths kept out of line, so valueSet and releaseValues stay small enough to be inlined
         __attribute__((noinline, cold)) void valuePartMoreAdd(Format::VALUE_TYPE type, uint16_t column, const uint8_t* data, typeSize size);

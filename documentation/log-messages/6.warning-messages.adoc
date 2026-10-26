@@ -238,3 +238,10 @@ A row carries an out-of-row LOB locator, but the transaction has no LOB index fo
 The column is left out of the message instead of being sent as an empty CLOB or BLOB; Debezium marks a missing LOB column as unavailable.
 The warning is logged at most once per table (obj) per 60 seconds of commit time; the next one counts the occurrences left out in between.
 See comment for warning 60002.
+
+==== code 60043: "values of column <owner>.<table>.<column> type <type> (<number>) are not sent, the type is not supported"
+
+A DML record carried a value of a column whose type OpenLogReplicator does not decode: LONG, LONG RAW, ROWID, XMLTYPE (type 58), or JSON without the `EXPERIMENTAL_JSON` flag.
+With `unknown-type: 0` (the default) the column is left out of the message, so the consumer cannot tell it from an unchanged column.
+Logged once per table and column, the first time a value is dropped; it can be logged again after the table definition is reloaded.
+Remediation: Change the column type, or set `unknown-type: 1` to send the column with the unknown-value placeholder; for JSON set the `EXPERIMENTAL_JSON` flag.
