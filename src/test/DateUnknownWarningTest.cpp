@@ -33,7 +33,8 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../metadata/Metadata.h"
 
 // A DATE or TIMESTAMP value that can't be decoded (wrong length, month 0, a field out of range) is sent as "?", which
-// Debezium turns into NULL or epoch 0; every such value logs warning 60043 with the file offset, table, column and raw bytes.
+// Debezium turns into NULL or epoch 0; warning 60043 with the file offset, table, column and raw bytes is logged for the
+// 1st, 10th, 100th, ... such value of each column, so a column that is corrupt in every row does not flood the log.
 namespace OpenLogReplicator {
     class BuilderTestAccess {
     public:
@@ -130,7 +131,7 @@ int main() {
     BuilderJson builder(&ctx, &locales, &metadata, format, 0);
     builder.initialize();
 
-    // TEST.T: D DATE, TS TIMESTAMP, LTZ TIMESTAMP WITH LOCAL TIME ZONE, TZ TIMESTAMP WITH TIME ZONE
+    // TEST.T: D DATE, TS TIMESTAMP, LTZ TIMESTAMP WITH LOCAL TIME ZONE, TZ TIMESTAMP WITH TIME ZONE, D2 D3 F DATE
     DbTable table(1001, 1001, 100, 0, DbTable::OPTIONS::DEFAULT, "TEST", "T");
     table.addColumn(new DbColumn(1, -1, 1, "D", SysCol::COLTYPE::DATE, 7, -1, -1, 0, 0, true, false, false, false, false, false, false, false,
                                  false));
@@ -140,6 +141,12 @@ int main() {
                                  false, false, false, false));
     table.addColumn(new DbColumn(4, -1, 4, "TZ", SysCol::COLTYPE::TIMESTAMP_WITH_TZ, 13, -1, -1, 0, 0, true, false, false, false, false, false,
                                  false, false, false));
+    table.addColumn(new DbColumn(5, -1, 5, "D2", SysCol::COLTYPE::DATE, 7, -1, -1, 0, 0, true, false, false, false, false, false, false, false,
+                                 false));
+    table.addColumn(new DbColumn(6, -1, 6, "D3", SysCol::COLTYPE::DATE, 7, -1, -1, 0, 0, true, false, false, false, false, false, false, false,
+                                 false));
+    table.addColumn(new DbColumn(7, -1, 7, "F", SysCol::COLTYPE::DATE, 7, -1, -1, 0, 0, true, false, false, false, false, false, false, false,
+                                 false));
 
     // 2024-01-15 10:20:30
     expectNoWarning(builder, &table, 0, "valid DATE", {0x78, 0x7c, 0x01, 0x0f, 0x0b, 0x15, 0x1f});
@@ -147,9 +154,9 @@ int main() {
 
     expectWarning(builder, &table, 0, "D", "DATE with month 0", {0x78, 0x7c, 0x00, 0x0f, 0x0b, 0x15, 0x1f}, 123456,
                   "78 7c 00 0f 0b 15 1f");
-    expectWarning(builder, &table, 0, "D", "DATE with hour 24", {0x78, 0x7c, 0x01, 0x0f, 0x19, 0x15, 0x1f}, 7,
+    expectWarning(builder, &table, 4, "D2", "DATE with hour 24", {0x78, 0x7c, 0x01, 0x0f, 0x19, 0x15, 0x1f}, 7,
                   "78 7c 01 0f 19 15 1f");
-    expectWarning(builder, &table, 0, "D", "DATE of 5 bytes", {0x78, 0x7c, 0x01, 0x0f, 0x0b}, 4096, "78 7c 01 0f 0b");
+    expectWarning(builder, &table, 5, "D3", "DATE of 5 bytes", {0x78, 0x7c, 0x01, 0x0f, 0x0b}, 4096, "78 7c 01 0f 0b");
     expectWarning(builder, &table, 1, "TS", "TIMESTAMP with fraction above 999999999",
                   {0x78, 0x7c, 0x01, 0x0f, 0x0b, 0x15, 0x1f, 0x3b, 0x9a, 0xca, 0x00}, 99, "78 7c 01 0f 0b 15 1f 3b 9a ca 00");
     expectWarning(builder, &table, 2, "LTZ", "TIMESTAMP WITH LOCAL TIME ZONE with day 0", {0x78, 0x7c, 0x01, 0x00, 0x0b, 0x15, 0x1f}, 512,
@@ -157,6 +164,30 @@ int main() {
     expectWarning(builder, &table, 3, "TZ", "TIMESTAMP WITH TIME ZONE with minute 60",
                   {0x78, 0x7c, 0x01, 0x0f, 0x0b, 0x3d, 0x1f, 0x00, 0x00, 0x00, 0x00, 0x14, 0x3c}, 1024,
                   "78 7c 01 0f 0b 3d 1f 00 00 00 00 14 3c");
+
+    // A column corrupt in every row: 1500 values log 4 lines (occurrence 1, 10, 100, 1000), the first one complete
+    std::vector<std::string> lines;
+    bool allQuestionMark = true;
+    for (uint64_t i = 1; i <= 1500; ++i) {
+        const Result result = run(builder, &table, 6, {0x78, 0x7c, 0x00, 0x0f, 0x0b, 0x15, 0x1f}, 1000 + i);
+        allQuestionMark = allQuestionMark && result.json == "\"F\":\"?\"";
+        std::istringstream log(result.log);
+        for (std::string line; std::getline(log, line);)
+            if (contains(line, "60043"))
+                lines.push_back(line);
+    }
+    check("flood: every value is sent as \"?\"", allQuestionMark);
+    check("flood: 4 warnings for 1500 values", lines.size() == 4);
+    if (lines.size() == 4) {
+        check("flood: first warning is complete",
+              contains(lines[0], "offset: 1001,") && contains(lines[0], "table: TEST.T") && contains(lines[0], "column: F") &&
+                      contains(lines[0], "size: 7") && contains(lines[0], "data: 78 7c 00 0f 0b 15 1f") && contains(lines[0], "occurrences: 1"));
+        check("flood: 10th value logged", contains(lines[1], "offset: 1010,") && contains(lines[1], "occurrences: 10"));
+        check("flood: 100th value logged", contains(lines[2], "offset: 1100,") && contains(lines[2], "occurrences: 100"));
+        check("flood: 1000th value logged", contains(lines[3], "offset: 2000,") && contains(lines[3], "occurrences: 1000"));
+    } else
+        for (const auto& line: lines)
+            std::cout << "     log: " << line << "\n";
 
     if (failures > 0) {
         std::cout << failures << " check(s) failed\n";

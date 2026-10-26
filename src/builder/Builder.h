@@ -147,6 +147,8 @@ namespace OpenLogReplicator {
         char* valueBufferOld{nullptr};
         uint64_t valueSizeOld{0};
         std::unordered_set<const DbTable*> tables;
+        // Undecodable date/timestamp values per owner.table.column; warning 60043 is logged at occurrence 1, 10, 100, ...
+        std::unordered_map<std::string, uint64_t> unknownDateCount;
         uint64_t lastBuilderSize{0};
         Scn beginScn{Scn::none()};
         Scn commitScn{Scn::none()};
