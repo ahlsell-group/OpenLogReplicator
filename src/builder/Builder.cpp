@@ -655,7 +655,7 @@ namespace OpenLogReplicator {
             default:
                 typeName = "unknown";
         }
-        ctx->warning(60043, "values of column " + table->owner + "." + table->name + "." + column->name + " type " + typeName + " (" +
+        ctx->warning(60045, "values of column " + table->owner + "." + table->name + "." + column->name + " type " + typeName + " (" +
                      std::to_string(static_cast<uint>(column->type)) + ") are not sent, the type is not supported");
     }
 

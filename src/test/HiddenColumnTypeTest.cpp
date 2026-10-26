@@ -33,7 +33,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../metadata/Metadata.h"
 
 // With unknown-type HIDE the builder leaves out LONG, LONG RAW, ROWID, XMLTYPE and (without EXPERIMENTAL_JSON) JSON
-// values and logs warning 60043 once per table and column the first time it drops one.
+// values and logs warning 60045 once per table and column the first time it drops one.
 namespace OpenLogReplicator {
     class BuilderTestAccess {
     public:
@@ -136,7 +136,7 @@ int main() {
 
     check("NUMBER column is sent", idOut == R"("ID":1,"ID":1,"ID":1,"ID":1,"ID":1,"ID":1)");
     check("the hidden columns add nothing to the message", hiddenOut.empty());
-    check("one warning 60043 per table and hidden column (10)", count(text, "WARN  60043 ") == 10);
+    check("one warning 60045 per table and hidden column (10)", count(text, "WARN  60045 ") == 10);
     check("no warning for the NUMBER column", count(text, "column ID") == 0 && count(text, ".ID ") == 0);
     for (const char* table: {"TEST.T1", "TEST.T2"}) {
         const std::string name(table);
