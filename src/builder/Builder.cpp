@@ -1245,6 +1245,9 @@ namespace OpenLogReplicator {
                             mergeSize += sizesPart[0][column][j];
                         if (valuesPart[1][column][j] != nullptr)
                             mergeSize += sizesPart[1][column][j];
+                        for (const auto& part: valuesPartMore)
+                            if (part.column == column && part.type == static_cast<uint>(j))
+                                mergeSize += part.size;
                         if (valuesPart[2][column][j] != nullptr)
                             mergeSize += sizesPart[2][column][j];
 
@@ -1271,6 +1274,12 @@ namespace OpenLogReplicator {
                             memcpy(buffer, valuesPart[1][column][j], sizesPart[1][column][j]);
                             buffer += sizesPart[1][column][j];
                             valuesPart[1][column][j] = nullptr;
+                        }
+                        for (const auto& part: valuesPartMore) {
+                            if (part.column == column && part.type == static_cast<uint>(j)) {
+                                memcpy(buffer, part.data, part.size);
+                                buffer += part.size;
+                            }
                         }
                         if (valuesPart[2][column][j] != nullptr) {
                             memcpy(buffer, valuesPart[2][column][j], sizesPart[2][column][j]);

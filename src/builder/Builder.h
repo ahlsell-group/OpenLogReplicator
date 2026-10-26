@@ -30,6 +30,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "../common/Attribute.h"
 #include "../common/Ctx.h"
@@ -159,6 +160,14 @@ namespace OpenLogReplicator {
         const uint8_t* values[Ctx::COLUMN_LIMIT_23_0][static_cast<uint>(Format::VALUE_TYPE::LENGTH)]{};
         uint64_t sizesPart[3][Ctx::COLUMN_LIMIT_23_0][static_cast<uint>(Format::VALUE_TYPE::LENGTH)]{};
         const uint8_t* valuesPart[3][Ctx::COLUMN_LIMIT_23_0][static_cast<uint>(Format::VALUE_TYPE::LENGTH)]{};
+        struct ValuePart {
+            typeCol column;
+            uint type;
+            const uint8_t* data;
+            uint64_t size;
+        };
+        // Middle parts after the first one (valuesPart[1]) of a column split over four or more row pieces, in arrival order
+        std::vector<ValuePart> valuesPartMore;
         typeCol valuesMax{0};
         uint8_t* merges[Ctx::COLUMN_LIMIT_23_0 * static_cast<int>(Format::VALUE_TYPE::LENGTH)]{};
         typeCol mergesMax{0};
@@ -229,6 +238,7 @@ namespace OpenLogReplicator {
             for (typeCol i = 0; i < mergesMax; ++i)
                 delete[] merges[i];
             mergesMax = 0;
+            valuesPartMore.clear();
 
             const typeCol baseMax = valuesMax >> 6;
             for (typeCol base = 0; base <= baseMax; ++base) {
@@ -282,8 +292,12 @@ namespace OpenLogReplicator {
                     break;
 
                 case RedoLogRecord::FB_P | RedoLogRecord::FB_N:
-                    sizesPart[1][column][static_cast<uint>(type)] = size;
-                    valuesPart[1][column][static_cast<uint>(type)] = data;
+                    if (valuesPart[1][column][static_cast<uint>(type)] != nullptr) {
+                        valuesPartMore.push_back({static_cast<typeCol>(column), static_cast<uint>(type), data, size});
+                    } else {
+                        sizesPart[1][column][static_cast<uint>(type)] = size;
+                        valuesPart[1][column][static_cast<uint>(type)] = data;
+                    }
                     if ((valuesMerge[base] & mask) == 0)
                         valuesMerge[base] |= mask;
                     break;
