@@ -29,6 +29,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/Format.h"
 #include "../common/RedoLogRecord.h"
 #include "../common/Thread.h"
+#include "../common/exception/RedoLogException.h"
 #include "../common/types/FileOffset.h"
 #include "../locales/Locales.h"
 #include "../metadata/Metadata.h"
@@ -209,6 +210,17 @@ int main() {
     const std::string converted = BuilderTestAccess::ddlConverted(builder, split, chunks);
     check("AL32UTF8 split: the text spans two chunks", chunks == 2);
     check("AL32UTF8 split: the character across the chunk boundary is kept", converted == split);
+
+    // No known character set (schemaless mode without a schema file): the text is copied as it is, it does not throw
+    metadata.defaultCharacterMapId = 0;
+    try {
+        ddlMessage(builder, "no character set ASCII", "TRUNCATE TABLE EHDA.T", "TRUNCATE TABLE EHDA.T");
+        ddlMessage(builder, "no character set raw byte", "COMMENT ON TABLE T IS 'f\xF6r'", "COMMENT ON TABLE T IS 'f\xF6r'");
+        checkSql("no character set one redo record", BuilderTestAccess::ddlRedoJson(builder, {&single.record}), latinSql);
+    } catch (const RedoLogException& e) {
+        std::cerr << "     " << e.msg << "\n";
+        check("no character set: the DDL does not throw", false);
+    }
 
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";

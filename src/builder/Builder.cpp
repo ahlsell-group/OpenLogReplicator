@@ -2511,6 +2511,9 @@ namespace OpenLogReplicator {
     // The SQL text in redo is in the database character set; convert it to UTF-8 like a VARCHAR2 value
     void Builder::ddlToValueBuffer(FileOffset fileOffset) {
         valueBufferPurge();
+        // Without a known database character set (schemaless mode) the text is copied as it is
+        const auto charsetIt = locales->characterMap.find(metadata->defaultCharacterMapId);
+        const bool convert = charsetIt != locales->characterMap.end() && charsetIt->second != nullptr;
         const uint8_t* chunk = ddlFirst;
         bool hasPrev = false;
         while (chunk != nullptr) {
@@ -2518,7 +2521,10 @@ namespace OpenLogReplicator {
             const typeTransactionSize chunkSize = *reinterpret_cast<const typeTransactionSize*>(chunk + sizeof(uint8_t*));
             const uint8_t* chunkData = chunk + sizeof(uint8_t*) + sizeof(uint64_t);
             valueBufferCheck((chunkSize + CharacterSet::MAX_CHARACTER_LENGTH) * 4, fileOffset);
-            parseString(chunkData, chunkSize, metadata->defaultCharacterMapId, fileOffset, true, hasPrev, chunkNext != nullptr, true);
+            if (convert)
+                parseString(chunkData, chunkSize, metadata->defaultCharacterMapId, fileOffset, true, hasPrev, chunkNext != nullptr, true);
+            else
+                valueBufferAppend(reinterpret_cast<const char*>(chunkData), static_cast<uint32_t>(chunkSize));
             hasPrev = true;
             chunk = chunkNext;
         }
