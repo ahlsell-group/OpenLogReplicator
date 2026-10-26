@@ -649,10 +649,13 @@ namespace OpenLogReplicator {
             if ((flags & 0x04) == 0) {
                 auto lobsIt = lobCtx->lobs.find(lobId);
                 if (unlikely(lobsIt == lobCtx->lobs.end())) {
+                    // The value is unknown, so the column is left out instead of being sent as an empty LOB
+                    ctx->warning(60050, "missing LOB index for xid: " + lastXid.toString() + ", LOB: " + lobId.lower() + ", obj: " +
+                                 std::to_string(obj) + ", offset: " + fileOffset.toString());
                     if (unlikely(ctx->isTraceSet(Ctx::TRACE::LOB_DATA)))
                         ctx->logTrace(Ctx::TRACE::LOB_DATA, "LOB missing LOB index xid: " + lastXid.toString() + " LOB: " + lobId.lower() +
                                       " data: " + dumpLob(data, size));
-                    return true;
+                    return false;
                 }
                 LobData* lobData = lobsIt->second;
                 valueBufferCheck(lobData->pageSize * static_cast<uint64_t>(lobData->sizePages) + lobData->sizeRest, fileOffset);
