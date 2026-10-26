@@ -674,6 +674,7 @@ namespace OpenLogReplicator {
     // 0x05010B0B
     void Builder::processInsertMultiple(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const RedoLogRecord* redoLogRecord1,
                                         const RedoLogRecord* redoLogRecord2, bool system, bool schema, bool dump) {
+        const ValuesGuard valuesGuard(this);
         typePos fieldPos = 0;
         typeField fieldNum = 0;
         typeSize fieldSize = 0;
@@ -765,6 +766,7 @@ namespace OpenLogReplicator {
     // 0x05010B0C
     void Builder::processDeleteMultiple(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const RedoLogRecord* redoLogRecord1,
                                         const RedoLogRecord* redoLogRecord2, bool system, bool schema, bool dump) {
+        const ValuesGuard valuesGuard(this);
         typePos fieldPos = 0;
         typeField fieldNum = 0;
         typeSize fieldSize = 0;
@@ -854,8 +856,35 @@ namespace OpenLogReplicator {
         }
     }
 
+    void Builder::valuePartMoreAdd(Format::VALUE_TYPE type, uint16_t column, const uint8_t* data, typeSize size) {
+        valuesPartMore.push_back({static_cast<typeCol>(column), static_cast<uint>(type), data, size});
+    }
+
+    void Builder::valueDump(Format::VALUE_TYPE type, uint16_t column, const uint8_t* data, typeSize size, uint8_t fb) const {
+        std::ostringstream ss;
+        ss << "DML: value: " << std::dec << static_cast<uint>(type) << "/" << column << "/" << std::dec << size << "/" << std::setfill('0') <<
+                std::setw(2) << std::hex << static_cast<uint>(fb) << " to: ";
+        for (typeSize i = 0; i < size && i < 64; ++i) {
+            ss << "0x" << std::setfill('0') << std::setw(2) << std::hex << static_cast<uint>(data[i]) << ", ";
+        }
+        ctx->info(0, ss.str());
+    }
+
+    void Builder::valuesPartRelease(typeCol base) {
+        const auto columnBase = static_cast<typeCol>(base << 6);
+        while (valuesMerge[base] != 0) {
+            const typeCol pos = ffsll(valuesMerge[base]) - 1;
+            valuesMerge[base] &= ~(1ULL << pos);
+            const typeCol column = columnBase + pos;
+            for (auto& part: valuesPart)
+                for (auto& value: part[column])
+                    value = nullptr;
+        }
+    }
+
     void Builder::processDml(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const std::deque<const RedoLogRecord*>& redo1,
                              const std::deque<const RedoLogRecord*>& redo2, Format::TRANSACTION_TYPE transactionType, bool system, bool schema, bool dump) {
+        const ValuesGuard valuesGuard(this);
         uint8_t fb;
         typeObj obj;
         typeDataObj dataObj;
@@ -1704,8 +1733,6 @@ namespace OpenLogReplicator {
                 }
             }
         }
-
-        releaseValues();
     }
 
     // 0x18010000

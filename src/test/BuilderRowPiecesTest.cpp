@@ -63,6 +63,7 @@ namespace {
     class TestBuilder final : public Builder {
     public:
         uint64_t updates{0};
+        bool failUpdate{false};
         std::string before;
         std::string after;
 
@@ -84,6 +85,8 @@ namespace {
         void columnTimestampTz(const std::string&, time_t, uint64_t, const std::string_view&) override {}
         void processInsert(Seq, Scn, Time, LobCtx*, const XmlCtx*, const DbTable*, typeObj, typeDataObj, typeDba, typeSlot, FileOffset) override {}
         void processUpdate(Seq, Scn, Time, LobCtx*, const XmlCtx*, const DbTable*, typeObj, typeDataObj, typeDba, typeSlot, FileOffset) override {
+            if (failUpdate)
+                throw RedoLogException(50009, "simulated error while building the message");
             ++updates;
             before = image(Format::VALUE_TYPE::BEFORE);
             after = image(Format::VALUE_TYPE::AFTER);
@@ -178,6 +181,18 @@ namespace {
         check(label + ": before image is " + expectBefore + " (got " + builder.before + ")", builder.before == expectBefore);
         check(label + ": after image is " + expectAfter + " (got " + builder.after + ")", builder.after == expectAfter);
     }
+
+    // An UPDATE that throws in processDml, as under IGNORE_DATA_ERRORS the parser then goes on with the next row
+    void runAborted(TestBuilder& builder, const std::string& label) {
+        const RowChange upd(1001);
+        try {
+            builder.processDml(Seq(1), Scn(100), Time(0), nullptr, nullptr, upd.redo1, upd.redo2, Format::TRANSACTION_TYPE::UPDATE, false, false,
+                               false);
+            check(label + ": the row is aborted", false);
+        } catch (RedoLogException&) {
+            check(label + ": the row is aborted", true);
+        }
+    }
 }
 
 int main() {
@@ -198,6 +213,27 @@ int main() {
     run(builder, {"AB", "CD", "EF", "GH", "IJ"}, {"ab", "cd", "ef", "gh", "ij"});
     // the next row starts clean after a row with many parts
     run(builder, {"AB", "CD", "EF"}, {"ab", "cd", "ef", "gh", "ij", "kl"});
+    run(builder, {"XY"}, {"xy"});
+
+    // the parts point into the redo record, which outlives the row
+    const std::vector<std::string> abortedParts{"PP", "QQ", "RR", "SS"};
+    const std::vector<std::string> idParts{"I1", "I2"};
+
+    // a row aborted while its message is built, after its columns were merged, leaves nothing to the next row
+    for (size_t i = 0; i < abortedParts.size(); ++i)
+        builder.setPart(Format::VALUE_TYPE::BEFORE, 1, abortedParts[i], partFlags(i, abortedParts.size()));
+    builder.failUpdate = true;
+    runAborted(builder, "abort after merge");
+    builder.failUpdate = false;
+    run(builder, {"AB", "CD", "EF"}, {"ab", "cd", "ef"});
+
+    // a row aborted before its columns were merged (ID has a value and a part) leaves no parts to the next row
+    builder.setPart(Format::VALUE_TYPE::BEFORE, 0, idParts[0], 0);
+    builder.setPart(Format::VALUE_TYPE::BEFORE, 0, idParts[1], RedoLogRecord::FB_N);
+    for (size_t i = 0; i < abortedParts.size(); ++i)
+        builder.setPart(Format::VALUE_TYPE::BEFORE, 1, abortedParts[i], partFlags(i, abortedParts.size()));
+    runAborted(builder, "abort before merge");
+    run(builder, {"AB", "CD", "EF"}, {"ab", "cd", "ef"});
     run(builder, {"XY"}, {"xy"});
 
     metadata.schema->tablePartitionMap.clear();
