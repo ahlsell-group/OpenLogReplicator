@@ -135,6 +135,7 @@ namespace OpenLogReplicator {
         Locales* locales;
         Metadata* metadata;
         BuilderMsg* msg{nullptr};
+        std::unordered_set<uint16_t> unknownTimeZones;
 
         Format format;
         uint64_t unconfirmedSize{0};

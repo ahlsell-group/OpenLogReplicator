@@ -225,3 +225,9 @@ Remediation: Do not use direct-path loads on replicated tables (remove the `APPE
 A DATE, TIMESTAMP, TIMESTAMP WITH TIME ZONE or TIMESTAMP WITH LOCAL TIME ZONE value has an unexpected length or a field out of range (for example month 0), so it is sent as "?".
 Debezium turns "?" into NULL, or epoch 0 for a NOT NULL column, so the value is lost. Logged with the redo log file offset and the raw bytes in hex for the 1st, 10th, 100th, 1000th, ... such value of each column since start, so a column that is corrupt in every row does not flood the log; `occurrences` is the count for that column so far.
 Remediation: Check the redo log at the given offset and report it with the raw bytes; valid redo should never produce this warning.
+
+==== code 60044: "unknown time zone region id: <number> (column: <column>), sent as TZ?"
+
+A TIMESTAMP WITH TIME ZONE value carries a time zone region id that is not in the built-in region map, so the time zone is sent as `TZ?`; the time itself is correct (UTC).
+Logged once per region id.
+Remediation: Report the region id and the time zone name of the value so the region can be added to the map in `Locales.cpp`.
