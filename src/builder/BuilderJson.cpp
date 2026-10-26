@@ -96,6 +96,33 @@ namespace OpenLogReplicator {
         }
     }
 
+    void BuilderJson::appendUnixNano(time_t timestamp, uint64_t fraction) {
+        if (timestamp < 1000000000 && timestamp > -1000000000) {
+            appendSDec((timestamp * 1000000000L) + fraction);
+            return;
+        }
+
+        // Big number: the magnitude is written as seconds / 1e9 and 18 more digits
+        uint64_t seconds;
+        if (timestamp < 0) {
+            append('-');
+            // -(t * 1e9 + f) = (-t - 1) * 1e9 + (1e9 - f)
+            seconds = -static_cast<uint64_t>(timestamp);
+            if (fraction > 0) {
+                --seconds;
+                fraction = 1000000000 - fraction;
+            }
+        } else
+            seconds = timestamp;
+
+        if (seconds < 1000000000)
+            appendDec((seconds * 1000000000) + fraction);
+        else {
+            appendDec(seconds / 1000000000);
+            appendDecN<18>(((seconds % 1000000000) * 1000000000) + fraction);
+        }
+    }
+
     void BuilderJson::columnTimestamp(const std::string& columnName, time_t timestamp, uint64_t fraction) {
         comma(hasPreviousColumn);
         append('"');
@@ -106,19 +133,7 @@ namespace OpenLogReplicator {
         switch (format.timestampFormat) {
             case Format::TIMESTAMP_FORMAT::UNIX_NANO:
                 // 1712345678123456789
-                if (timestamp < 1000000000 && timestamp > -1000000000)
-                    appendSDec((timestamp * 1000000000L) + fraction);
-                else {
-                    // Big number
-                    const int64_t firstDigits = timestamp / 1000000000;
-                    if (timestamp < 0) {
-                        timestamp = -timestamp;
-                        fraction = -fraction;
-                    }
-                    timestamp %= 1000000000;
-                    appendSDec(firstDigits);
-                    appendDecN<18>((timestamp * 1000000000L) + fraction);
-                }
+                appendUnixNano(timestamp, fraction);
                 break;
 
             case Format::TIMESTAMP_FORMAT::UNIX_MICRO:
@@ -139,19 +154,7 @@ namespace OpenLogReplicator {
             case Format::TIMESTAMP_FORMAT::UNIX_NANO_STRING:
                 // "1712345678123456789"
                 append('"');
-                if (timestamp < 1000000000 && timestamp > -1000000000)
-                    appendSDec((timestamp * 1000000000L) + fraction);
-                else {
-                    // Big number
-                    const int64_t firstDigits = timestamp / 1000000000;
-                    if (timestamp < 0) {
-                        timestamp = -timestamp;
-                        fraction = -fraction;
-                    }
-                    timestamp %= 1000000000;
-                    appendSDec(firstDigits);
-                    appendDecN<18>((timestamp * 1000000000L) + fraction);
-                }
+                appendUnixNano(timestamp, fraction);
                 append('"');
                 break;
 
@@ -284,19 +287,7 @@ namespace OpenLogReplicator {
             case Format::TIMESTAMP_TZ_FORMAT::UNIX_NANO_STRING:
                 // "1700000000.123456789,Europe/Warsaw"
                 append('"');
-                if (timestamp < 1000000000 && timestamp > -1000000000)
-                    appendSDec((timestamp * 1000000000L) + fraction);
-                else {
-                    // Big number
-                    const int64_t firstDigits = timestamp / 1000000000;
-                    if (timestamp < 0) {
-                        timestamp = -timestamp;
-                        fraction = -fraction;
-                    }
-                    timestamp %= 1000000000;
-                    appendSDec(firstDigits);
-                    appendDecN<18>((timestamp * 1000000000L) + fraction);
-                }
+                appendUnixNano(timestamp, fraction);
                 append(',');
                 append(tz);
                 append('"');
