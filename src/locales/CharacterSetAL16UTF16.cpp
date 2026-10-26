@@ -39,25 +39,17 @@ namespace OpenLogReplicator {
         if ((byte1 & 0xFC) != 0xD8)
             return (byte1 << 8) | byte2;
 
-        if (length == 0)
+        // a high surrogate without a low surrogate after it is consumed alone
+        if (length < 2 || (str[0] & 0xFC) != 0xDC)
             return badChar(ctx, xid, byte1, byte2);
 
         const uint64_t byte3 = *str++;
-        --length;
-
-        if (length == 0)
-            return badChar(ctx, xid, byte1, byte2, byte3);
-
         const uint64_t byte4 = *str++;
-        --length;
+        length -= 2;
 
         // U' = yyyy yyyy yyxx xxxx xxxx   // U - 0x10000
         // W1 = 1101 10yy yyyy yyyy        // 0xD800 + yyyyyyyyyy
         // W2 = 1101 11xx xxxx xxxx        // 0xDC00 + xxxxxxxxxx
-
-        if ((byte3 & 0xFC) == 0xDC) {
-            return 0x10000 + (((byte1 & 0x03) << 18) | (byte2 << 10) | ((byte3 & 0x03) << 8) | byte4);
-        }
-        return badChar(ctx, xid, byte1, byte2, byte3, byte4);
+        return 0x10000 + (((byte1 & 0x03) << 18) | (byte2 << 10) | ((byte3 & 0x03) << 8) | byte4);
     }
 }

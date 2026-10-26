@@ -41,8 +41,12 @@ namespace OpenLogReplicator {
             return badChar(ctx, xid, byte1, byte2);
 
         // 110xxxxx 10xxxxxx
-        if ((byte1 & 0xE0) == 0xC0)
-            return ((byte1 & 0x1F) << 6) | (byte2 & 0x3F);
+        if ((byte1 & 0xE0) == 0xC0) {
+            const typeUnicode character = ((byte1 & 0x1F) << 6) | (byte2 & 0x3F);
+            if (character >= 0x80)
+                return character;
+            return badChar(ctx, xid, byte1, byte2);
+        }
 
         if (length == 0)
             return badChar(ctx, xid, byte1, byte2);
@@ -54,8 +58,12 @@ namespace OpenLogReplicator {
             return badChar(ctx, xid, byte1, byte2, byte3);
 
         // 1110xxxx 10xxxxxx 10xxxxxx
-        if ((byte1 & 0xF0) == 0xE0)
-            return ((byte1 & 0x0F) << 12) | ((byte2 & 0x3F) << 6) | (byte3 & 0x3F);
+        if ((byte1 & 0xF0) == 0xE0) {
+            const typeUnicode character = ((byte1 & 0x0F) << 12) | ((byte2 & 0x3F) << 6) | (byte3 & 0x3F);
+            if (character >= 0x800 && (character < 0xD800 || character > 0xDFFF))
+                return character;
+            return badChar(ctx, xid, byte1, byte2, byte3);
+        }
 
         if (length == 0)
             return badChar(ctx, xid, byte1, byte2, byte3);
@@ -69,7 +77,7 @@ namespace OpenLogReplicator {
         // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
         if ((byte1 & 0xF8) == 0xF0) {
             const typeUnicode character = ((byte1 & 0x07) << 18) | ((byte2 & 0x3F) << 12) | ((byte3 & 0x3F) << 6) | (byte4 & 0x3F);
-            if (character <= 0x10FFFF && (character < 0xD800 || character > 0xDFFF))
+            if (character >= 0x10000 && character <= 0x10FFFF)
                 return character;
         }
 
