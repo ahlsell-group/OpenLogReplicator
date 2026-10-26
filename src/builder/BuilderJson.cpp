@@ -17,6 +17,8 @@ You should have received a copy of the GNU Affero General Public
 License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
+#include <cmath>
+
 #include "../common/DbTable.h"
 #include "../common/types/RowId.h"
 #include "../metadata/Metadata.h"
@@ -24,6 +26,18 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "BuilderJson.h"
 
 namespace OpenLogReplicator {
+    namespace {
+        // JSON has no NaN or infinity: send them as the strings Java's Float.parseFloat/Double.parseDouble read back
+        template<typename T>
+        std::string floatingPointToJson(T value) {
+            if (std::isnan(value))
+                return R"("NaN")";
+            if (std::isinf(value))
+                return value > 0 ? R"("Infinity")" : R"("-Infinity")";
+            return Builder::floatingPointToString(value);
+        }
+    }
+
     BuilderJson::BuilderJson(Ctx* newCtx, Locales* newLocales, Metadata* newMetadata, Format& newFormat, uint64_t newFlushBuffer):
             Builder(newCtx, newLocales, newMetadata, newFormat, newFlushBuffer) {}
 
@@ -32,7 +46,7 @@ namespace OpenLogReplicator {
         append('"');
         appendEscape(columnName);
         append(std::string_view(R"(":)"));
-        append(floatingPointToString(static_cast<float>(value)));
+        append(floatingPointToJson(static_cast<float>(value)));
     }
 
     void BuilderJson::columnDouble(const std::string& columnName, long double value) {
@@ -40,7 +54,7 @@ namespace OpenLogReplicator {
         append('"');
         appendEscape(columnName);
         append(std::string_view(R"(":)"));
-        append(floatingPointToString(static_cast<double>(value)));
+        append(floatingPointToJson(static_cast<double>(value)));
     }
 
     void BuilderJson::columnString(const std::string& columnName) {
