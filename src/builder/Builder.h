@@ -429,6 +429,10 @@ namespace OpenLogReplicator {
             valueBufferCheck((size * 2) + 140, fileOffset);
             if (unlikely(size == 0))
                 throw RedoLogException(50009, "error parsing numeric value at offset: " + fileOffset.toString());
+            // Infinity (FF 65 / 00) has no JSON number and no Debezium decimal, so fail instead of emitting a wrong value
+            if (unlikely((size == 2 && data[0] == 0xFF && data[1] == 0x65) || (size == 1 && data[0] == 0x00)))
+                throw RedoLogException(50009, std::string("unsupported numeric value ") + (data[0] == 0xFF ? "~" : "-~") +
+                                       " (infinity) at offset: " + fileOffset.toString());
 
             uint8_t digits = data[0];
             // Just zero; 0x80 followed by mantissa bytes is a positive number below 1e-128
