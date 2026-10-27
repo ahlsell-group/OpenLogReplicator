@@ -30,6 +30,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "../common/Attribute.h"
 #include "../common/Ctx.h"
@@ -159,6 +160,14 @@ namespace OpenLogReplicator {
         const uint8_t* values[Ctx::COLUMN_LIMIT_23_0][static_cast<uint>(Format::VALUE_TYPE::LENGTH)]{};
         uint64_t sizesPart[3][Ctx::COLUMN_LIMIT_23_0][static_cast<uint>(Format::VALUE_TYPE::LENGTH)]{};
         const uint8_t* valuesPart[3][Ctx::COLUMN_LIMIT_23_0][static_cast<uint>(Format::VALUE_TYPE::LENGTH)]{};
+        struct ValuePart {
+            typeCol column;
+            uint type;
+            const uint8_t* data;
+            uint64_t size;
+        };
+        // Middle parts after the first one (valuesPart[1]) of a column split over four or more row pieces, in arrival order
+        std::vector<ValuePart> valuesPartMore;
         typeCol valuesMax{0};
         uint8_t* merges[Ctx::COLUMN_LIMIT_23_0 * static_cast<int>(Format::VALUE_TYPE::LENGTH)]{};
         typeCol mergesMax{0};
@@ -225,14 +234,34 @@ namespace OpenLogReplicator {
         void processValue(LobCtx* lobCtx, const XmlCtx* xmlCtx, const DbTable* table, typeCol col, const uint8_t* data, uint32_t size, FileOffset fileOffset,
                           bool after, bool compressed);
 
+        // Rare paths kept out of line, so valueSet and releaseValues stay small enough to be inlined
+        __attribute__((noinline, cold)) void valuePartMoreAdd(Format::VALUE_TYPE type, uint16_t column, const uint8_t* data, typeSize size);
+        __attribute__((noinline, cold)) void valuesPartRelease(typeCol base);
+        __attribute__((noinline, cold)) void valueDump(Format::VALUE_TYPE type, uint16_t column, const uint8_t* data, typeSize size, uint8_t fb) const;
+
+        // Releases the values of the row on every exit from processing it, also when it throws
+        class ValuesGuard final {
+            Builder* builder;
+
+        public:
+            explicit ValuesGuard(Builder* newBuilder): builder(newBuilder) {}
+            ValuesGuard(const ValuesGuard&) = delete;
+            ValuesGuard& operator=(const ValuesGuard&) = delete;
+            ~ValuesGuard() { builder->releaseValues(); }
+        };
+
         void releaseValues() {
             for (typeCol i = 0; i < mergesMax; ++i)
                 delete[] merges[i];
             mergesMax = 0;
+            valuesPartMore.clear();
 
             const typeCol baseMax = valuesMax >> 6;
             for (typeCol base = 0; base <= baseMax; ++base) {
                 const auto columnBase = static_cast<typeCol>(base << 6);
+                // Parts are left unmerged only by a row that was aborted
+                if (unlikely(valuesMerge[base] != 0))
+                    valuesPartRelease(base);
                 while (valuesSet[base] != 0) {
                     const typeCol pos = ffsll(valuesSet[base]) - 1;
                     valuesSet[base] &= ~(1ULL << pos);
@@ -250,15 +279,8 @@ namespace OpenLogReplicator {
         }
 
         void valueSet(Format::VALUE_TYPE type, uint16_t column, const uint8_t* data, typeSize size, uint8_t fb, bool dump) {
-            if (unlikely(ctx->isTraceSet(Ctx::TRACE::DML) || dump)) {
-                std::ostringstream ss;
-                ss << "DML: value: " << std::dec << static_cast<uint>(type) << "/" << column << "/" << std::dec << size << "/" << std::setfill('0') <<
-                        std::setw(2) << std::hex << static_cast<uint>(fb) << " to: ";
-                for (typeSize i = 0; i < size && i < 64; ++i) {
-                    ss << "0x" << std::setfill('0') << std::setw(2) << std::hex << static_cast<uint>(data[i]) << ", ";
-                }
-                ctx->info(0, ss.str());
-            }
+            if (unlikely(ctx->isTraceSet(Ctx::TRACE::DML) || dump))
+                valueDump(type, column, data, size, fb);
 
             const typeMask base = static_cast<uint64_t>(column) >> 6;
             const typeMask mask = static_cast<uint64_t>(1) << (column & 0x3F);
@@ -282,8 +304,12 @@ namespace OpenLogReplicator {
                     break;
 
                 case RedoLogRecord::FB_P | RedoLogRecord::FB_N:
-                    sizesPart[1][column][static_cast<uint>(type)] = size;
-                    valuesPart[1][column][static_cast<uint>(type)] = data;
+                    if (unlikely(valuesPart[1][column][static_cast<uint>(type)] != nullptr)) {
+                        valuePartMoreAdd(type, column, data, size);
+                    } else {
+                        sizesPart[1][column][static_cast<uint>(type)] = size;
+                        valuesPart[1][column][static_cast<uint>(type)] = data;
+                    }
                     if ((valuesMerge[base] & mask) == 0)
                         valuesMerge[base] |= mask;
                     break;
