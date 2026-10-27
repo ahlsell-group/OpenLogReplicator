@@ -58,6 +58,7 @@ namespace OpenLogReplicator {
     class Builder;
     class Ctx;
     class CharacterSet;
+    class DbColumn;
     class DbTable;
     class Locales;
     class Metadata;
@@ -146,6 +147,8 @@ namespace OpenLogReplicator {
         char* valueBufferOld{nullptr};
         uint64_t valueSizeOld{0};
         std::unordered_set<const DbTable*> tables;
+        // Undecodable date/timestamp values per owner.table.column; warning 60043 is logged at occurrence 1, 10, 100, ...
+        std::unordered_map<std::string, uint64_t> unknownDateCount;
         uint64_t lastBuilderSize{0};
         Scn beginScn{Scn::none()};
         Scn commitScn{Scn::none()};
@@ -433,6 +436,8 @@ namespace OpenLogReplicator {
                 ctx->warning(60002, "unknown value (column: " + columnName + "): " + std::to_string(size) + " - " + ss.str());
             }
         }
+
+        void columnUnknownDate(const DbTable* table, const DbColumn* column, const uint8_t* data, uint32_t size, FileOffset fileOffset);
 
         void valueBufferAppend(const char* text, uint32_t size) {
             for (uint32_t i = 0; i < size; ++i)

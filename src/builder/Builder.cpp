@@ -86,6 +86,23 @@ namespace OpenLogReplicator {
         valueBufferSize = VALUE_BUFFER_MIN;
     }
 
+    void Builder::columnUnknownDate(const DbTable* table, const DbColumn* column, const uint8_t* data, uint32_t size, FileOffset fileOffset) {
+        columnUnknown(column->name, data, size);
+        const uint64_t count = ++unknownDateCount[table->owner + "." + table->name + "." + column->name];
+        uint64_t next = 1;
+        while (next < count)
+            next *= 10;
+        if (next != count)
+            return;
+
+        std::ostringstream ss;
+        for (uint32_t j = 0; j < size; ++j)
+            ss << (j > 0 ? " " : "") << std::hex << std::setfill('0') << std::setw(2) << static_cast<uint64_t>(data[j]);
+        ctx->warning(60043, "undecodable date/timestamp value sent as \"?\", offset: " + fileOffset.toString() + ", table: " + table->owner + "." +
+                     table->name + ", column: " + column->name + ", size: " + std::to_string(size) + ", data: " + ss.str() +
+                     ", occurrences: " + std::to_string(count));
+    }
+
     void Builder::processValue(LobCtx* lobCtx, const XmlCtx* xmlCtx, const DbTable* table, typeCol col, const uint8_t* data, uint32_t size,
                                FileOffset fileOffset, bool after, bool compressed) {
         if (compressed) {
@@ -166,7 +183,7 @@ namespace OpenLogReplicator {
 
             case SysCol::COLTYPE::TIMESTAMP_WITH_LOCAL_TZ:
                 if (size != 7 && size != 11)
-                    columnUnknown(column->name, data, size);
+                    columnUnknownDate(table, column, data, size, fileOffset);
                 else {
                     int year;
                     const int month = data[2] - 1;  // 0..11
@@ -195,7 +212,7 @@ namespace OpenLogReplicator {
 
                     if (second < 0 || second > 59 || minute < 0 || minute > 59 || hour < 0 || hour > 23 || day < 0 || day > 30 || month < 0 || month > 11 ||
                             fraction > 999999999) {
-                        columnUnknown(column->name, data, size);
+                        columnUnknownDate(table, column, data, size, fileOffset);
                     } else {
                         time_t timestamp = Data::valuesToEpoch(year, month, day, hour, minute, second, metadata->dbTimezone);
                         columnTimestamp(column->name, timestamp, fraction);
@@ -206,7 +223,7 @@ namespace OpenLogReplicator {
             case SysCol::COLTYPE::DATE:
             case SysCol::COLTYPE::TIMESTAMP:
                 if (size != 7 && size != 11)
-                    columnUnknown(column->name, data, size);
+                    columnUnknownDate(table, column, data, size, fileOffset);
                 else {
                     int year;
                     const int month = data[2] - 1;  // 0..11
@@ -235,7 +252,7 @@ namespace OpenLogReplicator {
 
                     if (second < 0 || second > 59 || minute < 0 || minute > 59 || hour < 0 || hour > 23 || day < 0 || day > 30 || month < 0 || month > 11 ||
                             fraction > 999999999) {
-                        columnUnknown(column->name, data, size);
+                        columnUnknownDate(table, column, data, size, fileOffset);
                     } else {
                         time_t timestamp = Data::valuesToEpoch(year, month, day, hour, minute, second, 0);
                         columnTimestamp(column->name, timestamp, fraction);
@@ -263,7 +280,7 @@ namespace OpenLogReplicator {
 
             case SysCol::COLTYPE::TIMESTAMP_WITH_TZ:
                 if (size != 9 && size != 13) {
-                    columnUnknown(column->name, data, size);
+                    columnUnknownDate(table, column, data, size, fileOffset);
                 } else {
                     int year;
                     const int month = data[2] - 1;  // 0..11
@@ -331,7 +348,7 @@ namespace OpenLogReplicator {
                     }
 
                     if (second < 0 || second > 59 || minute < 0 || minute > 59 || hour < 0 || hour > 23 || day < 0 || day > 30 || month < 0 || month > 11) {
-                        columnUnknown(column->name, data, size);
+                        columnUnknownDate(table, column, data, size, fileOffset);
                     } else {
                         time_t timestamp = Data::valuesToEpoch(year, month, day, hour, minute, second, 0);
                         columnTimestampTz(column->name, timestamp, fraction, tz);
