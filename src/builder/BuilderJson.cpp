@@ -87,7 +87,7 @@ namespace OpenLogReplicator {
     }
 
     void BuilderJson::columnRaw(const std::string& columnName, const uint8_t* data, uint64_t size) {
-        if (likely(lastBuilderSize + messagePosition + size * 2 + columnName.size() * 3 + 8 < OUTPUT_BUFFER_DATA_SIZE)) {
+        if (likely(lastBuilderSize + messagePosition + size * 2 + columnName.size() * 6 + 8 < OUTPUT_BUFFER_DATA_SIZE)) {
             if (hasPreviousColumn)
                 append<true>(',');
             else
@@ -642,16 +642,9 @@ namespace OpenLogReplicator {
         append(std::string_view(R"({"op":"ddl",)"));
         appendSchema(table, obj);
         append(std::string_view(R"(,"sql":")"));
-        if (ddlFirst != nullptr) {
-            uint8_t* chunk = ddlFirst;
-            while (chunk != nullptr) {
-                uint8_t* chunkNext = *reinterpret_cast<uint8_t**>(chunk);
-                const typeTransactionSize* chunkSize = reinterpret_cast<typeTransactionSize*>(chunk + sizeof(uint8_t*));
-                const uint8_t* chunkData = chunk + sizeof(uint8_t*) + sizeof(uint64_t);
-                appendEscape(reinterpret_cast<const char*>(chunkData), *chunkSize);
-                chunk = chunkNext;
-            }
-        }
+        // ddlToValueBuffer has put the SQL text in valueBuffer as UTF-8
+        if (ddlFirst != nullptr)
+            appendEscape(valueBuffer, valueSize);
         append(std::string_view(R"("})"));
 
         if (!format.isMessageFormatFull()) {
