@@ -1805,8 +1805,14 @@ namespace OpenLogReplicator {
                     releaseDdl();
                 }
 
-                memcpy(ddlSchemaName, redoLogRecord1->data(fieldPos), fieldSize);
-                ddlSchemaSize = fieldSize;
+                if (unlikely(fieldSize > SysUser::NAME_LENGTH)) {
+                    ctx->warning(60037, "incorrect DDL data, owner name size: " + std::to_string(fieldSize) + ", offset: " +
+                                 redoLogRecord1->fileOffset.toString());
+                    ddlSchemaSize = 0;
+                } else {
+                    memcpy(ddlSchemaName, redoLogRecord1->data(fieldPos), fieldSize);
+                    ddlSchemaSize = fieldSize;
+                }
             } else {
                 appendDdlChunk(redoLogRecord1->data(fieldPos), fieldSize);
 
