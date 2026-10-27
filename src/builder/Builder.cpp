@@ -169,9 +169,11 @@ namespace OpenLogReplicator {
                 break;
 
             case SysCol::COLTYPE::JSON:
-                if (ctx->isFlagSet(Ctx::REDO_FLAGS::EXPERIMENTAL_JSON))
+                if (ctx->isFlagSet(Ctx::REDO_FLAGS::EXPERIMENTAL_JSON)) {
                     if (parseLob(lobCtx, data, size, 0, table->obj, fileOffset, false, table->sys))
                         columnRaw(column->name, reinterpret_cast<const uint8_t*>(valueBuffer), valueSize);
+                } else
+                    warnHiddenType(table, column);
                 break;
 
             case SysCol::COLTYPE::CLOB:
@@ -623,7 +625,38 @@ namespace OpenLogReplicator {
             default:
                 if (format.unknownType == Format::UNKNOWN_TYPE::SHOW)
                     columnUnknown(column->name, data, size);
+                else
+                    warnHiddenType(table, column);
         }
+    }
+
+    void Builder::warnHiddenType(const DbTable* table, DbColumn* column) const {
+        if (column->typeWarning)
+            return;
+        column->typeWarning = true;
+
+        std::string typeName;
+        switch (static_cast<uint>(column->type)) {
+            case static_cast<uint>(SysCol::COLTYPE::LONG):
+                typeName = "LONG";
+                break;
+            case static_cast<uint>(SysCol::COLTYPE::LONG_RAW):
+                typeName = "LONG RAW";
+                break;
+            case static_cast<uint>(SysCol::COLTYPE::XMLTYPE):
+                typeName = "XMLTYPE";
+                break;
+            case static_cast<uint>(SysCol::COLTYPE::JSON):
+                typeName = "JSON";
+                break;
+            case 69:
+                typeName = "ROWID";
+                break;
+            default:
+                typeName = "unknown";
+        }
+        ctx->warning(60045, "values of column " + table->owner + "." + table->name + "." + column->name + " type " + typeName + " (" +
+                     std::to_string(static_cast<uint>(column->type)) + ") are not sent, the type is not supported");
     }
 
     // Oracle stores BINARY_FLOAT/BINARY_DOUBLE as big-endian IEEE 754 with the sign bit set for positive values and all bits

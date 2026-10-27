@@ -48,6 +48,7 @@ namespace OpenLogReplicator {
         bool guard;
         bool xmlType;
         bool nullWarning{false};
+        bool typeWarning{false};
 
         DbColumn(typeCol newCol, typeCol newGuardSeg, typeCol newSegCol, std::string newName, SysCol::COLTYPE newType, uint newLength,
                  int newPrecision, int newScale, uint64_t newCharsetId, typeCol newNumPk, bool newNullable, bool newHidden,
