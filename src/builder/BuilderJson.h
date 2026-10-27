@@ -875,6 +875,7 @@ namespace OpenLogReplicator {
         void columnNumber(const std::string& columnName, int precision, int scale) override;
         void columnRaw(const std::string& columnName, const uint8_t* data, uint64_t size) override;
         void columnRowId(const std::string& columnName, RowId rowId) override;
+        void appendUnixNano(time_t timestamp, uint64_t fraction);
         void columnTimestamp(const std::string& columnName, time_t timestamp, uint64_t fraction) override;
         void columnTimestampTz(const std::string& columnName, time_t timestamp, uint64_t fraction, const std::string_view& tz) override;
         void processInsert(Seq sequence, Scn scn, Time timestamp, LobCtx* lobCtx, const XmlCtx* xmlCtx, const DbTable* table, typeObj obj,
