@@ -34,6 +34,9 @@
 # (/opt/OpenLogReplicator-src/cmake-build-<BUILD_TYPE>-<ARCH>) so ctest can run in the image.
 # EXTRA_CXXFLAGS and EXTRA_LDFLAGS apply to the OpenLogReplicator build only (not the libraries),
 # e.g. sanitizer flags. `make -C tests unit-asan` uses all three.
+#
+# The libraries are built in their own layer before the sources are copied, so a source change only rebuilds
+# OpenLogReplicator. Its objects go through ccache in a BuildKit cache mount, which outlives the image.
 
 ARG IMAGE=debian
 ARG VERSION=13.0
@@ -43,17 +46,10 @@ FROM ${IMAGE}:${VERSION} AS builder
 ARG OPENLOGREPLICATOR_REPO=ahlsell-group/OpenLogReplicator
 ARG OPENLOGREPLICATOR_VERSION=local
 ARG ARCH=x86_64
-ARG GIDOLR=1001
-ARG UIDOLR=1001
-ARG GIDORA=54322
-ARG BUILD_TYPE=Release
 ARG WITHKAFKA=1
 ARG WITHPROMETHEUS
 ARG WITHORACLE=1
 ARG WITHPROTOBUF=1
-ARG WITHTESTS
-ARG EXTRA_CXXFLAGS
-ARG EXTRA_LDFLAGS
 
 LABEL org.opencontainers.image.authors="Adam Leszczynski <aleszczynski@bersler.com>"
 
@@ -69,34 +65,22 @@ ENV LIBRDKAFKA_VERSION=2.13.0
 ENV PROMETHEUS_VERSION=1.3.0
 ENV OPENLOGREPLICATOR_VERSION=${OPENLOGREPLICATOR_VERSION}
 ENV LD_LIBRARY_PATH=/opt/instantclient_${ORACLE_MAJOR}_${ORACLE_MINOR}:/opt/librdkafka/lib:/opt/prometheus/lib:/opt/protobuf/lib
-ENV BUILDARGS="-DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_RAPIDJSON=/opt/rapidjson -S ../ -B ./"
-ENV BUILDARGS="${BUILDARGS}${WITHKAFKA:+ -DWITH_RDKAFKA=/opt/librdkafka}"
-ENV BUILDARGS="${BUILDARGS}${WITHPROMETHEUS:+ -DWITH_PROMETHEUS=/opt/prometheus}"
-ENV BUILDARGS="${BUILDARGS}${WITHORACLE:+ -DWITH_OCI=/opt/instantclient_${ORACLE_MAJOR}_${ORACLE_MINOR}}"
-ENV BUILDARGS="${BUILDARGS}${WITHPROTOBUF:+ -DWITH_PROTOBUF=/opt/protobuf}"
 ENV COMPILEKAFKA="${WITHKAFKA:+1}"
 ENV COMPILEPROMETHEUS="${WITHPROMETHEUS:+1}"
 ENV COMPILEORACLE="${WITHORACLE:+1}"
 ENV COMPILEPROTOBUF="${WITHPROTOBUF:+1}"
 ENV DEBIAN_FRONTEND=noninteractive
 
-COPY tests/docker/olr/run.sh /opt
-# only the sources the build needs (keeps tests/results and build directories out of the context)
-COPY CMakeLists.txt config.h.in /tmp/local/OpenLogReplicator/
-COPY src /tmp/local/OpenLogReplicator/src
-COPY proto /tmp/local/OpenLogReplicator/proto
-COPY scripts /tmp/local/OpenLogReplicator/scripts
-
 RUN set -eu ; \
     if [ -r /etc/centos-release ]; then \
-        yum -y install autoconf automake diffutils file gcc gcc-c++ libaio libaio-devel libasan libubsan libnsl libtool make patch tar unzip wget zlib-devel git curl ; \
+        yum -y install autoconf automake ccache diffutils file gcc gcc-c++ libaio libaio-devel libasan libubsan libnsl libtool make patch tar unzip wget zlib-devel git curl ; \
     fi ; \
     if [ -r /etc/debian_version ]; then \
         apt-get update ; \
         if [ "$(cat /etc/debian_version)" = "12.0" ]; then \
-            apt-get -y install file gcc g++ libaio1 libasan8 libubsan1 libtool libz-dev make patch unzip wget cmake git curl ; \
+            apt-get -y install ccache file gcc g++ libaio1 libasan8 libubsan1 libtool libz-dev make patch unzip wget cmake git curl ; \
         elif [ "$(cat /etc/debian_version)" = "13.0" ]; then \
-            apt-get -y install file gcc g++ libaio1t64 libasan8 libubsan1 libtool libz-dev make patch unzip wget cmake git curl ; \
+            apt-get -y install ccache file gcc g++ libaio1t64 libasan8 libubsan1 libtool libz-dev make patch unzip wget cmake git curl ; \
             ln -s libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 ; \
         fi ; \
     fi ; \
@@ -131,7 +115,7 @@ RUN set -eu ; \
         rm v${LIBRDKAFKA_VERSION}.tar.gz ; \
         cd /opt/librdkafka-${LIBRDKAFKA_VERSION} ; \
         ./configure --prefix=/opt/librdkafka ; \
-        make ; \
+        make -j"$(nproc)" ; \
         make install ; \
     fi ; \
     if [ "${COMPILEPROMETHEUS}" != "" ]; then \
@@ -154,9 +138,34 @@ RUN set -eu ; \
         rm protobuf-cpp-${PROTOBUF_VERSION}.tar.gz ; \
         cd /opt/protobuf-${PROTOBUF_VERSION} ; \
         ./configure --prefix=/opt/protobuf ; \
-        make ; \
+        make -j"$(nproc)" ; \
         make install ; \
-    fi ; \
+    fi
+
+ARG GIDOLR=1001
+ARG UIDOLR=1001
+ARG GIDORA=54322
+ARG BUILD_TYPE=Release
+ARG WITHTESTS
+ARG EXTRA_CXXFLAGS
+ARG EXTRA_LDFLAGS
+
+ENV BUILDARGS="-DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DWITH_RAPIDJSON=/opt/rapidjson -S ../ -B ./"
+ENV BUILDARGS="${BUILDARGS}${WITHKAFKA:+ -DWITH_RDKAFKA=/opt/librdkafka}"
+ENV BUILDARGS="${BUILDARGS}${WITHPROMETHEUS:+ -DWITH_PROMETHEUS=/opt/prometheus}"
+ENV BUILDARGS="${BUILDARGS}${WITHORACLE:+ -DWITH_OCI=/opt/instantclient_${ORACLE_MAJOR}_${ORACLE_MINOR}}"
+ENV BUILDARGS="${BUILDARGS}${WITHPROTOBUF:+ -DWITH_PROTOBUF=/opt/protobuf}"
+ENV BUILDARGS="${BUILDARGS} -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache"
+ENV CCACHE_DIR=/root/.ccache
+
+COPY tests/docker/olr/run.sh /opt
+# only the sources the build needs (keeps tests/results and build directories out of the context)
+COPY CMakeLists.txt config.h.in /tmp/local/OpenLogReplicator/
+COPY src /tmp/local/OpenLogReplicator/src
+COPY proto /tmp/local/OpenLogReplicator/proto
+COPY scripts /tmp/local/OpenLogReplicator/scripts
+
+RUN --mount=type=cache,target=/root/.ccache set -eu ; \
     cd /opt ; \
     if [ "${OPENLOGREPLICATOR_VERSION}" = "local" ]; then \
         cp -r /tmp/local/OpenLogReplicator OpenLogReplicator-src ; \
