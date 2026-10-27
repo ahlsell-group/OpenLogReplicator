@@ -267,7 +267,9 @@ int main() {
     // and top of the range, pure fractions, integer.fraction splits and integers longer than the mantissa.
     check(builder, "empty record", {}, "error 50009");
     check(builder, "1 byte: zero", {0x80}, "0");
-    check(builder, "1 byte: 0x00", {0x00}, "0");
+    // Infinity (only storable through OCI; LogMiner shows ~ and -~) has no JSON number, so the decoder rejects it
+    check(builder, "1 byte: 0x00 (negative infinity)", {0x00}, "error 50009");
+    check(builder, "2 bytes: 0xFF 0x65 (positive infinity)", {0xFF, 0x65}, "error 50009");
     check(builder, "1 byte: positive exponent without mantissa", {0xC1}, "error 50009");
     check(builder, "1 byte: negative exponent without mantissa", {0x3E}, "error 50009");
     check(builder, "1 byte: 0xFF", {0xFF}, "error 50009");
