@@ -307,44 +307,51 @@ namespace OpenLogReplicator {
                     if (size == 13)
                         fraction = Ctx::read32Big(data + 7);
 
+                    // The time zone takes the last two bytes, after the fraction when there is one
+                    const uint8_t tzHour = data[size - 2];
+                    const uint8_t tzMinute = data[size - 1];
                     char tz2[6] {'+', '0', '0', ':', '0', '0'};
                     std::string_view tz(tz2, 6);
 
-                    if (data[11] >= 5 && data[11] <= 36) {
-                        if (data[11] < 20 || (data[11] == 20 && data[12] < 60))
+                    if (tzHour >= 5 && tzHour <= 36) {
+                        if (tzHour < 20 || (tzHour == 20 && tzMinute < 60))
                             tz2[0] = '-';
                         else
                             tz2[0] = '+';
 
-                        if (data[11] < 20) {
-                            const uint val = 20 - data[11];
+                        if (tzHour < 20) {
+                            const uint val = 20 - tzHour;
                             tz2[1] = Data::map10(val / 10);
                             tz2[2] = Data::map10(val % 10);
                         } else {
-                            const uint val = data[11] - 20;
+                            const uint val = tzHour - 20;
                             tz2[1] = Data::map10(val / 10);
                             tz2[2] = Data::map10(val % 10);
                         }
 
                         tz2[3] = ':';
 
-                        if (data[12] < 60) {
-                            const uint val = 60 - data[12];
+                        if (tzMinute < 60) {
+                            const uint val = 60 - tzMinute;
                             tz2[4] = Data::map10(val / 10);
                             tz2[5] = Data::map10(val % 10);
                         } else {
-                            const uint val = data[12] - 60;
+                            const uint val = tzMinute - 60;
                             tz2[4] = Data::map10(val / 10);
                             tz2[5] = Data::map10(val % 10);
                         }
                         tz = std::string_view(tz2, 6);
                     } else {
-                        const uint16_t tzKey = (data[11] << 8) | data[12];
+                        const uint16_t tzKey = (tzHour << 8) | tzMinute;
                         auto timeZoneMapIt = locales->timeZoneMap.find(tzKey);
                         if (timeZoneMapIt != locales->timeZoneMap.end())
                             tz = timeZoneMapIt->second;
-                        else
+                        else {
                             tz = "TZ?";
+                            if (unknownTimeZones.insert(tzKey).second)
+                                ctx->warning(60044, "unknown time zone region id: " + std::to_string(tzKey) + " (column: " + column->name +
+                                             "), sent as TZ?");
+                        }
                     }
 
                     if (second < 0 || second > 59 || minute < 0 || minute > 59 || hour < 0 || hour > 23 || day < 0 || day > 30 || month < 0 || month > 11) {
