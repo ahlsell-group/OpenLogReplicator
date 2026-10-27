@@ -27,6 +27,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/DbTable.h"
 #include "../common/XmlCtx.h"
 #include "../common/exception/DataException.h"
+#include "../locales/CharacterSet7bit.h"
 #include "../locales/Locales.h"
 #include "Schema.h"
 #include "SchemaElement.h"
@@ -524,6 +525,23 @@ namespace OpenLogReplicator {
         }
     }
 
+    uint64_t Schema::columnCharmapId(const Locales* locales, const SysCol* sysCol, uint64_t defaultCharacterMapId,
+                                     uint64_t defaultCharacterNcharMapId) {
+        if (sysCol->charsetForm == 1) {
+            if (sysCol->type == SysCol::COLTYPE::CLOB) {
+                // Oracle stores CLOB data in a single-byte database character set as is, and as AL16UTF16 in a multibyte one
+                const auto it = locales->characterMap.find(defaultCharacterMapId);
+                if (it != locales->characterMap.end() && dynamic_cast<const CharacterSet7bit*>(it->second) != nullptr)
+                    return defaultCharacterMapId;
+                return CHARACTER_SET_AL16UTF16;
+            }
+            return defaultCharacterMapId;
+        }
+        if (sysCol->charsetForm == 2)
+            return defaultCharacterNcharMapId;
+        return sysCol->charsetId;
+    }
+
     void Schema::buildMaps(const std::string& owner, const std::string& table, const std::vector<std::string>& keyList, const std::string& key,
                            SchemaElement::TAG_TYPE tagType, const std::vector<std::string>& tagList, const std::string& tag __attribute__((unused)),
                            const std::string& condition, DbTable::OPTIONS options, std::unordered_map<typeObj, std::string>& tablesUpdated,
@@ -688,15 +706,7 @@ namespace OpenLogReplicator {
                 if (sysEColIt != sysEColPack.unorderedMapKey.end())
                     guardSeg = sysEColIt->second->guardId;
 
-                if (sysCol->charsetForm == 1) {
-                    if (sysCol->type == SysCol::COLTYPE::CLOB) {
-                        charmapId = defaultCharacterNcharMapId;
-                    } else
-                        charmapId = defaultCharacterMapId;
-                } else if (sysCol->charsetForm == 2)
-                    charmapId = defaultCharacterNcharMapId;
-                else
-                    charmapId = sysCol->charsetId;
+                charmapId = columnCharmapId(locales, sysCol, defaultCharacterMapId, defaultCharacterNcharMapId);
 
                 if (sysCol->type == SysCol::COLTYPE::VARCHAR || sysCol->type == SysCol::COLTYPE::CHAR || sysCol->type == SysCol::COLTYPE::CLOB) {
                     auto characterMapIt = locales->characterMap.find(charmapId);
