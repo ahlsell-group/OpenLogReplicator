@@ -231,3 +231,10 @@ Remediation: Check the redo log at the given offset and report it with the raw b
 A TIMESTAMP WITH TIME ZONE value carries a time zone region id that is not in the built-in region map, so the time zone is sent as `TZ?`; the time itself is correct (UTC).
 Logged once per region id.
 Remediation: Report the region id and the time zone name of the value so the region can be added to the map in `Locales.cpp`.
+
+==== code 60050: "missing LOB index for xid: <xid>, LOB: <lob>, obj: <number>, offset: <number>[, suppressed since last warning: <number>]"
+
+A row carries an out-of-row LOB locator, but the transaction has no LOB index for it, so the value of the LOB is unknown.
+The column is left out of the message instead of being sent as an empty CLOB or BLOB; Debezium marks a missing LOB column as unavailable.
+The warning is logged at most once per table (obj) per 60 seconds of commit time; the next one counts the occurrences left out in between.
+See comment for warning 60002.

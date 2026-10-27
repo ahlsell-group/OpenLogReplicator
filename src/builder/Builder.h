@@ -118,6 +118,7 @@ namespace OpenLogReplicator {
 
         static constexpr uint64_t VALUE_BUFFER_MIN{1048576};
         static constexpr uint64_t VALUE_BUFFER_MAX{4294967296};
+        static constexpr int64_t LOB_MISSING_INDEX_WARNING_S{60};
 
         static constexpr uint8_t XML_HEADER_STANDALONE{0x01};
         static constexpr uint8_t XML_HEADER_XMLDECL{0x02};
@@ -158,6 +159,11 @@ namespace OpenLogReplicator {
         Seq beginSequence{Seq::zero()};
         Seq commitSequence{Seq::zero()};
         Xid lastXid;
+        struct LobMissingIndexWarning {
+            int64_t lastLogged;
+            uint64_t suppressed;
+        };
+        std::unordered_map<typeObj, LobMissingIndexWarning> lobMissingIndexWarnings;
         typeMask valuesSet[Ctx::COLUMN_LIMIT_23_0 / sizeof(uint64_t)]{};
         typeMask valuesMerge[Ctx::COLUMN_LIMIT_23_0 / sizeof(uint64_t)]{};
         int64_t sizes[Ctx::COLUMN_LIMIT_23_0][static_cast<uint>(Format::VALUE_TYPE::LENGTH)]{};
@@ -628,6 +634,22 @@ namespace OpenLogReplicator {
             }
         }
 
+        // Warning 60050 at most once per table per LOB_MISSING_INDEX_WARNING_S of commit time, with the count left out since the last one
+        void warnMissingLobIndex(const LobId& lobId, typeObj obj, FileOffset fileOffset) {
+            const int64_t now = commitTimestamp.toEpoch(0);
+            auto [it, first] = lobMissingIndexWarnings.try_emplace(obj, LobMissingIndexWarning{now, 0});
+            if (!first && now - it->second.lastLogged < LOB_MISSING_INDEX_WARNING_S) {
+                ++it->second.suppressed;
+                return;
+            }
+            std::string suppressed;
+            if (it->second.suppressed > 0)
+                suppressed = ", suppressed since last warning: " + std::to_string(it->second.suppressed);
+            ctx->warning(60050, "missing LOB index for xid: " + lastXid.toString() + ", LOB: " + lobId.lower() + ", obj: " +
+                         std::to_string(obj) + ", offset: " + fileOffset.toString() + suppressed);
+            it->second = LobMissingIndexWarning{now, 0};
+        }
+
         bool parseLob(LobCtx* lobCtx, const uint8_t* data, uint64_t size, uint64_t charsetId, typeObj obj, FileOffset fileOffset, bool isClob, bool isSystem) {
             bool appendData = false;
             bool hasPrev = false;
@@ -649,10 +671,12 @@ namespace OpenLogReplicator {
             if ((flags & 0x04) == 0) {
                 auto lobsIt = lobCtx->lobs.find(lobId);
                 if (unlikely(lobsIt == lobCtx->lobs.end())) {
+                    // The value is unknown, so the column is left out instead of being sent as an empty LOB
+                    warnMissingLobIndex(lobId, obj, fileOffset);
                     if (unlikely(ctx->isTraceSet(Ctx::TRACE::LOB_DATA)))
                         ctx->logTrace(Ctx::TRACE::LOB_DATA, "LOB missing LOB index xid: " + lastXid.toString() + " LOB: " + lobId.lower() +
                                       " data: " + dumpLob(data, size));
-                    return true;
+                    return false;
                 }
                 LobData* lobData = lobsIt->second;
                 valueBufferCheck(lobData->pageSize * static_cast<uint64_t>(lobData->sizePages) + lobData->sizeRest, fileOffset);
