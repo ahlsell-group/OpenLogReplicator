@@ -247,13 +247,11 @@ namespace OpenLogReplicator {
             redoResponsePB->add_payload();
             payloadPB = redoResponsePB->mutable_payload(redoResponsePB->payload_size() - 1);
             payloadPB->set_op(pb::DDL);
+            schemaPB = payloadPB->mutable_schema();
             appendSchema(table, obj);
-            // truncated to 1M
-            if (ddlFirst != nullptr) {
-                const typeTransactionSize* chunkSize = reinterpret_cast<uint64_t*>(ddlFirst) + sizeof(uint8_t*);
-                const char* chunkData = reinterpret_cast<const char*>(ddlFirst) + sizeof(uint8_t*) + sizeof(uint64_t);
-                payloadPB->set_ddl(chunkData, *chunkSize);
-            }
+            // ddlToValueBuffer has put the SQL text in valueBuffer as UTF-8
+            if (ddlFirst != nullptr)
+                payloadPB->set_ddl(valueBuffer, valueSize);
         }
 
         if (!format.isMessageFormatFull()) {
