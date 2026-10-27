@@ -176,15 +176,15 @@ namespace OpenLogReplicator {
             return result - UNIX_AD1970_01_01 - tz; // adjust to 1970 epoch, 719,527 days
         }
 
-        // treat dates BC with the exact rules as AD for leap years
-        result = -yearToDaysBC(-year, month) + cumDays[month % 12] + day;
+        // proleptic Gregorian like AD, year N BC is astronomical year 1 - N (1 BC is year 0, a leap year)
+        result = -yearToDaysBC(-year - 1, month) + cumDays[month % 12] + day;
         result *= 24;
         result += hour;
         result *= 60;
         result += minute;
         result *= 60;
         result += second;
-        return result - UNIX_BC1970_01_01 - tz; // adjust to 1970 epoch, 718,798 days (year 0 does not exist)
+        return result - UNIX_BC1970_01_01 - tz; // adjust to 1970 epoch, 719,528 days from 1 BC-01-01
     }
 
     uint64_t Data::epochToIso8601(time_t timestamp, char* buffer, bool addT, bool addZ) {
@@ -268,8 +268,8 @@ namespace OpenLogReplicator {
             return 19;
         }
 
-        // BC
-        timestamp = 365 * 24 * 60 * 60 - timestamp;
+        // BC, as in valuesToEpoch; counted from 4801 BC, 12 whole 400-year cycles before 1 BC, so the value is positive
+        timestamp += UNIX_BC1970_01_01 - UNIX_AD1970_01_01 + (12L * 146097 * 24 * 60 * 60);
 
         int64_t second = (timestamp % 60);
         timestamp /= 60;
@@ -278,15 +278,14 @@ namespace OpenLogReplicator {
         int64_t hour = (timestamp % 24);
         timestamp /= 24;
 
-        int64_t year = (timestamp / 366) - 1;
-        year = std::max<int64_t>(year, 0);
-        int64_t day = yearToDaysBC(year, 0);
+        int64_t year = timestamp / 365;
+        int64_t day = yearToDays(year, 0) + 1;
 
-        while (day < timestamp) {
-            ++year;
-            day = yearToDaysBC(year, 0);
+        while (day > timestamp) {
+            --year;
+            day = yearToDays(year, 0) + 1;
         }
-        day -= timestamp;
+        day = timestamp - day;
 
         int64_t month = day / 27;
         month = std::min<int64_t>(month, 11);
@@ -303,6 +302,7 @@ namespace OpenLogReplicator {
         }
         ++month;
         ++day;
+        year = 4801 - year;
         buffer[0] = '-';
         buffer[4] = map10(year % 10);
         year /= 10;
