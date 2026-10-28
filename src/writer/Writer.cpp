@@ -87,28 +87,75 @@ namespace OpenLogReplicator {
             msg->unsetFlag(BuilderMsg::OUTPUT_BUFFER::ALLOCATED);
         }
 
-        if (currentQueueSize > 0) {
-            const LocalPosition position{msg->id, msg->queueId, msg->lwnScn, msg->lwnIdx};
-            if (localHeldOpen)
-                localHeld.back() = position;
-            else
-                localHeld.push_back(position);
-            localHeldOpen = true;
-            contextSet(CONTEXT::CPU);
-            return;
+        if (!holdLocal({msg->id, msg->queueId, msg->lwnScn, msg->lwnIdx, true, msg->lwnScn, msg->lwnIdx})) {
+            advanceConfirmed(msg->lwnScn, msg->lwnIdx);
+            advance(messageConfirmedScn, messageConfirmedIdx, msg->lwnScn, msg->lwnIdx);
+            builder->releaseBuffers(this, msg->queueId);
         }
-
-        advanceConfirmed(msg->lwnScn, msg->lwnIdx);
-        builder->releaseBuffers(this, msg->queueId);
         contextSet(CONTEXT::CPU);
     }
 
+    // A checkpoint the builder did not write (see Builder::hideCheckpoint) is confirmed like a message the writer reads
+    // and confirms itself, at the point where it would have been read
+    void Writer::confirmHiddenCheckpoint(const HiddenCheckpoint& checkpoint) {
+        if (checkpoint.redo)
+            redo = true;
+        if (ctx->metrics != nullptr)
+            ctx->metrics->emitMessagesConfirmed(checkpoint.count);
+
+        contextSet(CONTEXT::MUTEX, REASON::WRITER_CONFIRM);
+        std::unique_lock const lck(mtx);
+        if (!holdLocal({checkpoint.id, checkpoint.queueId, checkpoint.lwnScn, checkpoint.lwnIdx, false, Scn::none(), 0})) {
+            advanceConfirmed(checkpoint.lwnScn, checkpoint.lwnIdx);
+            builder->releaseBuffers(this, checkpoint.queueId);
+        }
+        contextSet(CONTEXT::CPU);
+    }
+
+    // Hidden checkpoints with an id below beforeId; the caller has read every message before that id
+    bool Writer::confirmHiddenCheckpoints(uint64_t beforeId) {
+        HiddenCheckpoint checkpoint{};
+        bool confirmed = false;
+        while (builder->takeHiddenCheckpoint(this, beforeId, checkpoint)) {
+            confirmHiddenCheckpoint(checkpoint);
+            confirmed = true;
+        }
+        return confirmed;
+    }
+
+    // Called with mtx held. Messages sent earlier are unconfirmed: keep the position until they are, the last one of each
+    // run between two sent messages. Returns false when nothing is unconfirmed and the position can be taken now.
+    bool Writer::holdLocal(const LocalPosition& position) {
+        if (currentQueueSize == 0)
+            return false;
+
+        if (localHeldOpen) {
+            LocalPosition& last = localHeld.back();
+            last.id = position.id;
+            last.queueId = std::max(last.queueId, position.queueId);
+            last.scn = position.scn;
+            last.idx = position.idx;
+            if (position.hasMessage) {
+                last.hasMessage = true;
+                last.messageScn = position.messageScn;
+                last.messageIdx = position.messageIdx;
+            }
+        } else
+            localHeld.push_back(position);
+        localHeldOpen = true;
+        return true;
+    }
+
+    void Writer::advance(Scn& toScn, typeIdx& toIdx, Scn scn, typeIdx idx) {
+        if (toScn == Scn::none() || scn > toScn) {
+            toScn = scn;
+            toIdx = idx;
+        } else if (scn == toScn && idx > toIdx)
+            toIdx = idx;
+    }
+
     void Writer::advanceConfirmed(Scn scn, typeIdx idx) {
-        if (confirmedScn == Scn::none() || scn > confirmedScn) {
-            confirmedScn = scn;
-            confirmedIdx = idx;
-        } else if (scn == confirmedScn && idx > confirmedIdx)
-            confirmedIdx = idx;
+        advance(confirmedScn, confirmedIdx, scn, idx);
     }
 
     void Writer::sortQueue() {
@@ -241,6 +288,7 @@ namespace OpenLogReplicator {
                 // The confirmed position is the one of the message leaving the queue, not of the message passed in
                 maxId = queue[0]->queueId;
                 advanceConfirmed(queue[0]->lwnScn, queue[0]->lwnIdx);
+                advance(messageConfirmedScn, messageConfirmedIdx, queue[0]->lwnScn, queue[0]->lwnIdx);
 
                 if (--currentQueueSize == 0)
                     break;
@@ -266,6 +314,8 @@ namespace OpenLogReplicator {
 
             while (!localHeld.empty() && (currentQueueSize == 0 || localHeld.front().id < queue[0]->id)) {
                 advanceConfirmed(localHeld.front().scn, localHeld.front().idx);
+                if (localHeld.front().hasMessage)
+                    advance(messageConfirmedScn, messageConfirmedIdx, localHeld.front().messageScn, localHeld.front().messageIdx);
                 maxId = std::max(maxId, localHeld.front().queueId);
                 localHeld.pop_front();
             }
@@ -373,6 +423,9 @@ namespace OpenLogReplicator {
                 // Update checkpoint
                 writeCheckpoint(redo);
 
+                // Read before the buffers: the messages before these hidden checkpoints are committed by now
+                const uint64_t hiddenEndId = builder->hiddenEndId;
+
                 // Next buffer
                 if (builderQueue->next != nullptr)
                     if (builderQueue->confirmedSize == oldSize) {
@@ -386,6 +439,10 @@ namespace OpenLogReplicator {
                     newSize = builderQueue->confirmedSize;
                     break;
                 }
+
+                // Every message before these hidden checkpoints is read; loop again so a log switch one forces the write at once
+                if (confirmHiddenCheckpoints(hiddenEndId))
+                    continue;
 
                 if (ctx->softShutdown && ctx->replicatorFinished)
                     break;
@@ -417,6 +474,7 @@ namespace OpenLogReplicator {
                     warnQueueFull(msg, fullSince, fullWarned);
                 }
 
+                confirmHiddenCheckpoints(msg->id);
                 writeCheckpoint(redo);
                 if (ctx->hardShutdown)
                     break;
@@ -486,8 +544,9 @@ namespace OpenLogReplicator {
             // All work done?
             if (ctx->softShutdown && ctx->replicatorFinished) {
                 flush();
-                // Is there still some data to send?
-                if (builderQueue->confirmedSize != oldSize || builderQueue->next != nullptr)
+                // Is there still some data to send, or a checkpoint to confirm?
+                if (builderQueue->confirmedSize != oldSize || builderQueue->next != nullptr ||
+                    builder->hiddenFirstId != Builder::NO_HIDDEN_CHECKPOINT)
                     continue;
                 break;
             }

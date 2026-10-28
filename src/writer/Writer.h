@@ -28,6 +28,7 @@ namespace OpenLogReplicator {
     class Builder;
     struct BuilderMsg;
     struct BuilderQueue;
+    struct HiddenCheckpoint;
     class Metadata;
 
     class Writer : public Thread {
@@ -53,12 +54,19 @@ namespace OpenLogReplicator {
         // scn,idx confirmed by client
         Scn confirmedScn{Scn::none()};
         typeIdx confirmedIdx{0};
+        // The newest confirmed message from the buffers; hidden checkpoints move only confirmedScn/Idx
+        Scn messageConfirmedScn{Scn::none()};
+        typeIdx messageConfirmedIdx{0};
         BuilderMsg** queue{nullptr};
         struct LocalPosition {
             uint64_t id;
             uint64_t queueId;
             Scn scn;
             typeIdx idx;
+            // The newest message from the buffers in the run, if any
+            bool hasMessage;
+            Scn messageScn;
+            typeIdx messageIdx;
         };
         // Messages the writer confirmed itself while messages sent earlier were still unconfirmed: the last one of each run
         // between two sent messages, taken once every message before it is confirmed. At most one per queued message.
@@ -71,6 +79,10 @@ namespace OpenLogReplicator {
 
         void createMessage(BuilderMsg* msg);
         void confirmLocalMessage(BuilderMsg* msg);
+        void confirmHiddenCheckpoint(const HiddenCheckpoint& checkpoint);
+        bool confirmHiddenCheckpoints(uint64_t beforeId);
+        bool holdLocal(const LocalPosition& position);
+        static void advance(Scn& toScn, typeIdx& toIdx, Scn scn, typeIdx idx);
         void advanceConfirmed(Scn scn, typeIdx idx);
         void clearQueue();
         void warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned);

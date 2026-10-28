@@ -199,12 +199,14 @@ namespace OpenLogReplicator {
         Scn oldestScn = Scn::none();
         typeIdx oldestIdx = 0;
         const HELD held = oldestHeldMessage(oldestScn, oldestIdx);
-        if (isContinueGap(metadata->clientScn, metadata->clientIdx, confirmedScn, confirmedIdx, held, oldestScn, oldestIdx)) {
+        // Hidden checkpoints are not in the buffers: whether something was released depends on the messages confirmed
+        if (isContinueGap(metadata->clientScn, metadata->clientIdx, messageConfirmedScn, messageConfirmedIdx, held, oldestScn, oldestIdx)) {
             const std::string oldest = held == HELD::MESSAGE ?
                     "the oldest message still held is scn: " + oldestScn.toString() + ", idx: " + std::to_string(oldestIdx) :
                     "no message is held any more";
             ctx->warning(60039, "client continues from scn: " + metadata->clientScn.toString() + ", idx: " + std::to_string(metadata->clientIdx) +
-                         ", before the position it confirmed, scn: " + confirmedScn.toString() + ", idx: " + std::to_string(confirmedIdx) + "; " +
+                         ", before the position it confirmed, scn: " + messageConfirmedScn.toString() + ", idx: " +
+                         std::to_string(messageConfirmedIdx) + "; " +
                          oldest + ", the messages in between were released and " +
                          (refuseContinueGap ? "can't be sent again, refusing to continue (continue-gap: 1)" : "are not sent again"));
             if (refuseContinueGap) {
