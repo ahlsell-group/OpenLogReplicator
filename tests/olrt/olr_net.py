@@ -22,6 +22,8 @@ client.toml:
                                   # CONTINUE(c_scn, c_idx) if REPLICATE. Initial offset is the
                                   # start SCN with no index (like after a snapshot).
   offset = "current"              # optional: offset := current SCN first (snapshot taken now)
+  c_idx = 0                       # optional: offset index := c_idx, so CONTINUE sends (c_scn, c_idx) as a
+                                  # client with a stored position does (without an index OLR continues from its own)
   [[step]]
   sql = "INSERT INTO t VALUES (1)"  # one statement or PL/SQL block; COMMIT/ROLLBACK allowed
   session = 2                     # default 1; sessions stay open across steps
@@ -334,6 +336,8 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                 if step.get("offset") == "current":
                     # START at "now", like Debezium after a snapshot taken at this SCN
                     offset = (db.current_scn(rconn), None)
+                if "c_idx" in step:
+                    offset = (offset[0], int(step["c_idx"]))
                 client = netclient.Client(scenario.db_name)
                 client.sent = requests
                 path, code = client.connect("127.0.0.1", port, offset[0], offset[1])

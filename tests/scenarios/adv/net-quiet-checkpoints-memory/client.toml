@@ -1,0 +1,42 @@
+# The client confirms like Debezium 3.7.0, so its last transaction stays held. 30 000 single-LWN commits on a table
+# outside the filter follow. A checkpoint message per LWN in the builder buffers (~230 B each) fills the 4 MB of builder
+# memory after about 18 000 LWNs and the parser waits for memory: the next captured row never arrives. With the
+# checkpoints kept out of the buffers, builder memory stays at the held transaction.
+[olr]
+queue_size = 200
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO olrt_advn10.t VALUES (10, 'before', 10)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "confirm_held"
+[[step]]
+sql = """BEGIN
+  FOR i IN 1 .. 30000 LOOP
+    UPDATE olrt_advn10.noise SET n = i WHERE id = 1;
+    COMMIT WRITE WAIT IMMEDIATE;
+  END LOOP;
+END;
+/"""
+[[step]]
+read = "idle"
+idle = 5
+[[step]]
+sql = "INSERT INTO olrt_advn10.t VALUES (11, 'after', 11)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+timeout = 60
+[[step]]
+client = "confirm_held"
+[[step]]
+read = "idle"
+idle = 5

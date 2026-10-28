@@ -1,0 +1,37 @@
+# OLR confirms its own checkpoints, so its confirmed position moves past the client's offset while no captured table
+# changes. The client then reconnects with CONTINUE (c_scn, c_idx) from its offset, the start SCN. Nothing the client
+# could get was released, so OLR must neither warn (60039) nor, with continue-gap 1, refuse; the next row must arrive.
+[olr]
+continue_gap = 1
+
+[[step]]
+client = "connect"
+[[step]]
+sql = """BEGIN
+  FOR i IN 1 .. 2000 LOOP
+    UPDATE olrt_advn11.noise SET n = i WHERE id = 1;
+    COMMIT WRITE WAIT IMMEDIATE;
+  END LOOP;
+END;
+/"""
+[[step]]
+read = "idle"
+idle = 5
+[[step]]
+client = "disconnect"
+[[step]]
+client = "connect"
+c_idx = 0
+[[step]]
+sql = "INSERT INTO olrt_advn11.t VALUES (10, 'after', 10)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+timeout = 30
+[[step]]
+client = "commit_offset"
+[[step]]
+read = "idle"
+idle = 5
