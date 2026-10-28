@@ -41,6 +41,9 @@ client.toml:
   [[step]]
   client = "confirm_last"         # raw CONFIRM of the last received c_scn/c_idx (no rule)
   [[step]]
+  client = "confirm_held"         # Debezium 3.7.0: CONFIRM (c_scn, 0) of the last received message, which releases
+                                  # what came before its transaction and keeps the transaction itself held
+  [[step]]
   client = "disconnect"
   [[step]]
   olr = "restart"                 # docker stop + start, same state dir
@@ -349,6 +352,10 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                 if last:
                     client.confirm_raw(*last)
                     events.append(f"step {i}: raw CONFIRM {last}")
+            elif step.get("client") == "confirm_held":
+                if last:
+                    client.confirm_raw(last[0], 0)
+                    events.append(f"step {i}: CONFIRM ({last[0]}, 0), last transaction held")
             elif step.get("client") == "disconnect":
                 client.close()
                 client = None

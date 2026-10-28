@@ -59,6 +59,56 @@ namespace OpenLogReplicator {
         msg->unsetFlag(BuilderMsg::OUTPUT_BUFFER::CONFIRMED);
         queue[currentQueueSize++] = msg;
         hwmQueueSize = std::max(currentQueueSize, hwmQueueSize);
+        localHeldOpen = false;
+    }
+
+    void Writer::clearQueue() {
+        currentQueueSize = 0;
+        localHeld.clear();
+        localHeldOpen = false;
+    }
+
+    // A message the client does not get (a checkpoint without SHOW_CHECKPOINT, or one before the client's position) needs
+    // no confirmation and takes no place in the queue. Queued behind a sent message it could only leave once the client
+    // confirmed that message, and a client which keeps its last transaction unconfirmed until a later one arrives, as
+    // Debezium does, would never confirm it while no captured table changes: the checkpoints of the idle period fill the
+    // queue and the writer stops.
+    void Writer::confirmLocalMessage(BuilderMsg* msg) {
+        if (ctx->metrics != nullptr) {
+            ctx->metrics->emitBytesConfirmed(msg->size);
+            ctx->metrics->emitMessagesConfirmed(1);
+        }
+
+        contextSet(CONTEXT::MUTEX, REASON::WRITER_CONFIRM);
+        std::unique_lock const lck(mtx);
+
+        if (msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::ALLOCATED)) {
+            delete[] msg->data;
+            msg->unsetFlag(BuilderMsg::OUTPUT_BUFFER::ALLOCATED);
+        }
+
+        if (currentQueueSize > 0) {
+            const LocalPosition position{msg->id, msg->queueId, msg->lwnScn, msg->lwnIdx};
+            if (localHeldOpen)
+                localHeld.back() = position;
+            else
+                localHeld.push_back(position);
+            localHeldOpen = true;
+            contextSet(CONTEXT::CPU);
+            return;
+        }
+
+        advanceConfirmed(msg->lwnScn, msg->lwnIdx);
+        builder->releaseBuffers(this, msg->queueId);
+        contextSet(CONTEXT::CPU);
+    }
+
+    void Writer::advanceConfirmed(Scn scn, typeIdx idx) {
+        if (confirmedScn == Scn::none() || scn > confirmedScn) {
+            confirmedScn = scn;
+            confirmedIdx = idx;
+        } else if (scn == confirmedScn && idx > confirmedIdx)
+            confirmedIdx = idx;
     }
 
     void Writer::sortQueue() {
@@ -100,7 +150,7 @@ namespace OpenLogReplicator {
             if (msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::ALLOCATED))
                 delete[] msg->data;
         }
-        currentQueueSize = 0;
+        clearQueue();
 
         // Rewind to the oldest buffer still held, buffers are released only after the client confirmed them, so this
         // is the earliest position a client can continue from; isNewData() skips forward to the requested position.
@@ -190,11 +240,7 @@ namespace OpenLogReplicator {
             while (currentQueueSize > 0 && queue[0]->isFlagSet(BuilderMsg::OUTPUT_BUFFER::CONFIRMED)) {
                 // The confirmed position is the one of the message leaving the queue, not of the message passed in
                 maxId = queue[0]->queueId;
-                if (confirmedScn == Scn::none() || queue[0]->lwnScn > confirmedScn) {
-                    confirmedScn = queue[0]->lwnScn;
-                    confirmedIdx = queue[0]->lwnIdx;
-                } else if (queue[0]->lwnScn == confirmedScn && queue[0]->lwnIdx > confirmedIdx)
-                    confirmedIdx = queue[0]->lwnIdx;
+                advanceConfirmed(queue[0]->lwnScn, queue[0]->lwnIdx);
 
                 if (--currentQueueSize == 0)
                     break;
@@ -217,6 +263,14 @@ namespace OpenLogReplicator {
                 }
                 queue[i] = queue[currentQueueSize];
             }
+
+            while (!localHeld.empty() && (currentQueueSize == 0 || localHeld.front().id < queue[0]->id)) {
+                advanceConfirmed(localHeld.front().scn, localHeld.front().idx);
+                maxId = std::max(maxId, localHeld.front().queueId);
+                localHeld.pop_front();
+            }
+            if (localHeld.empty())
+                localHeldOpen = false;
         }
 
         builder->releaseBuffers(this, maxId);
@@ -225,17 +279,23 @@ namespace OpenLogReplicator {
 
     // A queue full of messages with the scn of the next one holds one transaction only. A client which confirms only when the scn
     // grows can never confirm any of them, so replication stops without an error; warn every minute while that lasts.
+    // Any other full queue that does not drain is a client which does not confirm what it got; warn about that too.
     void Writer::warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned) {
-        if (currentQueueSize < ctx->queueSize || queue[0]->lwnScn != msg->lwnScn)
+        if (currentQueueSize < ctx->queueSize)
             return;
         const time_ut now = ctx->clock->getTimeUt();
         if (now - fullSince < QUEUE_FULL_WARN_US || (fullWarned != 0 && now - fullWarned < QUEUE_FULL_REPEAT_US))
             return;
         fullWarned = now;
-        ctx->warning(60040, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
-                     std::to_string(ctx->queueSize) + ") with messages of one transaction, scn: " + msg->lwnScn.toString() +
-                     "; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of " +
-                     "messages of the largest transaction");
+        if (queue[0]->lwnScn == msg->lwnScn)
+            ctx->warning(60040, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
+                         std::to_string(ctx->queueSize) + ") with messages of one transaction, scn: " + msg->lwnScn.toString() +
+                         "; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of " +
+                         "messages of the largest transaction");
+        else
+            ctx->warning(60046, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
+                         std::to_string(ctx->queueSize) + "), the oldest unconfirmed message is scn: " + queue[0]->lwnScn.toString() +
+                         ", idx: " + std::to_string(queue[0]->lwnIdx) + "; the messages sent are not being confirmed");
     }
 
     void Writer::run() {
@@ -252,7 +312,7 @@ namespace OpenLogReplicator {
             readCheckpoint();
             builderQueue = builder->firstBuilderQueue;
             oldSize = 0;
-            currentQueueSize = 0;
+            clearQueue();
 
             // External loop for client disconnection
             while (!ctx->hardShutdown) {
@@ -287,7 +347,7 @@ namespace OpenLogReplicator {
     void Writer::mainLoop() {
         BuilderMsg* msg{nullptr};
         uint64_t newSize = 0;
-        currentQueueSize = 0;
+        clearQueue();
 
         // Start streaming
         while (!ctx->hardShutdown) {
@@ -366,14 +426,14 @@ namespace OpenLogReplicator {
 
                 // Message in one part - sent directly from buffer
                 if (oldSize + size8 <= Builder::OUTPUT_BUFFER_DATA_SIZE) {
-                    createMessage(msg);
                     if (msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::REDO))
                         redo = true;
                     // Send the message to the client in one part
                     if ((msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::CHECKPOINT) && !ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_CHECKPOINT)) ||
                         !metadata->isNewData(msg->lwnScn, msg->lwnIdx))
-                        confirmMessage(msg);
+                        confirmLocalMessage(msg);
                     else {
+                        createMessage(msg);
                         const uint64_t msgSize = msg->size;
                         sendMessage(msg);
                         if (ctx->metrics != nullptr) {
@@ -406,12 +466,12 @@ namespace OpenLogReplicator {
                         copied += toCopy;
                     }
 
-                    createMessage(msg);
                     // Send only new messages to the client
                     if ((msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::CHECKPOINT) && !ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_CHECKPOINT)) ||
                         !metadata->isNewData(msg->lwnScn, msg->lwnIdx))
-                        confirmMessage(msg);
+                        confirmLocalMessage(msg);
                     else {
+                        createMessage(msg);
                         const uint64_t msgSize = msg->size;
                         sendMessage(msg);
                         if (ctx->metrics != nullptr) {

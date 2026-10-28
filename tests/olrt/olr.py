@@ -34,6 +34,12 @@ PROFILES = {
         "format": {"type": "debezium", "scn-type": 4, "timestamp-type": 4, "user-type": 0, "redo-thread": 0},
         "flags": 32,
     },
+    # debezium-ddl plus SHOW_CHECKPOINT: the client gets a checkpoint after each LWN and can confirm past
+    # its last transaction while no captured table changes
+    "debezium-ddl-ckpt": {
+        "format": {"type": "debezium", "scn-type": 4, "timestamp-type": 4, "user-type": 0, "redo-thread": 0},
+        "flags": 32 | 4096,
+    },
     # Debezium format with the DB host's zone; needs an image with the fork's IANA
     # host-timezone fix (upstream 2.0.0 only accepts +HH:MM)
     "debezium-tz": {

@@ -1,0 +1,34 @@
+# Production stall 2026-10-28: after the last captured transaction the client confirms its scn with idx 0,
+# so that transaction stays at the head of the writer queue. OLR then queues one locally confirmed
+# checkpoint message per LWN behind it; a quiet period with more LWNs than queue-size fills the queue and
+# the writer stops sending, with no error. Here queue-size is 200 and 1 500 committed-and-waited updates on
+# a table outside the filter give one LWN each.
+[connector]
+snapshot_mode = "no_data"
+heartbeat_ms = 60000
+[olr]
+queue_size = 200
+
+[[step]]
+connector = "create"
+[[step]]
+sql = "INSERT INTO olrt_cq.t VALUES (10, 10, 'before')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 4
+[[step]]
+sql_file = "noise.sql"
+[[step]]
+sleep = 5
+[[step]]
+sql = "INSERT INTO olrt_cq.t VALUES (11, 11, 'after')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "rows"
+min_records = 1
+timeout = 60
+[[step]]
+wait = "idle"

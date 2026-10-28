@@ -207,6 +207,7 @@ carries every fix listed; the scenarios list it in `fixed_in`.
 | xid format 3 in host byte order on big-endian databases (not reproducible on the little-endian lab) | `meta/xid-logminer` | fixed: `fix/xid-logminer-byte-order` (unit tests) |
 | An archived log that is truncated or shrinks while read gives a silent gap | `archive/truncate-*`, `archive/zero-mid-read` | fixed: `fix/archive-short-read` (ERROR 40012/40013) |
 | Direct-path loads are not decoded (LogMiner agrees) | `storage/direct-path-*`, `storage/basic-compression` | open; the fork logs WARN 60042 |
+| Checkpoints the client never gets (no SHOW_CHECKPOINT) queued behind a transaction it keeps unconfirmed (Debezium 3.7.0) fill `queue-size` during an idle period and the writer stops, without a warning (dev 2026-10-28) | `adv/net-quiet-checkpoints`, `connect/quiet-checkpoint-stall` | fixed: `fix/queue-checkpoint-stall` (and WARN 60046 for any full queue that does not drain) |
 | A transaction larger than the network writer's `queue-size` deadlocks with a client that confirms only when `c_scn` grows | `adv/net-small-queue` | open; the fork logs WARN 60040; keep `queue-size` above the largest transaction |
 | CONTINUE before the client's confirmed position | `connect/restart-task-mid-txn`, `connect/worker-kill-mid-txn` | the fork logs WARN 60039 |
 | TRUNCATE is invisible with flags 0; with flags 32 `ALTER TABLE ... MOVE` also emits two DDL messages with binary garbage | `ddl/truncate-then-dml`, `ddl/move-mid-stream` | by design / open |

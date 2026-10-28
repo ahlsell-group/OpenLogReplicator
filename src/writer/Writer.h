@@ -20,6 +20,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #ifndef WRITER_H_
 #define WRITER_H_
 
+#include <deque>
 #include <mutex>
 #include "../common/Thread.h"
 
@@ -53,11 +54,25 @@ namespace OpenLogReplicator {
         Scn confirmedScn{Scn::none()};
         typeIdx confirmedIdx{0};
         BuilderMsg** queue{nullptr};
+        struct LocalPosition {
+            uint64_t id;
+            uint64_t queueId;
+            Scn scn;
+            typeIdx idx;
+        };
+        // Messages the writer confirmed itself while messages sent earlier were still unconfirmed: the last one of each run
+        // between two sent messages, taken once every message before it is confirmed. At most one per queued message.
+        std::deque<LocalPosition> localHeld;
+        // The last held position belongs to the current run: no message was sent after it
+        bool localHeldOpen{false};
 
         static constexpr time_ut QUEUE_FULL_WARN_US = 10000000;
         static constexpr time_ut QUEUE_FULL_REPEAT_US = 60000000;
 
         void createMessage(BuilderMsg* msg);
+        void confirmLocalMessage(BuilderMsg* msg);
+        void advanceConfirmed(Scn scn, typeIdx idx);
+        void clearQueue();
         void warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned);
         virtual void sendMessage(BuilderMsg* msg) = 0;
         virtual std::string getType() const = 0;
