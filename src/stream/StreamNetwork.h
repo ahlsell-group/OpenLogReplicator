@@ -36,7 +36,16 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "Stream.h"
 
 namespace OpenLogReplicator {
+    class StreamNetworkTestAccess;
+
     class StreamNetwork final : public Stream {
+    public:
+        static constexpr uint64_t KEEPALIVE_IDLE_S_DEFAULT{60};
+        static constexpr uint64_t KEEPALIVE_INTERVAL_S_DEFAULT{10};
+        static constexpr uint64_t KEEPALIVE_COUNT_DEFAULT{6};
+        static constexpr uint64_t KEEPALIVE_S_MAX{32767};
+        static constexpr uint64_t KEEPALIVE_COUNT_MAX{127};
+
     protected:
         int socketFD{-1};
         int serverFD{-1};
@@ -47,6 +56,13 @@ namespace OpenLogReplicator {
         uint64_t readBufferLen{0};
         struct addrinfo* res{nullptr};
         static constexpr uint32_t MAX_LENGTH = 0xFFFFFFFF;
+        // TCP keepalive on an accepted client; idle 0 leaves it off
+        uint64_t keepAliveIdleS{KEEPALIVE_IDLE_S_DEFAULT};
+        uint64_t keepAliveIntervalS{KEEPALIVE_INTERVAL_S_DEFAULT};
+        uint64_t keepAliveCount{KEEPALIVE_COUNT_DEFAULT};
+
+        bool applyKeepAlive(int fd, std::string& error) const;
+        void dropClient();
 
     public:
         StreamNetwork(Ctx* newCtx, std::string newUri);
@@ -60,6 +76,9 @@ namespace OpenLogReplicator {
         uint64_t receiveMessage(void* msg, uint64_t bufferSize) override;
         uint64_t receiveMessageNB(void* msg, uint64_t bufferSize) override;
         [[nodiscard]] bool isConnected() override;
+        void setKeepAlive(uint64_t idleS, uint64_t intervalS, uint64_t count);
+
+        friend class StreamNetworkTestAccess;
     };
 }
 

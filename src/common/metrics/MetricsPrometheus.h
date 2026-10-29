@@ -20,7 +20,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 #ifndef METRICS_PROMETHEUS_H_
 #define METRICS_PROMETHEUS_H_
 
+#include <atomic>
 #include <map>
+#include <prometheus/collectable.h>
 #include <prometheus/counter.h>
 #include <prometheus/exposer.h>
 #include <prometheus/registry.h>
@@ -28,6 +30,21 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "Metrics.h"
 
 namespace OpenLogReplicator {
+    class Clock;
+
+    // Computed at scrape time, so the age keeps growing while the writer is blocked in a send
+    class WriterQueueAge final : public prometheus::Collectable {
+    protected:
+        const Clock* clock;
+
+    public:
+        std::atomic<int64_t> oldestSentUs{0};
+
+        explicit WriterQueueAge(const Clock* newClock);
+        [[nodiscard]] std::vector<prometheus::MetricFamily> Collect() const override;
+        [[nodiscard]] static double ageS(int64_t sentUs, int64_t nowUs);
+    };
+
     class MetricsPrometheus final : public Metrics {
     protected:
         std::string bind;
@@ -146,6 +163,17 @@ namespace OpenLogReplicator {
         prometheus::Gauge* serviceStateFinishingGauge{nullptr};
         prometheus::Gauge* serviceStateAbortingGauge{nullptr};
 
+        // writer_queue_size
+        prometheus::Family<prometheus::Gauge>* writerQueueSize{nullptr};
+        prometheus::Gauge* writerQueueSizeGauge{nullptr};
+
+        // writer_queue_held_positions
+        prometheus::Family<prometheus::Gauge>* writerQueueHeldPositions{nullptr};
+        prometheus::Gauge* writerQueueHeldPositionsGauge{nullptr};
+
+        // writer_queue_oldest_age_s
+        std::shared_ptr<WriterQueueAge> writerQueueAge;
+
     public:
         MetricsPrometheus(TAG_NAMES newTagNames, std::string newBind);
         ~MetricsPrometheus() override;
@@ -245,6 +273,15 @@ namespace OpenLogReplicator {
         void emitServiceStateReplicating(int64_t gauge) override;
         void emitServiceStateFinishing(int64_t gauge) override;
         void emitServiceStateAborting(int64_t gauge) override;
+
+        // writer_queue_size
+        void emitWriterQueueSize(int64_t gauge) override;
+
+        // writer_queue_held_positions
+        void emitWriterQueueHeldPositions(int64_t gauge) override;
+
+        // writer_queue_oldest_age_s
+        void emitWriterQueueOldestSentUs(int64_t timeUs) override;
     };
 }
 

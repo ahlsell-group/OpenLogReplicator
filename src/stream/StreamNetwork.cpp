@@ -21,6 +21,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <cstring>
 #include <fcntl.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 
 #include "../common/Ctx.h"
@@ -327,15 +328,18 @@ namespace OpenLogReplicator {
                 socketFD = -1;
                 throw NetworkException(10056, "host disconnected");
             } else {
+                // A dead connection (keepalive or retransmission timeout, reset) is dropped here, so the next client is accepted
+                if (errno != EWOULDBLOCK && errno != EAGAIN) {
+                    const int err = errno;
+                    dropClient();
+                    throw NetworkException(10061, "network error, errno: " + std::to_string(err) + ", message: " + strerror(err) + " (21)");
+                }
                 if (recvd == 0)
                     return 0;
 
-                if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                    ctx->writerThread->contextSet(Thread::CONTEXT::SLEEP);
-                    ctx->usleepInt(ctx->pollIntervalUs);
-                    ctx->writerThread->contextSet(Thread::CONTEXT::CPU);
-                } else
-                    return 0;
+                ctx->writerThread->contextSet(Thread::CONTEXT::SLEEP);
+                ctx->usleepInt(ctx->pollIntervalUs);
+                ctx->writerThread->contextSet(Thread::CONTEXT::CPU);
             }
         }
 
@@ -364,15 +368,15 @@ namespace OpenLogReplicator {
                     socketFD = -1;
                     throw NetworkException(10056, "host disconnected");
                 } else {
-                    if (recvd == 0)
-                        return 0;
+                    if (errno != EWOULDBLOCK && errno != EAGAIN) {
+                        const int err = errno;
+                        dropClient();
+                        throw NetworkException(10061, "network error, errno: " + std::to_string(err) + ", message: " + strerror(err) + " (22)");
+                    }
 
-                    if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                        ctx->writerThread->contextSet(Thread::CONTEXT::SLEEP);
-                        ctx->usleepInt(ctx->pollIntervalUs);
-                        ctx->writerThread->contextSet(Thread::CONTEXT::CPU);
-                    } else
-                        return 0;
+                    ctx->writerThread->contextSet(Thread::CONTEXT::SLEEP);
+                    ctx->usleepInt(ctx->pollIntervalUs);
+                    ctx->writerThread->contextSet(Thread::CONTEXT::CPU);
                 }
             }
 
@@ -394,16 +398,74 @@ namespace OpenLogReplicator {
                 socketFD = -1;
                 throw NetworkException(10056, "host disconnected");
             } else {
-                if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                    ctx->writerThread->contextSet(Thread::CONTEXT::SLEEP);
-                    ctx->usleepInt(ctx->pollIntervalUs);
-                    ctx->writerThread->contextSet(Thread::CONTEXT::CPU);
-                } else
-                    return 0;
+                if (errno != EWOULDBLOCK && errno != EAGAIN) {
+                    const int err = errno;
+                    dropClient();
+                    throw NetworkException(10061, "network error, errno: " + std::to_string(err) + ", message: " + strerror(err) + " (23)");
+                }
+
+                ctx->writerThread->contextSet(Thread::CONTEXT::SLEEP);
+                ctx->usleepInt(ctx->pollIntervalUs);
+                ctx->writerThread->contextSet(Thread::CONTEXT::CPU);
             }
         }
 
         return recvd;
+    }
+
+    void StreamNetwork::dropClient() {
+        if (socketFD != -1) {
+            close(socketFD);
+            socketFD = -1;
+        }
+    }
+
+    void StreamNetwork::setKeepAlive(uint64_t idleS, uint64_t intervalS, uint64_t count) {
+        keepAliveIdleS = idleS;
+        keepAliveIntervalS = intervalS;
+        keepAliveCount = count;
+    }
+
+    // A client that vanishes without FIN or RST (a deleted pod, a dropped route) is noticed only by keepalive while
+    // nothing is sent: OpenLogReplicator serves one client at a time and would keep the dead one forever. Probes stop
+    // while sent data is unacknowledged; then the retransmission timeout (tcp_retries2) drops the connection.
+    bool StreamNetwork::applyKeepAlive(int fd, std::string& error) const {
+        if (keepAliveIdleS == 0)
+            return true;
+
+        const int on = 1;
+        if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof(on)) != 0) {
+            error = "SO_KEEPALIVE, errno: " + std::to_string(errno) + ", message: " + strerror(errno);
+            return false;
+        }
+
+        const int idle = static_cast<int>(keepAliveIdleS);
+#if defined(TCP_KEEPIDLE)
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle)) != 0) {
+            error = "TCP_KEEPIDLE, errno: " + std::to_string(errno) + ", message: " + strerror(errno);
+            return false;
+        }
+#elif defined(TCP_KEEPALIVE)
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof(idle)) != 0) {
+            error = "TCP_KEEPALIVE, errno: " + std::to_string(errno) + ", message: " + strerror(errno);
+            return false;
+        }
+#endif
+#if defined(TCP_KEEPINTVL)
+        const int interval = static_cast<int>(keepAliveIntervalS);
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval)) != 0) {
+            error = "TCP_KEEPINTVL, errno: " + std::to_string(errno) + ", message: " + strerror(errno);
+            return false;
+        }
+#endif
+#if defined(TCP_KEEPCNT)
+        const int count = static_cast<int>(keepAliveCount);
+        if (setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count)) != 0) {
+            error = "TCP_KEEPCNT, errno: " + std::to_string(errno) + ", message: " + strerror(errno);
+            return false;
+        }
+#endif
+        return true;
     }
 
     bool StreamNetwork::isConnected() {
@@ -420,22 +482,25 @@ namespace OpenLogReplicator {
         }
 
         const int flags = fcntl(socketFD, F_GETFL);
-        if (flags < 0)
-            throw NetworkException(10061, "network error, errno: " + std::to_string(errno) + ", message: " + strerror(errno) + " (19)");
-        if (fcntl(socketFD, F_SETFL, flags | O_NONBLOCK) < 0)
-            throw NetworkException(10061, "network error, errno: " + std::to_string(errno) + ", message: " + strerror(errno) + " (20)");
-
-        if (socketFD != -1) {
-            char clientHost[NI_MAXHOST];
-            char clientService[NI_MAXSERV];
-
-            if (getnameinfo(reinterpret_cast<sockaddr*>(&address), addrlen, clientHost, sizeof(clientHost), clientService, sizeof(clientService),
-                            NI_NUMERICHOST | NI_NUMERICSERV) == 0) {
-                ctx->info(0, "new client connection: " + std::string(clientHost) + ":" + clientService);
-            }
-            return true;
+        if (flags < 0 || fcntl(socketFD, F_SETFL, flags | O_NONBLOCK) < 0) {
+            const int err = errno;
+            dropClient();
+            throw NetworkException(10061, "network error, errno: " + std::to_string(err) + ", message: " + strerror(err) +
+                                   (flags < 0 ? " (19)" : " (20)"));
         }
 
-        return false;
+        char clientHost[NI_MAXHOST];
+        char clientService[NI_MAXSERV];
+        std::string client = "unknown";
+        if (getnameinfo(reinterpret_cast<sockaddr*>(&address), addrlen, clientHost, sizeof(clientHost), clientService, sizeof(clientService),
+                        NI_NUMERICHOST | NI_NUMERICSERV) == 0)
+            client = std::string(clientHost) + ":" + clientService;
+        ctx->info(0, "new client connection: " + client);
+
+        std::string error;
+        if (!applyKeepAlive(socketFD, error))
+            ctx->warning(60047, "TCP keepalive not set for client: " + client + ", " + error +
+                         "; a client that vanishes without closing the connection is not noticed while nothing is sent");
+        return true;
     }
 }

@@ -181,6 +181,26 @@ Types:
 
 _IMPORTANT:_ `partial` and `skip` cases normally appear only at startup or during recovery; consult logs for details.
 
+| writer_queue_held_positions
+| gauge
+|
+| Positions the writer confirmed itself (checkpoints the client does not get, messages before the client's position) that wait until the messages sent before them are confirmed.
+At most one per message in the queue.
+
+| writer_queue_oldest_age_s
+| gauge
+|
+| Seconds since the oldest message the client has not confirmed was sent; `0` when nothing waits for a confirmation.
+Computed when the endpoint is scraped, so it keeps growing while the writer is blocked.
+
+_TIP:_ A client which keeps its last transaction unconfirmed until a later one arrives, like Debezium, keeps this growing while no captured table changes; compare it with the time since the last captured change rather than alerting on a fixed value alone.
+
+| writer_queue_size
+| gauge
+|
+| Messages sent to the client and not confirmed yet.
+When it reaches the writer `queue-size` the writer stops sending (warnings 60040 and 60046).
+
 |===
 
 === Configuration
