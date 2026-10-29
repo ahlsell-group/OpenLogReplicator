@@ -2466,6 +2466,64 @@ namespace OpenLogReplicator {
         }
     }
 
+    // Without SHOW_CHECKPOINT the writer never sends a checkpoint, it confirms it itself. Written to the buffers, the
+    // checkpoints of every LWN after a message the client keeps unconfirmed would hold builder memory until it confirms.
+    // Only the position is kept, with the id and index a written checkpoint takes, so every other message gets the same.
+    bool Builder::hideCheckpoint(Scn scn, bool redo) {
+        if (ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_CHECKPOINT))
+            return false;
+
+        // Never move the position back; a checkpoint that does not move it takes no index of its own
+        if (lwnScn == Scn::none() || scn > lwnScn) {
+            lwnScn = scn;
+            lwnIdx = 1;
+        }
+        const HiddenCheckpoint checkpoint{id++, lastBuilderQueue->id, lwnScn, lwnIdx, 1, redo};
+
+        {
+            ctx->parserThread->contextSet(Thread::CONTEXT::MUTEX, Thread::REASON::BUILDER_COMMIT);
+            std::unique_lock const lck(mtx);
+            // No message between them: the later position replaces the earlier one. A writer far behind merges them all.
+            if (!hiddenCheckpoints.empty() && (hiddenCheckpoints.back().id + 1 == checkpoint.id ||
+                                               hiddenCheckpoints.size() >= HIDDEN_CHECKPOINTS_MAX)) {
+                HiddenCheckpoint& last = hiddenCheckpoints.back();
+                last.id = checkpoint.id;
+                last.queueId = checkpoint.queueId;
+                last.lwnScn = checkpoint.lwnScn;
+                last.lwnIdx = checkpoint.lwnIdx;
+                ++last.count;
+                last.redo = last.redo || redo;
+            } else
+                hiddenCheckpoints.push_back(checkpoint);
+            hiddenFirstId = hiddenCheckpoints.front().id;
+            hiddenEndId = checkpoint.id + 1;
+            if (flushBuffer == 0)
+                condNoWriterWork.notify_all();
+        }
+        ctx->parserThread->contextSet(Thread::CONTEXT::TRAN, Thread::REASON::TRAN);
+        return true;
+    }
+
+    // The first hidden checkpoint with an id below beforeId; the writer has read every message before it
+    bool Builder::takeHiddenCheckpoint(Thread* t, uint64_t beforeId, HiddenCheckpoint& checkpoint) {
+        if (hiddenFirstId >= beforeId)
+            return false;
+
+        bool taken = false;
+        {
+            t->contextSet(Thread::CONTEXT::MUTEX, Thread::REASON::BUILDER_RELEASE);
+            std::unique_lock const lck(mtx);
+            if (!hiddenCheckpoints.empty() && hiddenCheckpoints.front().id < beforeId) {
+                checkpoint = hiddenCheckpoints.front();
+                hiddenCheckpoints.pop_front();
+                hiddenFirstId = hiddenCheckpoints.empty() ? NO_HIDDEN_CHECKPOINT : hiddenCheckpoints.front().id;
+                taken = true;
+            }
+        }
+        t->contextSet(Thread::CONTEXT::CPU);
+        return taken;
+    }
+
     void Builder::releaseDdl() {
         while (ddlFirst != nullptr) {
             uint8_t* next = *reinterpret_cast<uint8_t**>(ddlFirst);

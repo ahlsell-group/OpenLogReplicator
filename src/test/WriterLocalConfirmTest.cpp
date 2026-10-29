@@ -94,6 +94,8 @@ int main() {
     TestThread thread(&ctx);
     ctx.parserThread = &thread;
     ctx.initialize(32, 64, 16, 16, 0, 0, 16, 16);
+    // Checkpoint messages stand in for any message here; they are written to the buffers only with SHOW_CHECKPOINT
+    ctx.flags |= static_cast<uint>(Ctx::REDO_FLAGS::SHOW_CHECKPOINT);
     ctx.queueSize = 100;
     Locales locales;
     Metadata metadata(&ctx, &locales, "TEST", Scn::zero(), Seq::zero(), "", 0);

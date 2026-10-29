@@ -117,6 +117,11 @@ int main() {
     typeIdx idx = 0;
     check("empty builder holds nothing", writer.oldestHeldMessage(scn, idx) == Writer::HELD::NONE);
 
+    // Without SHOW_CHECKPOINT a checkpoint is not written to the buffers
+    builder.processCheckpoint(Seq(1), Scn(400), Time(0), FileOffset(0), false);
+    check("a hidden checkpoint is not held", writer.oldestHeldMessage(scn, idx) == Writer::HELD::NONE);
+
+    ctx.flags |= static_cast<uint>(Ctx::REDO_FLAGS::SHOW_CHECKPOINT);
     builder.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
     builder.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
     builder.processCheckpoint(Seq(1), Scn(600), Time(0), FileOffset(0), false);

@@ -1,0 +1,5 @@
+description = "Idle period behind a transaction the client keeps unconfirmed, with more LWNs than builder memory holds checkpoints"
+tags = ["adv", "network", "memory"]
+tables = ["OLRT_ADVN10.T"]
+# 4 MB builder memory holds about 18 000 checkpoint messages
+olr_memory = {"write-buffer-min-mb" = 4, "write-buffer-max-mb" = 4}

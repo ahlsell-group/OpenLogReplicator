@@ -655,6 +655,9 @@ namespace OpenLogReplicator {
     }
 
     void BuilderJson::processCheckpoint(Seq sequence, Scn scn, Time timestamp, FileOffset fileOffset, bool redo) {
+        if (hideCheckpoint(scn, redo))
+            return;
+
         // Never move the position back: the commits of an LWN carry SCNs above the LWN's own SCN
         const bool moved = lwnScn == Scn::none() || scn > lwnScn;
         if (moved) {

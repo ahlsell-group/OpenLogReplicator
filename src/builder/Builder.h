@@ -109,10 +109,24 @@ namespace OpenLogReplicator {
         }
     };
 
+    // A checkpoint the writer does not send (no SHOW_CHECKPOINT) is not written to the buffers: only the position it
+    // would have, which the writer confirms itself once it has read every message before it
+    struct HiddenCheckpoint {
+        uint64_t id;
+        // Buffer the message before it ended in
+        uint64_t queueId;
+        Scn lwnScn;
+        typeIdx lwnIdx;
+        // Checkpoints merged into this one
+        uint64_t count;
+        bool redo;
+    };
+
     class Builder {
     public:
         static constexpr uint64_t OUTPUT_BUFFER_DATA_SIZE = Ctx::MEMORY_CHUNK_SIZE - sizeof(BuilderQueue);
         static constexpr uint64_t BUFFER_START_UNDEFINED{0xFFFFFFFFFFFFFFFF};
+        static constexpr uint64_t NO_HIDDEN_CHECKPOINT{0xFFFFFFFFFFFFFFFF};
 
     protected:
 
@@ -197,9 +211,13 @@ namespace OpenLogReplicator {
 
         std::mutex mtx;
         std::condition_variable condNoWriterWork;
+        // Hidden checkpoints not taken by the writer, in id order; one per run between written messages (guarded by mtx)
+        std::deque<HiddenCheckpoint> hiddenCheckpoints;
+        static constexpr uint64_t HIDDEN_CHECKPOINTS_MAX{65536};
         char ddlSchemaName[SysUser::NAME_LENGTH]{};
         typeSize ddlSchemaSize{0};
 
+        bool hideCheckpoint(Scn scn, bool redo);
         static double decodeFloat(const uint8_t* data);
         static long double decodeDouble(const uint8_t* data);
 
@@ -1319,6 +1337,10 @@ namespace OpenLogReplicator {
         BuilderQueue* lastBuilderQueue{nullptr};
         Scn lwnScn{Scn::none()};
         typeIdx lwnIdx{0};
+        // Id of the first hidden checkpoint not taken by the writer, NO_HIDDEN_CHECKPOINT if none
+        std::atomic<uint64_t> hiddenFirstId{NO_HIDDEN_CHECKPOINT};
+        // One past the id of the last hidden checkpoint written
+        std::atomic<uint64_t> hiddenEndId{0};
 
         // The SCN a message is sent with ("scn"/"scns" field and BuilderMsg::scn). By default it is the SCN of the redo
         // record, with scn-type COMMIT_VALUE the commit SCN of the transaction. It is never below the SCN the stream was
@@ -1354,6 +1376,7 @@ namespace OpenLogReplicator {
         virtual void processCommit() = 0;
         virtual void processCheckpoint(Seq sequence, Scn scn, Time timestamp, FileOffset fileOffset, bool redo) = 0;
         void releaseBuffers(Thread* t, uint64_t maxId);
+        bool takeHiddenCheckpoint(Thread* t, uint64_t beforeId, HiddenCheckpoint& checkpoint);
         void releaseDdl();
         void appendDdlChunk(const uint8_t* data, typeTransactionSize size);
         void ddlToValueBuffer(FileOffset fileOffset);
