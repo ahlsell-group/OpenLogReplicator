@@ -1,0 +1,40 @@
+# The client's connection goes silent in both directions (a Connect pod deleted without FIN/RST reaching OLR) while no
+# captured table changes, so OLR has nothing to send. A new client connects and sends INFO. OLR serves one client at a
+# time: it answers only after it has dropped the old connection, which keepalive (idle 60 s, interval 10 s, count 6)
+# does about 120 s after the last traffic. Without keepalive it never does while the database is quiet.
+[olr]
+state_interval_s = 10
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO olrt_advn12.t VALUES (10, 'before', 10)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+olr = "silence"
+[[step]]
+client = "disconnect"
+[[step]]
+client = "connect"
+timeout = 240
+[[step]]
+expect_olr_log = "WARN  10061 network error, errno: 110, message: Connection timed out"
+[[step]]
+sql = "INSERT INTO olrt_advn12.t VALUES (11, 'after', 11)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+timeout = 30
+[[step]]
+client = "commit_offset"

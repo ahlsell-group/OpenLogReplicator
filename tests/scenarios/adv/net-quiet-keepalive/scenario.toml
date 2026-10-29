@@ -1,0 +1,3 @@
+description = "A live client quiet for longer than OLR's keepalive time keeps its connection"
+tags = ["adv", "network", "keepalive"]
+tables = ["OLRT_ADVN13.T"]
