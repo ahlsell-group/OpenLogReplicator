@@ -1,0 +1,41 @@
+# Dev stall 2026-10-28. The client confirms like Debezium 3.7.0: the c_scn of its last transaction with index 0, so that
+# transaction stays held. 1 500 single-LWN commits on a table outside the filter then give 1 500 checkpoint messages
+# the client never sees; with queue-size 200 they must not fill the queue, or the next captured row is never sent.
+[olr]
+queue_size = 200
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO olrt_advn9.t VALUES (10, 'before', 10)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "confirm_held"
+[[step]]
+sql = """BEGIN
+  FOR i IN 1 .. 1500 LOOP
+    UPDATE olrt_advn9.noise SET n = i WHERE id = 1;
+    COMMIT WRITE WAIT IMMEDIATE;
+  END LOOP;
+END;
+/"""
+[[step]]
+read = "idle"
+idle = 5
+[[step]]
+sql = "INSERT INTO olrt_advn9.t VALUES (11, 'after', 11)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+timeout = 30
+[[step]]
+client = "confirm_held"
+[[step]]
+read = "idle"
+idle = 5
