@@ -352,6 +352,29 @@ namespace {
               side.writer->forced.at(0).first == Scn(105));
     }
 
+    // A held log switch checkpoint dropped on reconnect still forces the next write that moves the position
+    void redoHeldReset() {
+        Side side(false, false);
+        side.checkpoint(50);
+        side.read();
+        side.writer->tick();
+        side.writer->forced.clear();
+
+        side.transaction(1, 100);
+        side.checkpoint(105, true);
+        side.read();
+        check("redo reset: held behind the sent transaction", side.writer->held() == 1);
+        side.writer->reset();
+        check("redo reset: held position dropped", side.writer->held() == 0 && !side.writer->redoSet());
+
+        side.transaction(2, 110);
+        const std::vector<BuilderMsg*> sent = side.read();
+        side.writer->confirmMessage(sent.at(0));
+        check("redo reset: set when the position moves", side.writer->redoSet() && side.writer->confirmed() == Scn(110));
+        side.writer->tick();
+        check("redo reset: forced write", side.writer->forced.size() == 1 && side.writer->forced.at(0).first == Scn(110));
+    }
+
     // Merged with a later checkpoint in the same run, the flag stays
     void redoHeldMerged() {
         Side side(false, false);
@@ -465,6 +488,7 @@ namespace {
 int main() {
     metrics();
     redoHeldHidden();
+    redoHeldReset();
     redoHeldMerged();
     redoQueued();
     redoLocal();

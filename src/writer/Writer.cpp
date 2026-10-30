@@ -77,6 +77,9 @@ namespace OpenLogReplicator {
             }
         }
         currentQueueSize = 0;
+        for (const auto& position : localHeld)
+            if (position.redo)
+                redoAfterReset = true;
         localHeld.clear();
         localHeldOpen = false;
         queueNewestScn = Scn::none();
@@ -186,7 +189,13 @@ namespace OpenLogReplicator {
     }
 
     void Writer::advanceConfirmed(Scn scn, typeIdx idx) {
+        const Scn oldScn = confirmedScn;
+        const typeIdx oldIdx = confirmedIdx;
         advance(confirmedScn, confirmedIdx, scn, idx);
+        if (redoAfterReset && (confirmedScn != oldScn || confirmedIdx != oldIdx)) {
+            redo = true;
+            redoAfterReset = false;
+        }
     }
 
     void Writer::sortQueue() {

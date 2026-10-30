@@ -75,6 +75,8 @@ namespace OpenLogReplicator {
         std::deque<LocalPosition> localHeld;
         // The last held position belongs to the current run: no message was sent after it
         bool localHeldOpen{false};
+        // A REDO-flagged held position was dropped on reconnect: force the next checkpoint write that moves the position
+        bool redoAfterReset{false};
         // Position of the newest message in the queue
         Scn queueNewestScn{Scn::none()};
         // Id and send time of each queued message, oldest first; kept only with metrics

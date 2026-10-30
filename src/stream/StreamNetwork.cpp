@@ -22,6 +22,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/tcp.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include "../common/Ctx.h"
@@ -30,6 +31,11 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/exception/NetworkException.h"
 #include "../common/exception/RuntimeException.h"
 #include "StreamNetwork.h"
+
+// A send to a client that went away fails with EPIPE instead of raising SIGPIPE, which stops OLR
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
 
 namespace OpenLogReplicator {
     StreamNetwork::StreamNetwork(Ctx* newCtx, std::string newUri):
@@ -142,7 +148,7 @@ namespace OpenLogReplicator {
                 w = wset;
                 // Blocking select
                 select(socketFD + 1, nullptr, &w, nullptr, nullptr);
-                ssize_t r = write(socketFD, reinterpret_cast<const uint8_t*>(&length32) + sent, sizeof(uint32_t) - sent);
+                ssize_t r = send(socketFD, reinterpret_cast<const uint8_t*>(&length32) + sent, sizeof(uint32_t) - sent, MSG_NOSIGNAL);
                 if (r <= 0) {
                     if (r < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
                         r = 0;
@@ -165,7 +171,7 @@ namespace OpenLogReplicator {
                 w = wset;
                 // Blocking select
                 select(socketFD + 1, nullptr, &w, nullptr, nullptr);
-                ssize_t r = write(socketFD, reinterpret_cast<const uint8_t*>(&length32) + sent, sizeof(uint32_t) - sent);
+                ssize_t r = send(socketFD, reinterpret_cast<const uint8_t*>(&length32) + sent, sizeof(uint32_t) - sent, MSG_NOSIGNAL);
                 if (r <= 0) {
                     if (r < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
                         r = 0;
@@ -188,7 +194,7 @@ namespace OpenLogReplicator {
                 w = wset;
                 // Blocking select
                 select(socketFD + 1, nullptr, &w, nullptr, nullptr);
-                ssize_t r = write(socketFD, reinterpret_cast<const uint8_t*>(&length64) + sent, sizeof(uint64_t) - sent);
+                ssize_t r = send(socketFD, reinterpret_cast<const uint8_t*>(&length64) + sent, sizeof(uint64_t) - sent, MSG_NOSIGNAL);
                 if (r <= 0) {
                     if (r < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
                         r = 0;
@@ -212,7 +218,7 @@ namespace OpenLogReplicator {
             w = wset;
             // Blocking select
             select(socketFD + 1, nullptr, &w, nullptr, nullptr);
-            ssize_t r = write(socketFD, static_cast<const char*>(msg) + sent, length - sent);
+            ssize_t r = send(socketFD, static_cast<const char*>(msg) + sent, length - sent, MSG_NOSIGNAL);
             if (r <= 0) {
                 if (r < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
                     r = 0;
