@@ -1,0 +1,4 @@
+description = "T2 open, T1 committed and confirmed; OLR restarted with its writer checkpoint deleted (START at the offset SCN)"
+tags = ["connect", "restart", "confirm"]
+tables = ["OLRT_CF2.T"]
+allowed_warnings = ["^10061 network error"]

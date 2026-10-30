@@ -1,0 +1,7 @@
+BEGIN
+  FOR i IN 1 .. 50 LOOP
+    UPDATE olrt_cf3.noise SET n = i WHERE id = 1;
+    COMMIT WRITE WAIT IMMEDIATE;
+  END LOOP;
+END;
+/

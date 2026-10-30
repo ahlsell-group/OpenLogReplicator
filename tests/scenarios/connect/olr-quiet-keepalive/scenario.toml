@@ -1,0 +1,3 @@
+description = "A quiet period much longer than the keepalive idle time: a live OLR answers the probes, so the connection is kept and nothing reconnects"
+tags = ["connect", "keepalive"]
+tables = ["OLRT_CKQ.T"]

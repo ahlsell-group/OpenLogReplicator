@@ -1,0 +1,4 @@
+description = "The client vanishes without a FIN or RST reaching OLR, which keeps serving the dead socket; the next connection is accepted by the kernel but INFO is never answered until OLR drops the old socket"
+tags = ["connect", "restart", "keepalive"]
+tables = ["OLRT_CKI.T"]
+allowed_warnings = ["^10061 network error"]

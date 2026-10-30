@@ -1,0 +1,8 @@
+description = "A row of a transaction is rejected by the broker (record too large) while the heartbeat of its commit is acknowledged"
+tags = ["connect", "restart", "confirm"]
+tables = ["OLRT_CF6.T"]
+allowed_warnings = ["^10061 network error"]
+
+[known_issue]
+diff = "by design: the row after the rejected one was written before the failure but is past the flushed offset, so it is sent again (at-least-once); delivery must show 0 rows lost"
+replay = "by design: the row after the rejected one was written before the failure but is past the flushed offset, so it is sent again (at-least-once); delivery must show 0 rows lost"

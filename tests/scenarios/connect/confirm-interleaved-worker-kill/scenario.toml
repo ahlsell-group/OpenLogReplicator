@@ -1,0 +1,4 @@
+description = "T2 open, T1 begins later and commits first; Connect worker SIGKILL after T1 is delivered and confirmed while T2 is open"
+tags = ["connect", "restart", "confirm"]
+tables = ["OLRT_CF1.T"]
+allowed_warnings = ["^10061 network error"]

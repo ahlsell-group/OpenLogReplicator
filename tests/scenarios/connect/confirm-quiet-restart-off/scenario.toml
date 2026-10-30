@@ -1,0 +1,4 @@
+description = "Quiet period longer than queue-size after the last captured transaction, then a worker kill; openlogreplicator.confirm.completed.transactions off"
+tags = ["connect", "restart", "confirm"]
+tables = ["OLRT_CF4O.T"]
+allowed_warnings = ["^10061 network error"]
