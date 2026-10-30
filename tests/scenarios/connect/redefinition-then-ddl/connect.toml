@@ -1,0 +1,24 @@
+[connector]
+snapshot_mode = "no_data"
+config = { "internal.custom.retriable.exception" = ".*Connection lost.*" }
+[olr]
+state_interval_s = 10
+[[step]]
+connector = "create"
+[[step]]
+sql = "UPDATE olrt_cr6.t SET qty = 1.5, txt = 'before redef' WHERE id = 1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 6
+[[step]]
+olr = "stop"
+[[step]]
+sql_file = "workload.sql"
+[[step]]
+olr = "start"
+[[step]]
+wait = "idle"
+idle = 15
+timeout = 400
