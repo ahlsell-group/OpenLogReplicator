@@ -2,3 +2,6 @@ description = "The client vanishes without a FIN or RST reaching OLR, which keep
 tags = ["connect", "restart", "keepalive"]
 tables = ["OLRT_CKI.T"]
 allowed_warnings = ["^10061 network error"]
+
+[known_issue]
+"run@3.7.0.Final" = "upstream Debezium has no openlogreplicator.info.timeout.ms: the INFO read blocks without a log line"

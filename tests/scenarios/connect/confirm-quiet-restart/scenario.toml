@@ -2,3 +2,6 @@ description = "Quiet period longer than queue-size after the last captured trans
 tags = ["connect", "restart", "confirm"]
 tables = ["OLRT_CF4.T"]
 allowed_warnings = ["^10061 network error"]
+
+[known_issue]
+"run@3.7.0.Final" = "upstream Debezium has no openlogreplicator.confirm.completed.transactions: the task continues at idx 0 of the confirmed SCN"

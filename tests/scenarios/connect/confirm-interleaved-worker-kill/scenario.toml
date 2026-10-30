@@ -2,3 +2,6 @@ description = "T2 open, T1 begins later and commits first; Connect worker SIGKIL
 tags = ["connect", "restart", "confirm"]
 tables = ["OLRT_CF1.T"]
 allowed_warnings = ["^10061 network error"]
+
+[known_issue]
+"run@3.7.0.Final" = "upstream Debezium has no openlogreplicator.confirm.completed.transactions: the task continues at idx 0 of the confirmed SCN"

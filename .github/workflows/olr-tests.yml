@@ -61,6 +61,16 @@ on:
         required: false
         default: ''
         type: string
+      patched_jar_url:
+        description: 'Connect job: patched connector jar URL (public); empty = DBZ_PATCHED_URL'
+        required: false
+        default: ''
+        type: string
+      patched_jar_sha256:
+        description: 'Connect job: sha256 of patched_jar_url'
+        required: false
+        default: ''
+        type: string
   push:
     branches:
       - ahlsell
@@ -202,6 +212,8 @@ jobs:
         working-directory: tests
     env:
       SCENARIO_LIST: ${{ inputs.connect_scenarios }}
+      JAR_URL: ${{ inputs.patched_jar_url }}
+      JAR_SHA256: ${{ inputs.patched_jar_sha256 }}
     steps:
       - name: Free disk space
         working-directory: /
@@ -231,18 +243,21 @@ jobs:
         id: jar
         run: |
           set -euo pipefail
+          if [ -z "$JAR_URL" ]; then JAR_URL=$DBZ_PATCHED_URL JAR_SHA256=$DBZ_PATCHED_SHA256; fi
+          [ -n "$JAR_SHA256" ] || { echo "::error::patched_jar_sha256 is required with patched_jar_url"; exit 1; }
+          echo "url=$JAR_URL" >> "$GITHUB_OUTPUT"
           dir="docker/connect/overlay/$DBZ_PATCHED"
           mkdir -p "$dir"
-          jar="$dir/${DBZ_PATCHED_URL##*/}"
-          code=$(curl -sSL -o "$jar" -w '%{http_code}' "$DBZ_PATCHED_URL" || true)
+          jar="$dir/debezium-connector-oracle-${DBZ_UPSTREAM}.jar"
+          code=$(curl -sSL -o "$jar" -w '%{http_code}' "$JAR_URL" || true)
           if [ "$code" = 404 ]; then
             rm -rf "$dir"
-            echo "::notice title=Patched Debezium skipped::$DBZ_PATCHED_URL is not published (404); only Debezium $DBZ_UPSTREAM runs. See tests/docker/connect/release-jar.sh."
+            echo "::notice title=Patched Debezium skipped::$JAR_URL is not published (404); only Debezium $DBZ_UPSTREAM runs. See tests/docker/connect/release-jar.sh."
             echo "available=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          [ "$code" = 200 ] || { echo "::error::$DBZ_PATCHED_URL: HTTP $code"; exit 1; }
-          echo "$DBZ_PATCHED_SHA256  $jar" | sha256sum -c -
+          [ "$code" = 200 ] || { echo "::error::$JAR_URL: HTTP $code"; exit 1; }
+          echo "$JAR_SHA256  $jar" | sha256sum -c -
           echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Start Oracle Free (pulls ~3 GB, first start ~3 min)
@@ -298,7 +313,7 @@ jobs:
             fi
           done
           if [ "${{ steps.jar.outputs.available }}" != true ]; then
-            echo "Debezium $DBZ_PATCHED skipped: $DBZ_PATCHED_URL is not published." >> "$GITHUB_STEP_SUMMARY"
+            echo "Debezium $DBZ_PATCHED skipped: ${{ steps.jar.outputs.url }} is not published." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload results
