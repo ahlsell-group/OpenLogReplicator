@@ -1,0 +1,59 @@
+# Dev 2026-10-29 the other way round: a Connect pod that vanishes without FIN/RST reaching OLR. The task's connection is
+# silenced in both directions while no captured table changes, so OLR has nothing to send, and the task is restarted:
+# its new connection waits in OLR's backlog with INFO sent. OLR's keepalive (idle 60 s, interval 10 s, count 6) drops
+# the dead connection about 120 s after the last traffic, then the waiting task is served. Row 11 is committed only
+# after that wait, and must arrive.
+[connector]
+snapshot_mode = "no_data"
+heartbeat_ms = 60000
+[olr]
+state_interval_s = 10
+
+[[step]]
+connector = "create"
+[[step]]
+sql = "INSERT INTO olrt_cks.t VALUES (10, 10, 'before')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 4
+[[step]]
+sleep = 5
+[[step]]
+netns = "ss -tno state established '( dport = :5000 )'"
+[[step]]
+olr = "silence"
+[[step]]
+connector = "restart_task"
+settle = 5
+[[step]]
+netns = "ss -tno '( dport = :5000 )'"
+[[step]]
+# quiet: nothing to send; polls the topics (a plain sleep would exceed the harness consumer's max.poll.interval)
+wait = "idle"
+idle = 150
+timeout = 180
+[[step]]
+expect_olr_log = "WARN  10061 network error, errno: 110, message: Connection timed out"
+[[step]]
+netns = "ss -tno state established '( dport = :5000 )'"
+[[step]]
+sql = "INSERT INTO olrt_cks.t VALUES (11, 11, 'after the wait')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "rows"
+min_records = 1
+timeout = 120
+[[step]]
+expect_task = "RUNNING"
+[[step]]
+olr = "unsilence"
+[[step]]
+sql = "INSERT INTO olrt_cks.t VALUES (12, 12, 'after unsilence')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 8

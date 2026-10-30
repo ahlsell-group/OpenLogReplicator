@@ -60,12 +60,40 @@ namespace OpenLogReplicator {
         queue[currentQueueSize++] = msg;
         hwmQueueSize = std::max(currentQueueSize, hwmQueueSize);
         localHeldOpen = false;
+        queueNewestScn = msg->lwnScn;
+        if (ctx->metrics != nullptr) {
+            queueSent.emplace_back(msg->id, ctx->clock->getTimeUt());
+            emitQueueMetrics();
+        }
     }
 
+    // Also on a client disconnect: the copies of messages split over buffers are freed, a rewind copies them again
     void Writer::clearQueue() {
+        for (uint64_t i = 0; i < currentQueueSize; ++i) {
+            BuilderMsg* msg = queue[i];
+            if (msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::ALLOCATED)) {
+                delete[] msg->data;
+                msg->unsetFlag(BuilderMsg::OUTPUT_BUFFER::ALLOCATED);
+            }
+        }
         currentQueueSize = 0;
+        for (const auto& position : localHeld)
+            if (position.redo)
+                redoAfterReset = true;
         localHeld.clear();
         localHeldOpen = false;
+        queueNewestScn = Scn::none();
+        queueSent.clear();
+        emitQueueMetrics();
+    }
+
+    // Called by the writer thread only; the gauges are atomic for the metrics thread
+    void Writer::emitQueueMetrics() {
+        if (ctx->metrics == nullptr)
+            return;
+        ctx->metrics->emitWriterQueueSize(static_cast<int64_t>(currentQueueSize));
+        ctx->metrics->emitWriterQueueHeldPositions(static_cast<int64_t>(localHeld.size()));
+        ctx->metrics->emitWriterQueueOldestSentUs(queueSent.empty() ? 0 : queueSent.front().second);
     }
 
     // A message the client does not get (a checkpoint without SHOW_CHECKPOINT, or one before the client's position) needs
@@ -87,28 +115,33 @@ namespace OpenLogReplicator {
             msg->unsetFlag(BuilderMsg::OUTPUT_BUFFER::ALLOCATED);
         }
 
-        if (!holdLocal({msg->id, msg->queueId, msg->lwnScn, msg->lwnIdx, true, msg->lwnScn, msg->lwnIdx})) {
+        const bool msgRedo = msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::REDO);
+        if (!holdLocal({msg->id, msg->queueId, msg->lwnScn, msg->lwnIdx, true, msg->lwnScn, msg->lwnIdx, msgRedo})) {
             advanceConfirmed(msg->lwnScn, msg->lwnIdx);
             advance(messageConfirmedScn, messageConfirmedIdx, msg->lwnScn, msg->lwnIdx);
+            if (msgRedo)
+                redo = true;
             builder->releaseBuffers(this, msg->queueId);
         }
+        emitQueueMetrics();
         contextSet(CONTEXT::CPU);
     }
 
     // A checkpoint the builder did not write (see Builder::hideCheckpoint) is confirmed like a message the writer reads
     // and confirms itself, at the point where it would have been read
     void Writer::confirmHiddenCheckpoint(const HiddenCheckpoint& checkpoint) {
-        if (checkpoint.redo)
-            redo = true;
         if (ctx->metrics != nullptr)
             ctx->metrics->emitMessagesConfirmed(checkpoint.count);
 
         contextSet(CONTEXT::MUTEX, REASON::WRITER_CONFIRM);
         std::unique_lock const lck(mtx);
-        if (!holdLocal({checkpoint.id, checkpoint.queueId, checkpoint.lwnScn, checkpoint.lwnIdx, false, Scn::none(), 0})) {
+        if (!holdLocal({checkpoint.id, checkpoint.queueId, checkpoint.lwnScn, checkpoint.lwnIdx, false, Scn::none(), 0, checkpoint.redo})) {
             advanceConfirmed(checkpoint.lwnScn, checkpoint.lwnIdx);
+            if (checkpoint.redo)
+                redo = true;
             builder->releaseBuffers(this, checkpoint.queueId);
         }
+        emitQueueMetrics();
         contextSet(CONTEXT::CPU);
     }
 
@@ -140,6 +173,7 @@ namespace OpenLogReplicator {
                 last.messageScn = position.messageScn;
                 last.messageIdx = position.messageIdx;
             }
+            last.redo = last.redo || position.redo;
         } else
             localHeld.push_back(position);
         localHeldOpen = true;
@@ -155,7 +189,13 @@ namespace OpenLogReplicator {
     }
 
     void Writer::advanceConfirmed(Scn scn, typeIdx idx) {
+        const Scn oldScn = confirmedScn;
+        const typeIdx oldIdx = confirmedIdx;
         advance(confirmedScn, confirmedIdx, scn, idx);
+        if (redoAfterReset && (confirmedScn != oldScn || confirmedIdx != oldIdx)) {
+            redo = true;
+            redoAfterReset = false;
+        }
     }
 
     void Writer::sortQueue() {
@@ -192,11 +232,6 @@ namespace OpenLogReplicator {
     }
 
     void Writer::resetMessageQueue() {
-        for (uint64_t i = 0; i < currentQueueSize; ++i) {
-            BuilderMsg* msg = queue[i];
-            if (msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::ALLOCATED))
-                delete[] msg->data;
-        }
         clearQueue();
 
         // Rewind to the oldest buffer still held, buffers are released only after the client confirmed them, so this
@@ -289,6 +324,9 @@ namespace OpenLogReplicator {
                 maxId = queue[0]->queueId;
                 advanceConfirmed(queue[0]->lwnScn, queue[0]->lwnIdx);
                 advance(messageConfirmedScn, messageConfirmedIdx, queue[0]->lwnScn, queue[0]->lwnIdx);
+                // A REDO message forces the checkpoint write once its position is confirmed
+                if (queue[0]->isFlagSet(BuilderMsg::OUTPUT_BUFFER::REDO))
+                    redo = true;
 
                 if (--currentQueueSize == 0)
                     break;
@@ -316,32 +354,39 @@ namespace OpenLogReplicator {
                 advanceConfirmed(localHeld.front().scn, localHeld.front().idx);
                 if (localHeld.front().hasMessage)
                     advance(messageConfirmedScn, messageConfirmedIdx, localHeld.front().messageScn, localHeld.front().messageIdx);
+                if (localHeld.front().redo)
+                    redo = true;
                 maxId = std::max(maxId, localHeld.front().queueId);
                 localHeld.pop_front();
             }
             if (localHeld.empty())
                 localHeldOpen = false;
+
+            while (!queueSent.empty() && (currentQueueSize == 0 || queueSent.front().first < queue[0]->id))
+                queueSent.pop_front();
+            emitQueueMetrics();
         }
 
         builder->releaseBuffers(this, maxId);
         contextSet(CONTEXT::CPU);
     }
 
-    // A queue full of messages with the scn of the next one holds one transaction only. A client which confirms only when the scn
-    // grows can never confirm any of them, so replication stops without an error; warn every minute while that lasts.
-    // Any other full queue that does not drain is a client which does not confirm what it got; warn about that too.
-    void Writer::warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned) {
+    // A client which confirms only when the scn grows (Debezium confirms the commit scn of the transaction it is in, idx 0)
+    // can never confirm a queue whose messages, oldest to newest, all have one scn: one transaction, or several committed
+    // at that scn. Replication stops without an error; warn every minute while that lasts. A full queue holding a later scn
+    // than the oldest message is a client which does not confirm what it got; warn about that too.
+    void Writer::warnQueueFull(time_ut fullSince, time_ut& fullWarned) {
         if (currentQueueSize < ctx->queueSize)
             return;
         const time_ut now = ctx->clock->getTimeUt();
         if (now - fullSince < QUEUE_FULL_WARN_US || (fullWarned != 0 && now - fullWarned < QUEUE_FULL_REPEAT_US))
             return;
         fullWarned = now;
-        if (queue[0]->lwnScn == msg->lwnScn)
+        if (queue[0]->lwnScn == queueNewestScn)
             ctx->warning(60040, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
-                         std::to_string(ctx->queueSize) + ") with messages of one transaction, scn: " + msg->lwnScn.toString() +
+                         std::to_string(ctx->queueSize) + ") with messages of one commit scn: " + queueNewestScn.toString() +
                          "; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of " +
-                         "messages of the largest transaction");
+                         "messages of the largest transaction (or of the transactions committed at one scn)");
         else
             ctx->warning(60046, "output queue full for " + std::to_string((now - fullSince) / 1000000) + "s (queue-size: " +
                          std::to_string(ctx->queueSize) + "), the oldest unconfirmed message is scn: " + queue[0]->lwnScn.toString() +
@@ -471,7 +516,7 @@ namespace OpenLogReplicator {
                     ctx->usleepInt(ctx->pollIntervalUs);
                     contextSet(CONTEXT::CPU);
                     pollQueue();
-                    warnQueueFull(msg, fullSince, fullWarned);
+                    warnQueueFull(fullSince, fullWarned);
                 }
 
                 confirmHiddenCheckpoints(msg->id);
@@ -484,8 +529,6 @@ namespace OpenLogReplicator {
 
                 // Message in one part - sent directly from buffer
                 if (oldSize + size8 <= Builder::OUTPUT_BUFFER_DATA_SIZE) {
-                    if (msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::REDO))
-                        redo = true;
                     // Send the message to the client in one part
                     if ((msg->isFlagSet(BuilderMsg::OUTPUT_BUFFER::CHECKPOINT) && !ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_CHECKPOINT)) ||
                         !metadata->isNewData(msg->lwnScn, msg->lwnIdx))

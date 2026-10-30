@@ -48,6 +48,18 @@ client.toml:
   [[step]]
   client = "disconnect"
   [[step]]
+  client = "connect"              # a connect step may wait longer for OLR's answer to INFO than the default 30 s;
+  timeout = 240                   # no answer in time fails "run" and the steps go on without a client
+  [[step]]
+  olr = "silence"                 # the client vanishes without a FIN or RST reaching OLR: packets of OLR's established
+                                  # client connection(s) are dropped in both directions in OLR's network namespace
+                                  # (iptables, docker/netadmin); new connections are not affected. The rules go with
+                                  # the container.
+  [[step]]
+  expect_olr_log = "regex"        # no match in OLR's log so far fails "run"
+  [[step]]
+  expect_olr_log_absent = "regex" # a match in OLR's log so far fails "run"
+  [[step]]
   olr = "restart"                 # docker stop + start, same state dir
   delete_writer_checkpoint = true # remove <db>-chkpt.json first (as an init container might)
   signal = "INT"                  # INT = clean shutdown, KILL = crash
@@ -92,6 +104,19 @@ from . import db, logminer, netclient, olr, record
 from . import settings as S
 
 NO_NETWORK = 'not "network" since the code is not compiled'
+
+
+NETADMIN_IMAGE = "olrt/netadmin:local"
+
+
+def netns(container, cmd):
+    """Shell command in a container's network namespace, in a helper container with iproute2 and iptables
+    (docker/netadmin, built on first use)."""
+    if subprocess.run(["docker", "image", "inspect", NETADMIN_IMAGE], capture_output=True).returncode != 0:
+        subprocess.run(["docker", "build", "-t", NETADMIN_IMAGE, str(S.ROOT / "docker" / "netadmin")], check=True,
+                       capture_output=True)
+    return subprocess.run(["docker", "run", "--rm", "--network", f"container:{container}", "--cap-add", "NET_ADMIN",
+                           NETADMIN_IMAGE, "sh", "-c", cmd], capture_output=True, text=True)
 
 
 def free_port():
@@ -263,6 +288,10 @@ def run(image, scenario, profile, workdir, token="adhoc"):
 
     def read(mode, step):
         nonlocal last
+        if client is None:
+            run_info["read_timeouts"] += 1
+            events.append(f"read {mode}: no client connected")
+            return
         commits = 0
         want = int(step.get("count", 1))
         idle = float(step.get("idle", 5))
@@ -338,26 +367,35 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                     offset = (db.current_scn(rconn), None)
                 if "c_idx" in step:
                     offset = (offset[0], int(step["c_idx"]))
-                client = netclient.Client(scenario.db_name)
+                client = netclient.Client(scenario.db_name, timeout=float(step.get("timeout", 30)))
                 client.sent = requests
-                path, code = client.connect("127.0.0.1", port, offset[0], offset[1])
-                events.append(f"step {i}: connect offset={offset} -> {path} -> {code}")
+                t_connect = time.time()
+                try:
+                    path, code = client.connect("127.0.0.1", port, offset[0], offset[1])
+                except (OSError, netclient.ConnectionLost) as e:
+                    run_info["assert_failures"].append(f"step {i}: connect: no answer from OLR within "
+                                                       f"{step.get('timeout', 30)} s: {e!r}")
+                    events.append(f"step {i}: connect offset={offset} failed after {time.time() - t_connect:.1f} s: {e!r}")
+                    client.close()
+                    client = None
+                    continue
+                events.append(f"step {i}: connect offset={offset} -> {path} -> {code} after {time.time() - t_connect:.1f} s")
                 if path == "START":
                     start_offsets.append(offset[0])
             elif "read" in step:
                 read(step["read"], step)
                 events.append(f"step {i}: read {step['read']} -> last c_scn/c_idx {last}")
             elif step.get("client") == "commit_offset":
-                if last:
+                if last and client is not None:
                     offset = last
                     sent = client.confirm(last[0], last[1])
                     events.append(f"step {i}: offset={offset}, CONFIRM {'sent' if sent else 'not sent (Debezium rule)'}")
             elif step.get("client") == "confirm_last":
-                if last:
+                if last and client is not None:
                     client.confirm_raw(*last)
                     events.append(f"step {i}: raw CONFIRM {last}")
             elif step.get("client") == "confirm_held":
-                if last:
+                if last and client is not None:
                     client.confirm_raw(last[0], 0)
                     events.append(f"step {i}: CONFIRM ({last[0]}, 0), last transaction held")
             elif step.get("client") == "disconnect":
@@ -413,6 +451,31 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                     db.switch_logfile(rconn)
                 events.append(f"step {i}: log switch x{step.get('count', 1)}{' (hard)' if step.get('hard') else ''},"
                               f" current seq {db.current_seq(rconn)}")
+            elif step.get("olr") == "silence":
+                r = netns(cont.name, "ss -tnH state established '( sport = :5000 )'")
+                # columns with a state filter: Recv-Q Send-Q Local:Port Peer:Port
+                peers = sorted({line.split()[3] for line in r.stdout.splitlines() if line.strip()})
+                if not peers:
+                    raise RuntimeError(f"client.toml step {i}: olr silence: no established client connection: {r.stderr.strip()}")
+                for peer in peers:
+                    ip, pport = peer.rsplit(":", 1)
+                    for rule in (f"INPUT -p tcp -s {ip} --sport {pport} --dport 5000 -j DROP",
+                                 f"OUTPUT -p tcp -d {ip} --dport {pport} --sport 5000 -j DROP"):
+                        r = netns(cont.name, f"iptables -I {rule}")
+                        if r.returncode != 0:
+                            raise RuntimeError(f"client.toml step {i}: iptables -I {rule}: {r.stderr.strip()}")
+                run_info.setdefault("silence", []).append({"step": i, "t": round(time.time() - t0, 1), "peers": peers})
+                events.append(f"step {i}: OLR's connection(s) to {peers} silenced in both directions")
+            elif "expect_olr_log" in step or "expect_olr_log_absent" in step:
+                absent = "expect_olr_log_absent" in step
+                pat = step["expect_olr_log_absent" if absent else "expect_olr_log"]
+                found = re.findall(f".*(?:{pat}).*", cont.logs())
+                events.append(f"step {i}: expect OLR log {'absent ' if absent else ''}/{pat}/ -> {len(found)} match(es)"
+                              + (f", first: {found[0][:200]}" if found else ""))
+                if absent and found:
+                    run_info["assert_failures"].append(f"step {i}: OLR log matches /{pat}/: {found[0][:300]}")
+                elif not absent and not found:
+                    run_info["assert_failures"].append(f"step {i}: no OLR log line matches /{pat}/")
             elif "sleep" in step:
                 time.sleep(float(step["sleep"]))
             else:

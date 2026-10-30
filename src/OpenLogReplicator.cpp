@@ -1102,6 +1102,9 @@ namespace OpenLogReplicator {
                     "poll-interval-us",
                     "properties",
                     "queue-size",
+                    "tcp-keepalive-count",
+                    "tcp-keepalive-idle-s",
+                    "tcp-keepalive-interval-s",
                     "timestamp-format",
                     "topic",
                     "type",
@@ -1220,8 +1223,33 @@ namespace OpenLogReplicator {
 #ifdef LINK_LIBRARY_PROTOBUF
                 const std::string uri = Ctx::getJsonFieldS(configFileName, Ctx::JSON_PARAMETER_LENGTH, writerJson, "uri");
 
+                // TCP keepalive on the client connection, idle 0 turns it off
+                uint64_t keepAliveIdleS = StreamNetwork::KEEPALIVE_IDLE_S_DEFAULT;
+                if (writerJson.HasMember("tcp-keepalive-idle-s")) {
+                    keepAliveIdleS = Ctx::getJsonFieldU64(configFileName, writerJson, "tcp-keepalive-idle-s");
+                    if (keepAliveIdleS > StreamNetwork::KEEPALIVE_S_MAX)
+                        throw ConfigurationException(30001, "bad JSON, invalid \"tcp-keepalive-idle-s\" value: " + std::to_string(keepAliveIdleS) +
+                                                     ", expected: one of {0 .. " + std::to_string(StreamNetwork::KEEPALIVE_S_MAX) + "}");
+                }
+                uint64_t keepAliveIntervalS = StreamNetwork::KEEPALIVE_INTERVAL_S_DEFAULT;
+                if (writerJson.HasMember("tcp-keepalive-interval-s")) {
+                    keepAliveIntervalS = Ctx::getJsonFieldU64(configFileName, writerJson, "tcp-keepalive-interval-s");
+                    if (keepAliveIntervalS < 1 || keepAliveIntervalS > StreamNetwork::KEEPALIVE_S_MAX)
+                        throw ConfigurationException(30001, "bad JSON, invalid \"tcp-keepalive-interval-s\" value: " +
+                                                     std::to_string(keepAliveIntervalS) + ", expected: one of {1 .. " +
+                                                     std::to_string(StreamNetwork::KEEPALIVE_S_MAX) + "}");
+                }
+                uint64_t keepAliveCount = StreamNetwork::KEEPALIVE_COUNT_DEFAULT;
+                if (writerJson.HasMember("tcp-keepalive-count")) {
+                    keepAliveCount = Ctx::getJsonFieldU64(configFileName, writerJson, "tcp-keepalive-count");
+                    if (keepAliveCount < 1 || keepAliveCount > StreamNetwork::KEEPALIVE_COUNT_MAX)
+                        throw ConfigurationException(30001, "bad JSON, invalid \"tcp-keepalive-count\" value: " + std::to_string(keepAliveCount) +
+                                                     ", expected: one of {1 .. " + std::to_string(StreamNetwork::KEEPALIVE_COUNT_MAX) + "}");
+                }
+
                 auto* stream = new StreamNetwork(ctx, uri);
                 stream->initialize();
+                stream->setKeepAlive(keepAliveIdleS, keepAliveIntervalS, keepAliveCount);
                 auto* writerStream = new WriterStream(ctx, alias + "-writer", replicator2->database, replicator2->builder, replicator2->metadata,
                                                       stream);
                 writerStream->refuseContinueGap = continueGap == 1;

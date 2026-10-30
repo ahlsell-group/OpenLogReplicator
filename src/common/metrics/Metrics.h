@@ -137,6 +137,15 @@ namespace OpenLogReplicator {
         virtual void emitTransactionsRollbackPartial(uint64_t counter) = 0;
         virtual void emitTransactionsCommitSkip(uint64_t counter) = 0;
         virtual void emitTransactionsRollbackSkip(uint64_t counter) = 0;
+
+        // writer_queue_size
+        virtual void emitWriterQueueSize(int64_t gauge) = 0;
+
+        // writer_queue_held_positions
+        virtual void emitWriterQueueHeldPositions(int64_t gauge) = 0;
+
+        // writer_queue_oldest_age_s: send time of the oldest unconfirmed message in microseconds, 0 for an empty queue
+        virtual void emitWriterQueueOldestSentUs(int64_t timeUs) = 0;
     };
 }
 

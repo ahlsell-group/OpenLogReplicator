@@ -54,10 +54,34 @@ A scenario opts in with connect.toml next to scenario.toml:
   switch_logfile = true
   [[step]]
   sleep = 2
+  [[step]]
+  rpk = "topic alter-config {prefix}.X --set k=v"   # rpk in the broker container
+  [[step]]
+  olr = "vanish"         # the client's connection goes silent, as when a pod is deleted and no FIN/RST arrives:
+                         # inbound packets of its established connection(s) are dropped in the Connect container,
+                         # then OLR restarts as with "restart" (signal, delete_writer_checkpoint); new connections
+                         # are not affected. The DROP rules are removed when the scenario ends.
+  [[step]]
+  netns = "ss -tno state established"   # command in the Connect container's network namespace, output to events
+  [[step]]
+  expect_log_absent = "Producer failure"   # regex; a match in the Connect log since the run started fails "run"
+  [[step]]
+  expect_olr_log = "client requested scn: \\d+, idx: [1-9]"   # regex; no match in OLR's log so far fails "run"
+  [[step]]
+  expect_olr_log_absent = "client requested scn: \\d+, idx: [1-9]"   # regex; a match in OLR's log so far fails "run"
+  [[step]]
+  expect_log = "did not answer the INFO request"   # regex; no match in the Connect log since the run started fails "run"
+  [[step]]
+  olr = "silence"        # the client vanishes without a FIN or RST reaching OLR: packets of the established
+                         # connection(s) are dropped in both directions in the Connect container, OLR keeps running
+                         # and keeps the socket; new connections are not affected
+  [[step]]
+  olr = "unsilence"      # removes the DROP rules of "vanish" and "silence"
 
 The Debezium version is chosen per run (--dbz), the OLR format/flags by the profile.
 """
 import fnmatch
+import shlex
 import json
 import os
 import re
@@ -174,6 +198,27 @@ def debug_env():
     return ["-e", "CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_ORACLE_OLR=DEBUG",
             "-e", "CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_COMMON=DEBUG",
             "-e", "CONNECT_LOG4J_APPENDER_STDOUT_THRESHOLD=DEBUG"]
+
+
+NETADMIN_IMAGE = "olrt/netadmin:local"
+
+
+def netns(cmd):
+    """Run a shell command in the Connect container's network namespace, in a helper container with
+    iproute2 and iptables (docker/netadmin, built on first use)."""
+    if _docker("image", "inspect", NETADMIN_IMAGE, check=False).returncode != 0:
+        subprocess.run(["docker", "build", "-t", NETADMIN_IMAGE, str(S.ROOT / "docker" / "netadmin")], check=True)
+    return _docker("run", "--rm", "--network", f"container:{S.CONNECT_CONTAINER}", "--cap-add", "NET_ADMIN",
+                   NETADMIN_IMAGE, "sh", "-c", cmd, check=False)
+
+
+def olr_connections(olr_container):
+    """Local ports of the Connect container's established connections to OLR (port 5000)."""
+    ip = _docker("inspect", "-f", f'{{{{(index .NetworkSettings.Networks "{S.NETWORK}").IPAddress}}}}',
+                 olr_container).stdout.strip()
+    r = netns(f"ss -tnH state established '( dst {ip}:5000 )'")
+    # columns without a state filter column: Recv-Q Send-Q Local:Port Peer:Port
+    return ip, sorted({int(line.split()[2].rsplit(":", 1)[1]) for line in r.stdout.splitlines() if line.strip()})
 
 
 def down():
@@ -302,6 +347,12 @@ def connector_config(sc, spec, prefix, olr_host, adapter=None):
     }
     if keys:
         cfg["message.key.columns"] = keys
+    # OLRT_OLR_CONNECTOR_CONFIG="k=v;k=v": extra settings for every OLR-adapter connector of a run;
+    # a setting in the scenario's own config wins, so scenarios can pin one
+    if adapter != "logminer":
+        for kv in filter(None, os.environ.get("OLRT_OLR_CONNECTOR_CONFIG", "").split(";")):
+            k, v = kv.split("=", 1)
+            cfg[k.strip()] = v.strip()
     cfg.update({k: str(v) for k, v in c.get("config", {}).items()})
     return cfg
 
@@ -538,6 +589,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
     # instance-scoped name: other suites on the engine use olrt-olrnet-* too
     cont.name = f"olrt-olrcon-{S.INSTANCE or 'default'}-{abs(hash(str(workdir))) % 10**10}"
     reader = None
+    blackholes = []  # iptables rules added by olr = "vanish", removed at the end
     since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1))
     t0 = time.time()
     snap_scn = None
@@ -674,6 +726,73 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
                 time.sleep(2)
                 events.append(f"step {i}: OLR restarted ({step.get('signal', 'INT')})")
+            elif step.get("olr") == "vanish":
+                ip, ports = olr_connections(cont.name)
+                if not ports:
+                    raise RuntimeError(f"step {i}: olr vanish: no established connection to {ip}:5000")
+                for port in ports:
+                    rule = f"INPUT -p tcp -s {ip} --sport 5000 --dport {port} -j DROP"
+                    r = netns(f"iptables -I {rule}")
+                    if r.returncode != 0:
+                        raise RuntimeError(f"step {i}: iptables -I {rule}: {r.stderr.strip()}")
+                    blackholes.append(rule)
+                run_info.setdefault("vanish", []).append({"step": i, "t": time.time(), "olr_ip": ip, "ports": ports})
+                cont.stop(step.get("signal", "INT"))
+                if step.get("delete_writer_checkpoint"):
+                    p = workdir / "state" / f"{S.PDB}-chkpt.json"
+                    if p.exists():
+                        p.unlink()
+                        events.append(f"step {i}: deleted {p.name}")
+                subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
+                time.sleep(2)
+                events.append(f"step {i}: connection(s) from port(s) {ports} to {ip}:5000 silenced, "
+                              f"OLR restarted ({step.get('signal', 'INT')}), now at {olr_connections(cont.name)[0]}")
+            elif "netns" in step:
+                r = netns(step["netns"])
+                events.append(f"step {i}: netns {step['netns']}: exit {r.returncode}\n{(r.stdout + r.stderr).strip()[:2000]}")
+            elif "expect_log_absent" in step:
+                found = re.findall(f".*(?:{step['expect_log_absent']}).*", connect_logs(since))
+                events.append(f"step {i}: expect log absent /{step['expect_log_absent']}/ -> {len(found)} match(es)")
+                if found:
+                    run_info["expect_failures"].append(
+                        f"step {i}: {len(found)} log line(s) match /{step['expect_log_absent']}/, first: {found[0][:300]}")
+            elif "expect_olr_log" in step or "expect_olr_log_absent" in step:
+                absent = "expect_olr_log_absent" in step
+                pat = step["expect_olr_log_absent" if absent else "expect_olr_log"]
+                found = re.findall(f".*(?:{pat}).*", cont.logs())
+                events.append(f"step {i}: expect OLR log {'absent ' if absent else ''}/{pat}/ -> {len(found)} match(es)"
+                              + (f", first: {found[0][:200]}" if found else ""))
+                if absent and found:
+                    run_info["expect_failures"].append(
+                        f"step {i}: {len(found)} OLR log line(s) match /{pat}/, first: {found[0][:300]}")
+                elif not absent and not found:
+                    run_info["expect_failures"].append(f"step {i}: no OLR log line matches /{pat}/")
+            elif step.get("olr") == "silence":
+                ip, ports = olr_connections(cont.name)
+                if not ports:
+                    raise RuntimeError(f"step {i}: olr silence: no established connection to {ip}:5000")
+                for port in ports:
+                    for rule in (f"INPUT -p tcp -s {ip} --sport 5000 --dport {port} -j DROP",
+                                 f"OUTPUT -p tcp -d {ip} --dport 5000 --sport {port} -j DROP"):
+                        r = netns(f"iptables -I {rule}")
+                        if r.returncode != 0:
+                            raise RuntimeError(f"step {i}: iptables -I {rule}: {r.stderr.strip()}")
+                        blackholes.append(rule)
+                run_info.setdefault("silence", []).append({"step": i, "t": time.time(), "olr_ip": ip, "ports": ports})
+                events.append(f"step {i}: connection(s) from port(s) {ports} to {ip}:5000 silenced in both directions")
+            elif step.get("olr") == "unsilence":
+                for rule in blackholes:
+                    r = netns(f"iptables -D {rule}")
+                    if r.returncode != 0:
+                        events.append(f"step {i}: iptables -D {rule} failed: {r.stderr.strip()}")
+                events.append(f"step {i}: removed {len(blackholes)} DROP rule(s)")
+                blackholes.clear()
+            elif "expect_log" in step:
+                found = re.findall(f".*(?:{step['expect_log']}).*", connect_logs(since))
+                events.append(f"step {i}: expect log /{step['expect_log']}/ -> {len(found)} match(es)"
+                              + (f", first: {found[0][:200]}" if found else ""))
+                if not found:
+                    run_info["expect_failures"].append(f"step {i}: no Connect log line matches /{step['expect_log']}/")
             elif step.get("olr") == "stop":
                 rc = cont.stop(step.get("signal", "INT"))
                 events.append(f"step {i}: OLR stopped ({step.get('signal', 'INT')}, exit {rc})")
@@ -752,6 +871,11 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
             elif step.get("switch_logfile"):
                 db.switch_logfile(rconn)
                 events.append(f"step {i}: log switch")
+            elif "rpk" in step:
+                # rpk inside the broker container; {prefix} is the connector's topic prefix
+                args = shlex.split(step["rpk"].format(prefix=prefix))
+                r = _docker("exec", S.BROKER_CONTAINER, "rpk", *args, check=False)
+                events.append(f"step {i}: rpk {' '.join(args)}: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}")
             elif "sleep" in step:
                 time.sleep(float(step["sleep"]))
             else:
@@ -793,6 +917,10 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
         }
         (workdir / "recording.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False))
     finally:
+        for rule in blackholes:
+            r = netns(f"iptables -D {rule}")
+            if r.returncode != 0:
+                events.append(f"iptables -D {rule} failed: {r.stderr.strip()}")
         if reader is not None:
             reader.poll(1.0)
             with open(workdir / "kafka.jsonl", "w") as f:

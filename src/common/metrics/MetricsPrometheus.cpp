@@ -18,9 +18,30 @@ License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
 #include "MetricsPrometheus.h"
+#include "../Clock.h"
 #include "../Ctx.h"
 
 namespace OpenLogReplicator {
+    WriterQueueAge::WriterQueueAge(const Clock* newClock):
+            clock(newClock) {}
+
+    double WriterQueueAge::ageS(int64_t sentUs, int64_t nowUs) {
+        if (sentUs == 0 || nowUs <= sentUs)
+            return 0;
+        return static_cast<double>(nowUs - sentUs) / 1000000.0;
+    }
+
+    std::vector<prometheus::MetricFamily> WriterQueueAge::Collect() const {
+        prometheus::ClientMetric metric;
+        metric.gauge.value = ageS(oldestSentUs.load(), clock->getTimeUt());
+        prometheus::MetricFamily family;
+        family.name = "writer_queue_oldest_age_s";
+        family.help = "Seconds since the oldest message the client has not confirmed was sent, 0 when none is waiting";
+        family.type = prometheus::MetricType::Gauge;
+        family.metric.push_back(std::move(metric));
+        return {family};
+    }
+
     MetricsPrometheus::MetricsPrometheus(TAG_NAMES newTagNames, std::string newBind):
             Metrics(newTagNames),
             bind(std::move(newBind)) {}
@@ -276,7 +297,23 @@ namespace OpenLogReplicator {
             {"filter", "skip"}
         });
 
+        // writer_queue_size
+        writerQueueSize = &prometheus::BuildGauge().Name("writer_queue_size")
+                                                   .Help("Messages sent to the client and not confirmed yet")
+                                                   .Register(*registry);
+        writerQueueSizeGauge = &writerQueueSize->Add({});
+
+        // writer_queue_held_positions
+        writerQueueHeldPositions = &prometheus::BuildGauge().Name("writer_queue_held_positions")
+                                                            .Help("Positions the writer confirmed itself, held until the messages sent before them are confirmed")
+                                                            .Register(*registry);
+        writerQueueHeldPositionsGauge = &writerQueueHeldPositions->Add({});
+
         exposer->RegisterCollectable(registry);
+
+        // writer_queue_oldest_age_s
+        writerQueueAge = std::make_shared<WriterQueueAge>(ctx->clock);
+        exposer->RegisterCollectable(writerQueueAge);
     }
 
     void MetricsPrometheus::shutdown() {}
@@ -602,5 +639,20 @@ namespace OpenLogReplicator {
 
     void MetricsPrometheus::emitTransactionsRollbackSkip(uint64_t counter) {
         transactionsRollbackSkipCounter->Increment(counter);
+    }
+
+    // writer_queue_size
+    void MetricsPrometheus::emitWriterQueueSize(int64_t gauge) {
+        writerQueueSizeGauge->Set(static_cast<double>(gauge));
+    }
+
+    // writer_queue_held_positions
+    void MetricsPrometheus::emitWriterQueueHeldPositions(int64_t gauge) {
+        writerQueueHeldPositionsGauge->Set(static_cast<double>(gauge));
+    }
+
+    // writer_queue_oldest_age_s
+    void MetricsPrometheus::emitWriterQueueOldestSentUs(int64_t timeUs) {
+        writerQueueAge->oldestSentUs.store(timeUs);
     }
 }

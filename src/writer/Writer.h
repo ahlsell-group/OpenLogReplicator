@@ -67,12 +67,20 @@ namespace OpenLogReplicator {
             bool hasMessage;
             Scn messageScn;
             typeIdx messageIdx;
+            // A log switch checkpoint is in the run: applying the position forces the checkpoint write
+            bool redo;
         };
         // Messages the writer confirmed itself while messages sent earlier were still unconfirmed: the last one of each run
         // between two sent messages, taken once every message before it is confirmed. At most one per queued message.
         std::deque<LocalPosition> localHeld;
         // The last held position belongs to the current run: no message was sent after it
         bool localHeldOpen{false};
+        // A REDO-flagged held position was dropped on reconnect: force the next checkpoint write that moves the position
+        bool redoAfterReset{false};
+        // Position of the newest message in the queue
+        Scn queueNewestScn{Scn::none()};
+        // Id and send time of each queued message, oldest first; kept only with metrics
+        std::deque<std::pair<uint64_t, time_ut>> queueSent;
 
         static constexpr time_ut QUEUE_FULL_WARN_US = 10000000;
         static constexpr time_ut QUEUE_FULL_REPEAT_US = 60000000;
@@ -85,7 +93,8 @@ namespace OpenLogReplicator {
         static void advance(Scn& toScn, typeIdx& toIdx, Scn scn, typeIdx idx);
         void advanceConfirmed(Scn scn, typeIdx idx);
         void clearQueue();
-        void warnQueueFull(const BuilderMsg* msg, time_ut fullSince, time_ut& fullWarned);
+        void warnQueueFull(time_ut fullSince, time_ut& fullWarned);
+        void emitQueueMetrics();
         virtual void sendMessage(BuilderMsg* msg) = 0;
         virtual std::string getType() const = 0;
         virtual void pollQueue() = 0;

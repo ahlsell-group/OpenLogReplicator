@@ -208,12 +208,27 @@ This happens with a client which confirms what it has read instead of what it ha
 With the experimental writer option `continue-gap: 1` the message ends with "can't be sent again, refusing to continue (continue-gap: 1)" and the CONTINUE is answered with `FAILED_START`; Debezium 3.6 then stays RUNNING without streaming (see `continue-gap` in the writer reference).
 Remediation: Make the client confirm only stored positions (Debezium 3.7 or later) and restart it from an SCN before the gap.
 
-==== code 60040: "output queue full for <number>s (queue-size: <number>) with messages of one transaction, scn: <scn>; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of messages of the largest transaction"
+==== code 60040: "output queue full for <number>s (queue-size: <number>) with messages of one commit scn: <scn>; a client which confirms only when the scn grows cannot confirm them; set queue-size above the number of messages of the largest transaction (or of the transactions committed at one scn)"
 
-The writer queue has been full for 10 seconds with messages that all belong to one transaction (same scn).
-A client which confirms only when the scn grows, for example the Debezium 3.6 OpenLogReplicator adapter, cannot confirm any of them, so replication stops.
+The writer queue has been full for 10 seconds and every message in it, oldest to newest, has the same commit scn: one transaction, or several transactions committed at that scn.
+A client which confirms only when the scn grows cannot confirm any of them, so replication stops.
+The Debezium OpenLogReplicator adapter is such a client: it confirms the scn of the transaction it is in with index 0, which releases only the messages of earlier scns.
 Repeated every minute while the state lasts.
-Remediation: Set writer `queue-size` above the number of messages of the largest transaction.
+A client which stopped confirming altogether gets this warning too when the queue happens to hold one scn only; warning 60046 covers the other cases.
+Remediation: Set writer `queue-size` above the number of messages of the largest transaction, or of the transactions committed at one scn.
+
+==== code 60046: "output queue full for <number>s (queue-size: <number>), the oldest unconfirmed message is scn: <scn>, idx: <idx>; the messages sent are not being confirmed"
+
+The writer queue has been full for 10 seconds and holds messages of a later scn than the oldest one, so a client which confirms what it has stored could have confirmed the oldest message.
+The client is not confirming: it hangs, has lost the connection without OpenLogReplicator noticing, or cannot store what it gets.
+Repeated every minute while the state lasts.
+Remediation: Check the client. The metrics `writer_queue_size` and `writer_queue_oldest_age_s` show the state before the queue is full.
+
+==== code 60047: "TCP keepalive not set for client: <host>:<port>, <option>, errno: <number>, message: <message>; a client that vanishes without closing the connection is not noticed while nothing is sent"
+
+A `network` writer could not enable TCP keepalive on a new client connection; the connection is used without it.
+OpenLogReplicator serves one client at a time; a client which disappears without closing the connection (a deleted pod, a dropped route) then holds the writer until something is sent to it and the send times out, and every new client waits.
+Remediation: Check the `tcp-keepalive-*` writer parameters and the operating system's limits for them.
 
 ==== code 60042: "direct-path load into replicated table <owner>.<table> (obj: <number>, dataobj: <number>, scn: <scn>[-<scn>], blocks: <number>): OP 19.1 direct loader blocks are not decoded, the rows they contain are missing from the output"
 

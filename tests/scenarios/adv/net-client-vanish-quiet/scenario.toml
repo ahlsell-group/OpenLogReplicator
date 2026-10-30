@@ -1,0 +1,13 @@
+description = "The client vanishes without FIN or RST while nothing is sent; OLR drops it by TCP keepalive and serves the next client"
+tags = ["adv", "network", "keepalive"]
+tables = ["OLRT_ADVN12.T"]
+# the dead connection is reported when keepalive gives up
+allowed_warnings = ['^10061 network error, errno: 110, message: Connection timed out']
+
+# server-side TCP keepalive on the accepted client (fork .11, fix/server-keepalive-metrics)
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.11*"]
+
+[known_issue]
+run = "no TCP keepalive on OLR's client socket: the dead connection is kept while nothing is sent and the next client is not served"
+diff = "no TCP keepalive on OLR's client socket: the next client is not served, row 11 never arrives"
+replay = "no TCP keepalive on OLR's client socket: the next client is not served, row 11 never arrives"

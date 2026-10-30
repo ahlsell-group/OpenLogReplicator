@@ -1,0 +1,14 @@
+description = "The client vanishes without a FIN or RST reaching OLR during a quiet period; OLR drops the dead socket by TCP keepalive and serves the restarted task"
+tags = ["connect", "restart", "keepalive"]
+tables = ["OLRT_CKS.T"]
+# the dead connection is reported when keepalive gives up
+allowed_warnings = ['^10061 network error, errno: 110, message: Connection timed out']
+
+# server-side TCP keepalive on the accepted client (fork .11, fix/server-keepalive-metrics)
+fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.11*"]
+
+[known_issue]
+run = "no TCP keepalive on OLR's client socket: while nothing is sent the dead connection is kept and the restarted task is not served"
+delivery = "no TCP keepalive on OLR's client socket: row 11 waits for the retransmission timeout of the dead connection (about 15 min)"
+diff = "no TCP keepalive on OLR's client socket: row 11 waits for the retransmission timeout of the dead connection (about 15 min)"
+replay = "no TCP keepalive on OLR's client socket: row 11 waits for the retransmission timeout of the dead connection (about 15 min)"

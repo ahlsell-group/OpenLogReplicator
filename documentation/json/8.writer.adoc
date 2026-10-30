@@ -148,6 +148,35 @@ _NOTE:_ Valid only for `kafka`.
 |Maximum number of messages that can be queued for sending.
 Larger values increase throughput at the cost of memory.
 
+|`tcp-keepalive-count`
+|_integer_, min: 1, max: 127, default: 6
+|Number of unanswered TCP keepalive probes after which the client connection is closed.
+
+_NOTE:_ Valid only for `network`.
+
+|`tcp-keepalive-idle-s`
+|_integer_, min: 0, max: 32767, default: 60
+|Seconds without any traffic on the client connection before the first TCP keepalive probe.
+`0` leaves keepalive off (the operating system default).
+
+The network writer serves one client at a time: a new client is accepted only after the current connection is closed.
+A client that disappears without closing the connection (a deleted pod, a dropped route, a firewall dropping the connection) is noticed only when a send or a read fails.
+While no captured table changes nothing is sent, so without keepalive the writer keeps the dead connection and every new client waits.
+With the defaults a dead client is noticed after about 2 minutes (60 s + 6 × 10 s); the writer logs warning 10061, drops it and accepts the next client.
+
+Keepalive probes are only sent while the connection is idle.
+When the client disappears while data sent to it is still unacknowledged, the operating system's retransmission timeout closes the connection instead (Linux: `net.ipv4.tcp_retries2`, by default about 15 minutes); a writer blocked in a send waits for that.
+A new client that connects in the meantime is not served until then: replacing the current connection would let two clients (for example two Kafka Connect tasks during a rebalance) take the stream from each other.
+
+_NOTE:_ Valid only for `network`.
+On Linux the values are set with `TCP_KEEPIDLE`, `TCP_KEEPINTVL` and `TCP_KEEPCNT`; on a platform without one of them its system default applies.
+
+|`tcp-keepalive-interval-s`
+|_integer_, min: 1, max: 32767, default: 10
+|Seconds between TCP keepalive probes on the client connection.
+
+_NOTE:_ Valid only for `network`.
+
 |`timestamp-format`
 |_string_, max length: 256, default: "%F_%T"
 |`strftime`-style format used to render `%t` in `output` filenames.
