@@ -91,9 +91,9 @@ env:
   # connect job: one profile, upstream Debezium and our patched connector (tests/docker/connect/overlay/<version>/)
   CONNECT_PROFILE: debezium-ddl
   DBZ_UPSTREAM: 3.7.0.Final
-  DBZ_PATCHED: 3.7.0.Final-ahlsell.8
-  DBZ_PATCHED_URL: https://github.com/Aangbaeck/debezium/releases/download/v3.7.0.Final-ahlsell.8/debezium-connector-oracle-3.7.0.Final.jar
-  DBZ_PATCHED_SHA256: da19674461410e83d6139fa00b45f79f0e2554ff1ed54b21f9919f4e8f7b6758
+  DBZ_PATCHED: 3.7.0.Final-ahlsell.9
+  DBZ_PATCHED_URL: https://github.com/Aangbaeck/debezium/releases/download/v3.7.0.Final-ahlsell.9/debezium-connector-oracle-3.7.0.Final.jar
+  DBZ_PATCHED_SHA256: c94847936e5c0d02189a1eddeffd8467d7731b908a8a6808850542843c97f78b
   CONNECT_SCENARIOS: >-
     connect/smoke connect/olr-restart connect/quiet-checkpoint-stall connect/olr-server-keepalive
     connect/worker-kill-mid-txn connect/confirm-quiet-restart connect/confirm-interleaved-worker-kill
