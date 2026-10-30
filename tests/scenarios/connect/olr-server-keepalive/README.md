@@ -11,6 +11,13 @@ connects and sends INFO. Nothing is committed for 150 s. With server-side keepal
 the last traffic (WARN 10061 "Connection timed out"), OLR closes the connection and answers the waiting task's INFO.
 Row 11, committed after that, must arrive within 120 s; row 12 after `unsilence` too.
 
+OLR runs without SHOW_DDL (`flags = 0`) here. With it, OLR sends every DDL in the database, also Oracle's own:
+the AWR purge alters the sequence `SYS.WRM$_DEEP_PURGE_INTERVAL` now and then. A DDL message written to the dead
+connection stays unacknowledged, Linux sends no keepalive probes while data is unacknowledged, and the connection
+fails only by the retransmission timeout (about 15 minutes); that is how this scenario failed about 1 run in 3 with
+the `debezium-ddl` profile. `olr-server-keepalive-unacked` forces that case. The `silence` step also waits until OLR's
+Send-Q on the connection is 0 before it drops the packets.
+
 Without keepalive (OLR before .11) the dead connection is held; row 11 is then sent to it and the connection fails
 only by the retransmission timeout (about 15 minutes), so row 11 does not arrive in time. Compare
 `olr-vanished-client-info` (a row sent while OLR holds the dead connection: the retransmission timeout, not
