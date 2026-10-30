@@ -1,0 +1,10 @@
+description = "DBMS_REDEFINITION changes TS DATE to TIMESTAMP(6) and widens CODE VARCHAR2(10) to VARCHAR2(50); unchanged columns whose OLR metadata differs from the model (char semantics, NVARCHAR2, NCHAR, NUMBER(*,2), INTEGER, FLOAT, TIMESTAMP(3)) must not reload it"
+tags = ["connect", "ddl", "redefinition"]
+tables = ["OLRT_CR9.T"]
+logminer_dict = "redo"
+
+[known_issue]
+"delivery@3.7.0.Final-ahlsell.10" = "detects only NUMBER changes and new columns, so it keeps TS as DATE after the swap: the post-swap timestamps arrive in milliseconds (12:34:56.123456 as 12:34:56.123, 01:02:03.000004 as 01:02:03); no reload logged"
+"diff@3.7.0.Final-ahlsell.10" = "as delivery"
+"replay@3.7.0.Final-ahlsell.10" = "as delivery; plus the reference limitation of replay@3.7.0.Final-ahlsell.11"
+"replay@3.7.0.Final-ahlsell.11" = "reference limitation: rows written before the swap are replayed with DATE values ('2026-01-01T00:00:00'), while the post-swap before-images carry the same value as TIMESTAMP(6) ('2026-01-01T00:00:00.000000000'); the values are equal"

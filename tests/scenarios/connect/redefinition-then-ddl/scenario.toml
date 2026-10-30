@@ -11,3 +11,6 @@ allowed_warnings = ["^10061 network error"]
 "delivery@3.7.0.Final-ahlsell.10" = "reference limitation: LogMiner decodes with the dictionary after DROP COLUMN extra, so it has no EXTRA; Debezium emits the EXTRA values the rows were written with ('set', 'new', 'modified', 'm')"
 "diff@3.7.0.Final-ahlsell.10" = "as delivery"
 "replay@3.7.0.Final-ahlsell.10" = "profile debezium only (no DDL messages): after DROP COLUMN the model still has EXTRA and the before-image of the next update carries it as null (detection is one-directional)"
+"delivery@3.7.0.Final-ahlsell.11" = "reference limitation: LogMiner decodes with the dictionary after DROP COLUMN extra, so it has no EXTRA; Debezium emits the EXTRA values the rows were written with ('set', 'new', 'modified', 'm')"
+"diff@3.7.0.Final-ahlsell.11" = "as delivery"
+"replay@3.7.0.Final-ahlsell.11" = "profile debezium only (no DDL messages): after DROP COLUMN the model still has EXTRA and the before-image of the next update carries it as null (detection is one-directional)"

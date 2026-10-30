@@ -10,3 +10,5 @@ replay = "by design: the table is dropped at the end, so the database has no row
 "diff@3.7.0.Final-ahlsell.9" = "as delivery"
 "delivery@3.7.0.Final-ahlsell.10" = "reference limitation: LogMiner has no EXTRA for rows of the dropped table; Debezium emits the EXTRA values the rows were written with ('set', 'new')"
 "diff@3.7.0.Final-ahlsell.10" = "as delivery"
+"delivery@3.7.0.Final-ahlsell.11" = "reference limitation: LogMiner has no EXTRA for rows of the dropped table; Debezium emits the EXTRA values the rows were written with ('set', 'new')"
+"diff@3.7.0.Final-ahlsell.11" = "as delivery"
