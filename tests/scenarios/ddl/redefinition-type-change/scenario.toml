@@ -1,0 +1,7 @@
+description = "DBMS_REDEFINITION that changes column types and drops/adds columns (NUMBER -> VARCHAR2 via col_mapping, DROP D, ADD EXTRA DEFAULT) while OLR reads, then DML on old rows"
+tags = ["ddl", "redefinition"]
+tables = ["OLRT_DDLR2.T"]
+logminer_dict = "redo"
+
+[known_issue]
+replay = "check limit, not an OLR error: the copy in START_REDEF_TABLE rewrites every row (CODE as text, EXTRA = 'dflt', D gone) without DML on T, and the rename heuristic pairs D with EXTRA by column id; diff (LogMiner) is the check here"

@@ -1,0 +1,5 @@
+description = "Network mode: DBMS_REDEFINITION with a layout change, OLR restarted between START and FINISH and again after the swap (schema from its checkpoint), client CONTINUE"
+tags = ["ddl", "redefinition", "network", "restart"]
+tables = ["OLRT_DDLR4.T"]
+logminer_dict = "redo"
+allowed_warnings = ["^10061 network error, errno: 32"]   # the client disconnects on purpose

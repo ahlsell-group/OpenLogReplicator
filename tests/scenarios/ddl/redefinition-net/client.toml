@@ -1,0 +1,85 @@
+[olr]
+queue_size = 65536
+state_interval_s = 1
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "UPDATE olrt_ddlr4.t SET qty = 1.5, txt = 'before redef' WHERE id = 1"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+
+[[step]]
+sql = "BEGIN DBMS_REDEFINITION.START_REDEF_TABLE('OLRT_DDLR4', 'T', 'T_INT', 'id id, txt txt, d d, qty qty', DBMS_REDEFINITION.CONS_USE_PK); END;"
+[[step]]
+sql = "UPDATE olrt_ddlr4.t SET qty = -2, txt = 'after start' WHERE id = 2"
+[[step]]
+sql = "INSERT INTO olrt_ddlr4.t VALUES (30001, 1, 'after start', DATE '2026-07-01')"
+[[step]]
+sql = "DELETE FROM olrt_ddlr4.t WHERE id = 3"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+[[step]]
+switch_logfile = true
+[[step]]
+sleep = 3
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "restart"
+[[step]]
+client = "connect"
+[[step]]
+sql = "DECLARE n PLS_INTEGER; BEGIN DBMS_REDEFINITION.COPY_TABLE_DEPENDENTS('OLRT_DDLR4', 'T', 'T_INT', DBMS_REDEFINITION.CONS_ORIG_PARAMS, TRUE, TRUE, TRUE, FALSE, n); IF n != 0 THEN RAISE_APPLICATION_ERROR(-20001, 'errors: ' || n); END IF; END;"
+[[step]]
+sql = "BEGIN DBMS_REDEFINITION.SYNC_INTERIM_TABLE('OLRT_DDLR4', 'T', 'T_INT'); END;"
+[[step]]
+sql = "UPDATE olrt_ddlr4.t SET qty = -4, txt = 'after sync' WHERE id IN (4, 30001)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+sql = "BEGIN DBMS_REDEFINITION.FINISH_REDEF_TABLE('OLRT_DDLR4', 'T', 'T_INT'); END;"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+client = "commit_offset"
+[[step]]
+switch_logfile = true
+[[step]]
+sleep = 3
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "restart"
+[[step]]
+client = "connect"
+[[step]]
+sql = "UPDATE olrt_ddlr4.t SET qty = 7.1255, txt = 'after finish', extra = 'set' WHERE id IN (1, 5, 30001)"
+[[step]]
+sql = "DELETE FROM olrt_ddlr4.t WHERE id IN (6, 4)"
+[[step]]
+sql = "INSERT INTO olrt_ddlr4.t (id, txt, d, qty) VALUES (30002, 'after finish', DATE '2027-01-01', 2)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+sql = "DROP TABLE olrt_ddlr4.t_int PURGE"
+[[step]]
+sql = "UPDATE olrt_ddlr4.t SET txt = 'after drop' WHERE id IN (7, 30002)"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 2
+[[step]]
+client = "commit_offset"
