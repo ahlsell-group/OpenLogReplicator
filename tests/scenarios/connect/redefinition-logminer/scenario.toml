@@ -1,0 +1,10 @@
+description = "connect/redefinition on Debezium's LogMiner adapter (as in prd): two DBMS_REDEFINITIONs while the connector streams; delivery, values and topic schema"
+tags = ["connect", "ddl", "redefinition", "logminer"]
+tables = ["OLRT_CR2.T"]
+logminer_dict = "redo"
+
+[known_issue]
+run = "the task fails: 'Failed to resolve a table for object id <MLOG$_T>' on a DELETE from the materialized view log that FINISH_REDEF_TABLE dropped (hybrid strategy)"
+delivery = "the final refresh into the interim table (DELETE/INSERT on T_INT1, the object that becomes T) is published as a transaction on T (~550 rows, stale before images), then the task fails and the rest is lost"
+diff = "as delivery"
+replay = "as delivery"

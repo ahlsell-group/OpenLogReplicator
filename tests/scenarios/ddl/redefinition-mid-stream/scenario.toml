@@ -1,0 +1,4 @@
+description = "DBMS_REDEFINITION (storage only) of a captured table while OLR reads: DML during the copy, between SYNC and FINISH, and on old rows after the swap"
+tags = ["ddl", "redefinition"]
+tables = ["OLRT_DDLR1.T"]
+logminer_dict = "redo"

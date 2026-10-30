@@ -330,6 +330,12 @@ def run(image, scenario, profile, workdir, token="adhoc"):
             record.run_script(scenario.sql("setup.sql"), sessions, rconn, "setup.sql", lambda: db.scenario_conn(scenario))
         pconn.commit()
         db.set_force_logging(rconn, scenario.force_logging)
+        dict_seq = None
+        if scenario.logminer_dict == "redo":
+            # as in record.py: a dictionary in the redo, so LogMiner tracks DDL inside the range
+            db.switch_logfile(rconn)
+            dict_seq = db.current_seq(rconn)
+            rconn.cursor().execute("BEGIN DBMS_LOGMNR_D.BUILD(OPTIONS => DBMS_LOGMNR_D.STORE_IN_REDO_LOGS); END;")
         db.switch_logfile(rconn)
         start_seq = db.current_seq(rconn)
         start_scn = db.current_scn(rconn)
@@ -491,7 +497,9 @@ def run(image, scenario, profile, workdir, token="adhoc"):
         tables_after = {t: record.table_info(pconn, t, scenario) for t in scenario.tables}
         after = {t: record.snapshot(pconn, t, tables_after[t], end_scn) for t in scenario.tables}
         archived = db.archived_logs(rconn, start_seq, end_seq)
-        reference = logminer.mine(rconn, archived, start_scn, end_scn, tables_after, con_name=scenario.con_name)
+        lm_logs = archived if dict_seq is None else db.archived_logs(rconn, dict_seq, end_seq)
+        reference = logminer.mine(rconn, lm_logs, start_scn, end_scn, tables_after,
+                                  dictionary=scenario.logminer_dict, con_name=scenario.con_name)
         rec = {
             "id": scenario.id, "mode": "network",
             "start_scn": start_scn, "end_scn": end_scn, "start_seq": start_seq, "end_seq": end_seq,

@@ -99,7 +99,7 @@ Source keys: `catalog` = an Oracle redo edge-case catalog; `adapter review` = a 
 | d-ddl-long | DDL text > 4000 chars (CREATE of a 313-column table mid-stream) | https://github.com/bersler/OpenLogReplicator/issues/104, https://github.com/bersler/OpenLogReplicator/issues/198 | P2 | backlog | Fixed in 1.8.0; cheap regression |
 | d-ddl-fk-name | DDL with FK reference: table name in payload vs SQL | https://github.com/bersler/OpenLogReplicator/issues/244 | P3 | backlog |  |
 | d-flashback-table | FLASHBACK TABLE TO SCN (generated DML) | catalog | P3 | backlog |  |
-| d-redefinition | DBMS_REDEFINITION of a captured table, then DML | https://github.com/debezium/dbz/issues/1588 | P3 | backlog |  |
+| d-redefinition | DBMS_REDEFINITION of a captured table, then DML | https://github.com/debezium/dbz/issues/1588 | P3 | done: ddl/redefinition-mid-stream, -layout, -type-change, -net; connect/redefinition*, connect/redefinition-logminer* | OLR passes. Debezium: OLR adapter keeps the old table model after a layout change; LogMiner adapter publishes the interim refresh and fails the task (README findings) |
 
 ## Storage and row format
 

@@ -1,0 +1,13 @@
+description = "DBMS_REDEFINITION changes only types: NUMBER(15,3) to NUMBER(18,4) and NUMBER(10) to VARCHAR2(20), no new column; rows before and after the swap"
+tags = ["connect", "ddl", "redefinition"]
+tables = ["OLRT_CR8.T"]
+logminer_dict = "redo"
+
+[known_issue]
+"delivery@3.7.0.Final-ahlsell.9" = "keeps the pre-redefinition model: QTY with scale 4 and CODE (now VARCHAR2) arrive as null"
+"diff@3.7.0.Final-ahlsell.9" = "as delivery"
+"replay@3.7.0.Final-ahlsell.9" = "as delivery"
+"run@3.7.0.Final-ahlsell.10" = "the reloaded model changes CODE from long to string; the Schema Registry (BACKWARD) rejects the new value schema and the task stops; no wrong values are emitted"
+"delivery@3.7.0.Final-ahlsell.10" = "as run"
+"diff@3.7.0.Final-ahlsell.10" = "as run"
+"replay@3.7.0.Final-ahlsell.10" = "as run"

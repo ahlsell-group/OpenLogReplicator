@@ -1,0 +1,4 @@
+description = "DBMS_REDEFINITION that reorders and widens columns and adds a nullable one while OLR reads, then DML on old rows"
+tags = ["ddl", "redefinition"]
+tables = ["OLRT_DDLR3.T"]
+logminer_dict = "redo"
