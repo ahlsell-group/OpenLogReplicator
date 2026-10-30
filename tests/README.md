@@ -211,6 +211,10 @@ carries every fix listed; the scenarios list it in `fixed_in`.
 | The same checkpoints kept in the builder buffers behind the held transaction: about 230 B per LWN until builder memory runs out and the parser waits (6 GB: 2-3 quiet days on dev) | `adv/net-quiet-checkpoints-memory` | fixed: `fix/coalesce-hidden-checkpoints` (only the position is kept) |
 | CONTINUE from the client's offset after an idle period with no captured change since OLR started, judged against a position only hidden checkpoints reached: WARN 60039, refused with `continue-gap: 1` | `adv/net-quiet-reconnect` | guard for `fix/coalesce-hidden-checkpoints` (gap check uses the newest confirmed message) |
 | A client that vanishes without FIN/RST while nothing is sent (quiet tables, hidden checkpoints) is kept forever: OLR serves one client, so the restarted Debezium task's INFO is never answered | `adv/net-client-vanish-quiet`, `connect/olr-server-keepalive` (`adv/net-quiet-keepalive`: a live quiet client is kept) | fixed: `fix/server-keepalive-metrics` (TCP keepalive on the accepted client, about 120 s) |
+| Debezium's OLR client sets no keepalive: when OLR vanishes without FIN/RST (a replaced pod) the task stays RUNNING on the dead connection forever | `connect/olr-vanish`, `connect/olr-quiet-keepalive` | fixed in Debezium 3.7.0.Final-ahlsell.7 (TCP keepalive, Aangbaeck/debezium#4) |
+| Debezium waits for the INFO answer without a timeout, so an OLR that still holds a vanished client's socket leaves the task RUNNING without streaming | `connect/olr-vanished-client-info` | fixed in Debezium 3.7.0.Final-ahlsell.8 (`openlogreplicator.info.timeout.ms`); OLR side fixed by the network writer keepalive |
+| Debezium confirms the offset of the last acknowledged record, which can be a heartbeat acked before a row of the same transaction on another partition, so OLR may release data not yet in Kafka | `connect/confirm-row-rejected` | fixed in Debezium 3.7.0.Final-ahlsell.8 (CONFIRM only from flushed offsets) |
+| Debezium 3.7.0 keeps its last transaction unconfirmed until a later captured change | `connect/confirm-*` (and `-off` variants) | opt-in in Debezium 3.7.0.Final-ahlsell.8: `openlogreplicator.confirm.completed.transactions` (fork OLR only) |
 | A transaction larger than the network writer's `queue-size` deadlocks with a client that confirms only when `c_scn` grows | `adv/net-small-queue` | open; the fork logs WARN 60040; keep `queue-size` above the largest transaction |
 | CONTINUE before the client's confirmed position | `connect/restart-task-mid-txn`, `connect/worker-kill-mid-txn` | the fork logs WARN 60039 |
 | TRUNCATE is invisible with flags 0; with flags 32 `ALTER TABLE ... MOVE` also emits two DDL messages with binary garbage | `ddl/truncate-then-dml`, `ddl/move-mid-stream` | by design / open |
@@ -267,14 +271,23 @@ banner starts "Oracle Database" (23ai, `OLRT_ORACLE_IMAGE=gvenzl/oracle-free:23.
 
 ## CI
 
-`.github/workflows/olr-tests.yml` (repository root) runs on `workflow_dispatch` only, on
-`ubuntu-24.04`. Inputs: `images` (space-separated; `checkout` builds the checked-out ref,
+`.github/workflows/olr-tests.yml` (repository root) runs on `ubuntu-24.04`. Job `test` runs on
+`workflow_dispatch` only. Inputs: `jobs` (`all`, `test`, `connect`, `unit-sanitizers`), `images` (space-separated; `checkout` builds the checked-out ref,
 `build:<repo>@<ref>` builds a GitHub repository at a tag, branch or commit, anything else is pulled
 as a public image; default `checkout`), `scenarios` (ids, groups or tags; empty = all) and `profiles`
 (default `debezium,json`). Summary, JUnit and OLR logs are uploaded as the `olr-results` artifact. The
-job fails on any unexpected failure; known issues (`xfail`) do not fail it. Connect mode is not run in
-CI. Disk on the hosted runner is tight: the workflow removes preinstalled toolchains and prunes the
+job fails on any unexpected failure; known issues (`xfail`) do not fail it. Disk on the hosted runner is tight: the workflow removes preinstalled toolchains and prunes the
 build cache after each image; split large runs with `scenarios`.
+
+Job `connect` runs ten Connect scenarios (`CONNECT_SCENARIOS` in the workflow, or the `connect_scenarios`
+input) with profile `debezium-ddl` against an OLR image built from the checkout, first with upstream
+Debezium `3.7.0.Final`, then with our patched connector (`3.7.0.Final-ahlsell.8`). It runs on
+`workflow_dispatch` and on release tags `v2.0.0-ahlsell.*`, for about an hour. The patched jar is a release
+asset on `Aangbaeck/debezium`, downloaded and checked against its sha256 into
+`docker/connect/overlay/<version>/`; while it is not published that variant is skipped with a notice.
+Publish a new jar with `docker/connect/release-jar.sh <version> <jar> <commit>` (prints the
+`gh release create` command and the values for the workflow; `--yes` runs it). Results go to the
+`olr-connect-results` artifact; known issues per Debezium version (`"check@<version>"`) do not fail it.
 
 ## Limitations
 

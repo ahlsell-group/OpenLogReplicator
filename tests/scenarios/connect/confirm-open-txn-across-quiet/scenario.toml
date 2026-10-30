@@ -1,0 +1,4 @@
+description = "A transaction open across a quiet period longer than queue-size, OLR restart and worker kill inside it"
+tags = ["connect", "restart", "confirm"]
+tables = ["OLRT_CF5.T"]
+allowed_warnings = ["^10061 network error"]

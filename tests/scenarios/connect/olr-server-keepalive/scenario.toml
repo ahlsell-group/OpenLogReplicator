@@ -1,8 +1,10 @@
 description = "The client vanishes without a FIN or RST reaching OLR during a quiet period; OLR drops the dead socket by TCP keepalive and serves the restarted task"
 tags = ["connect", "restart", "keepalive"]
 tables = ["OLRT_CKS.T"]
-# the dead connection is reported when keepalive gives up
-allowed_warnings = ['^10061 network error, errno: 110, message: Connection timed out']
+# the dead connection is reported when keepalive gives up; with an INFO timeout (Debezium 3.7.0.Final-ahlsell.8,
+# 30 s by default) the task reconnects while OLR holds the dead one, and OLR then accepts the abandoned connections
+allowed_warnings = ['^10061 network error, errno: 110, message: Connection timed out',
+                    '^10061 network error, errno: 32, message: Broken pipe']
 
 # server-side TCP keepalive on the accepted client (fork .11, fix/server-keepalive-metrics)
 fixed_in = ["olrt/olr:local*", "olrt/olr:2.0.0-ahlsell.11*"]

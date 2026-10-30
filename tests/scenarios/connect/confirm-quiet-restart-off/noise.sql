@@ -1,0 +1,7 @@
+BEGIN
+  FOR i IN 1 .. 1500 LOOP
+    UPDATE olrt_cf4o.noise SET n = i WHERE id = 1;
+    COMMIT WRITE WAIT IMMEDIATE;
+  END LOOP;
+END;
+/

@@ -1,5 +1,5 @@
 name: OLR differential tests
-run-name: ${{ github.event_name == 'push' && format('OLR unit sanitizers on {0}', github.ref_name) || format('OLR tests {0} on {1} by @{2}', inputs.images, github.ref_name, github.actor) }}
+run-name: ${{ github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') && format('OLR Connect scenarios on {0}', github.ref_name) || format('OLR unit sanitizers on {0}', github.ref_name)) || format('OLR tests ({0}) {1} on {2} by @{3}', inputs.jobs, inputs.images, github.ref_name, github.actor) }}
 
 # Job `test` runs the scenario suite in tests/ (see tests/README.md) against one or more
 # OpenLogReplicator images on a local Oracle Free container. Manual trigger only.
@@ -7,6 +7,16 @@ run-name: ${{ github.event_name == 'push' && format('OLR unit sanitizers on {0}'
 # Job `unit-sanitizers` builds the checkout with -DWITH_TESTS=ON under AddressSanitizer and
 # UndefinedBehaviorSanitizer and runs ctest (`make -C tests unit-asan`); any sanitizer report fails
 # it. It runs on the manual trigger and on pushes to ahlsell that change src/ or tests/docker/.
+#
+# Job `connect` runs a curated set of Connect scenarios (OLR network writer -> Debezium Oracle connector in
+# Kafka Connect, Redpanda, Oracle Free; tests/README.md "Connect mode") against an OLR image built from the
+# checkout, once with upstream Debezium and once with our patched connector jar. It runs on the manual
+# trigger and on release tags v2.0.0-ahlsell.*. The patched jar is a release asset on Aangbaeck/debezium
+# (DBZ_PATCHED_* below, published with tests/docker/connect/release-jar.sh); while the asset is missing
+# that variant is skipped with a notice. Known issues per Debezium version are `known_issue` keys
+# "check@<version>" in the scenario.toml files and do not fail the job.
+#
+# The `jobs` input picks the jobs of a manual run (all, test, connect, unit-sanitizers).
 #
 # `images` is a space-separated list. Entries:
 #   checkout                 build the checked-out ref with tests/docker/olr/Dockerfile (default)
@@ -25,6 +35,12 @@ run-name: ${{ github.event_name == 'push' && format('OLR unit sanitizers on {0}'
 on:
   workflow_dispatch:
     inputs:
+      jobs:
+        description: 'Jobs to run'
+        required: false
+        default: 'all'
+        type: choice
+        options: [all, test, connect, unit-sanitizers]
       images:
         description: 'Space-separated: checkout, build:<repo>@<ref> or a public image ref'
         required: false
@@ -40,9 +56,27 @@ on:
         required: false
         default: 'debezium,json'
         type: string
+      connect_scenarios:
+        description: 'Connect job: scenario ids; empty = the curated set (CONNECT_SCENARIOS)'
+        required: false
+        default: ''
+        type: string
+      patched_jar_url:
+        description: 'Connect job: patched connector jar URL (public); empty = DBZ_PATCHED_URL'
+        required: false
+        default: ''
+        type: string
+      patched_jar_sha256:
+        description: 'Connect job: sha256 of patched_jar_url'
+        required: false
+        default: ''
+        type: string
   push:
     branches:
       - ahlsell
+    # release tags run the connect job only; path filters do not apply to tag pushes
+    tags:
+      - 'v2.0.0-ahlsell.*'
     paths:
       - 'src/**'
       - 'tests/docker/**'
@@ -54,10 +88,20 @@ env:
   IMAGES: ${{ inputs.images || 'checkout' }}
   SCENARIOS: ${{ inputs.scenarios }}
   PROFILES: ${{ inputs.profiles || 'debezium,json' }}
+  # connect job: one profile, upstream Debezium and our patched connector (tests/docker/connect/overlay/<version>/)
+  CONNECT_PROFILE: debezium-ddl
+  DBZ_UPSTREAM: 3.7.0.Final
+  DBZ_PATCHED: 3.7.0.Final-ahlsell.8
+  DBZ_PATCHED_URL: https://github.com/Aangbaeck/debezium/releases/download/v3.7.0.Final-ahlsell.8/debezium-connector-oracle-3.7.0.Final.jar
+  DBZ_PATCHED_SHA256: da19674461410e83d6139fa00b45f79f0e2554ff1ed54b21f9919f4e8f7b6758
+  CONNECT_SCENARIOS: >-
+    connect/smoke connect/olr-restart connect/quiet-checkpoint-stall connect/olr-server-keepalive
+    connect/worker-kill-mid-txn connect/confirm-quiet-restart connect/confirm-interleaved-worker-kill
+    connect/confirm-row-rejected connect/olr-vanish connect/olr-vanished-client-info
 
 jobs:
   test:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && (inputs.jobs == 'all' || inputs.jobs == 'test')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     defaults:
@@ -145,6 +189,9 @@ jobs:
         run: exit 1
 
   unit-sanitizers:
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/'))
+      || (github.event_name == 'workflow_dispatch' && (inputs.jobs == 'all' || inputs.jobs == 'unit-sanitizers'))
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -153,3 +200,137 @@ jobs:
 
       - name: Build with ASan + UBSan and run ctest
         run: make -C tests unit-asan
+
+  connect:
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.0.0-ahlsell.'))
+      || (github.event_name == 'workflow_dispatch' && (inputs.jobs == 'all' || inputs.jobs == 'connect'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: tests
+    env:
+      SCENARIO_LIST: ${{ inputs.connect_scenarios }}
+      JAR_URL: ${{ inputs.patched_jar_url }}
+      JAR_SHA256: ${{ inputs.patched_jar_sha256 }}
+    steps:
+      - name: Free disk space
+        working-directory: /
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Install harness
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -q -r requirements.txt
+
+      - name: Fetch the patched connector jar
+        id: jar
+        run: |
+          set -euo pipefail
+          if [ -z "$JAR_URL" ]; then JAR_URL=$DBZ_PATCHED_URL JAR_SHA256=$DBZ_PATCHED_SHA256; fi
+          [ -n "$JAR_SHA256" ] || { echo "::error::patched_jar_sha256 is required with patched_jar_url"; exit 1; }
+          echo "url=$JAR_URL" >> "$GITHUB_OUTPUT"
+          dir="docker/connect/overlay/$DBZ_PATCHED"
+          mkdir -p "$dir"
+          jar="$dir/debezium-connector-oracle-${DBZ_UPSTREAM}.jar"
+          code=$(curl -sSL -o "$jar" -w '%{http_code}' "$JAR_URL" || true)
+          if [ "$code" = 404 ]; then
+            rm -rf "$dir"
+            echo "::notice title=Patched Debezium skipped::$JAR_URL is not published (404); only Debezium $DBZ_UPSTREAM runs. See tests/docker/connect/release-jar.sh."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$code" = 200 ] || { echo "::error::$JAR_URL: HTTP $code"; exit 1; }
+          echo "$JAR_SHA256  $jar" | sha256sum -c -
+          echo "available=true" >> "$GITHUB_OUTPUT"
+
+      - name: Start Oracle Free (pulls ~3 GB, first start ~3 min)
+        run: .venv/bin/python -m olrt db-up
+
+      - name: Build the OLR image
+        id: image
+        run: |
+          set -euo pipefail
+          tag="olrt/olr:local-${GITHUB_SHA::8}"
+          docker buildx build --load -f docker/olr/Dockerfile -t "$tag" ..
+          docker buildx prune -af >/dev/null || true
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          df -h /
+
+      - name: Check NET_ADMIN in a container network namespace
+        run: |
+          set -euo pipefail
+          docker build -q -t olrt/netadmin:local docker/netadmin
+          docker run --rm --cap-add NET_ADMIN olrt/netadmin:local sh -c \
+            'iptables -A INPUT -p tcp --sport 5000 -j DROP && iptables -S INPUT && ss -tn'
+
+      - name: Debezium ${{ env.DBZ_UPSTREAM }}
+        id: upstream
+        continue-on-error: true
+        run: |
+          .venv/bin/python -m olrt connect --run ci-upstream --image "${{ steps.image.outputs.tag }}" \
+            --profile "$CONNECT_PROFILE" --dbz "$DBZ_UPSTREAM" ${SCENARIO_LIST:-$CONNECT_SCENARIOS}
+
+      - name: Prune between variants
+        if: steps.jar.outputs.available == 'true'
+        run: |
+          .venv/bin/python -m olrt connect-down
+          docker rmi "olrt/connect:$DBZ_UPSTREAM" || true
+          docker builder prune -af >/dev/null || true
+          df -h /
+
+      - name: Debezium ${{ env.DBZ_PATCHED }}
+        id: patched
+        if: steps.jar.outputs.available == 'true'
+        continue-on-error: true
+        run: |
+          .venv/bin/python -m olrt connect --run ci-patched --image "${{ steps.image.outputs.tag }}" \
+            --profile "$CONNECT_PROFILE" --dbz "$DBZ_PATCHED" ${SCENARIO_LIST:-$CONNECT_SCENARIOS}
+
+      - name: Summary
+        if: always()
+        run: |
+          df -h /
+          for r in ci-upstream ci-patched; do
+            if [ -f "results/$r/connect-summary.md" ]; then
+              { echo "## $r"; cat "results/$r/connect-summary.md"; echo; } >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+          if [ "${{ steps.jar.outputs.available }}" != true ]; then
+            echo "Debezium $DBZ_PATCHED skipped: ${{ steps.jar.outputs.url }} is not published." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: olr-connect-results
+          path: |
+            tests/results/ci-*/connect-summary.md
+            tests/results/ci-*/connect.json
+            tests/results/ci-*/connect-junit.xml
+            tests/results/ci-*/connect/**/*.log
+            tests/results/ci-*/connect/**/*.json
+            tests/results/ci-*/connect/**/*.jsonl
+            tests/results/ci-*/connect/**/error.txt
+          retention-days: 30
+
+      - name: Fail on unexpected failures
+        if: steps.upstream.outcome == 'failure' || steps.patched.outcome == 'failure'
+        run: exit 1

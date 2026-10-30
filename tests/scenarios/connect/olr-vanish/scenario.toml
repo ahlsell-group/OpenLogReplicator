@@ -1,0 +1,17 @@
+description = "OLR replaced while its connection goes silent (no FIN/RST reaches Debezium, as after a pod deletion in Kubernetes); the client must detect the dead connection and reconnect by itself"
+tags = ["connect", "restart", "keepalive"]
+tables = ["OLRT_CKA.T"]
+allowed_warnings = ["^10061 network error"]
+
+# Debezium without TCP keepalive on the OLR connection waits forever: the task stays RUNNING and nothing after
+# the vanish arrives (dev 2026-10-29).
+[known_issue]
+"delivery@3.6.1.Final" = "no keepalive: the client waits forever on the dead connection"
+"diff@3.6.1.Final" = "no keepalive: the client waits forever on the dead connection"
+"replay@3.6.1.Final" = "no keepalive: the client waits forever on the dead connection"
+"delivery@3.7.0.Final" = "no keepalive: the client waits forever on the dead connection"
+"diff@3.7.0.Final" = "no keepalive: the client waits forever on the dead connection"
+"replay@3.7.0.Final" = "no keepalive: the client waits forever on the dead connection"
+"delivery@3.7.0.Final-ahlsell.6" = "no keepalive: the client waits forever on the dead connection"
+"diff@3.7.0.Final-ahlsell.6" = "no keepalive: the client waits forever on the dead connection"
+"replay@3.7.0.Final-ahlsell.6" = "no keepalive: the client waits forever on the dead connection"
