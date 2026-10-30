@@ -99,7 +99,7 @@ Python client (`olrt/netclient.py`) that speaks OLR's protobuf protocol the way 
 `OlrNetworkClient` (3.6.x) does: INFO, START with the stored offset or CONTINUE with `c_scn`/`c_idx`,
 CONFIRM only when `c_scn` grows, and messages below the START SCN skipped. Steps interleave SQL,
 reads, offset commits, disconnects and OLR restarts (`olrt/olr_net.py` documents the step format).
-These scenarios are recorded live per image and checked the same way. Images without protobuf
+These scenarios are recorded live per image and checked the same way (`logminer_dict = "redo"` included). Images without protobuf
 show them as skipped.
 
 ### Profiles
@@ -145,7 +145,7 @@ Groups:
   transaction, SELECT FOR UPDATE, triggers, XA, tables without PK, cold starts with an open
   transaction.
 - `ddl/`: ADD/DROP/MODIFY/RENAME COLUMN, extended statistics, MOVE, TRUNCATE, CREATE TABLE inside
-  the range, supplemental logging changes.
+  the range, supplemental logging changes, `DBMS_REDEFINITION` (`redefinition-*`).
 - `storage/`: chained and multi-piece rows, compression, direct-path loads, partitions, virtual and
   invisible columns.
 - `meta/`: commit timestamps and `host-timezone`, xid format, SIGTERM, archived-log-only mode,
@@ -217,6 +217,8 @@ carries every fix listed; the scenarios list it in `fixed_in`.
 | Debezium 3.7.0 keeps its last transaction unconfirmed until a later captured change | `connect/confirm-*` (and `-off` variants) | opt-in in Debezium 3.7.0.Final-ahlsell.8: `openlogreplicator.confirm.completed.transactions` (fork OLR only) |
 | A transaction larger than the network writer's `queue-size` deadlocks with a client that confirms only when `c_scn` grows | `adv/net-small-queue` | open; the fork logs WARN 60040; keep `queue-size` above the largest transaction |
 | CONTINUE before the client's confirmed position | `connect/restart-task-mid-txn`, `connect/worker-kill-mid-txn` | the fork logs WARN 60039 |
+| `DBMS_REDEFINITION` with a layout change: `FINISH_REDEF_TABLE` swaps the objects without DDL naming the table, so Debezium's OLR adapter keeps the old table model (flags 0 and 32): a value needing the wider NUMBER scale arrives as null ("Failed to properly convert data value"), a new column never reaches the topic schema. OLR itself decodes the swap correctly (`ddl/redefinition-*` pass) | `connect/redefinition`, `connect/redefinition-widen-min` | open (Debezium 3.7.0 and 3.7.0.Final-ahlsell.8) |
+| `DBMS_REDEFINITION` on Debezium's LogMiner adapter (hybrid): the interim-table refresh in SYNC/FINISH is published as an extra DELETE/INSERT transaction on the table (stale before images); a DELETE from the dropped `MLOG$_T` fails the task ("Failed to resolve a table for object id"); after a layout change the first UPDATE fails it ("unable to re-construct the SQL") | `connect/redefinition-logminer`, `connect/redefinition-logminer-min`, `connect/redefinition-logminer-widen-min` | open (Debezium 3.7.0 and 3.7.0.Final-ahlsell.8) |
 | TRUNCATE is invisible with flags 0; with flags 32 `ALTER TABLE ... MOVE` also emits two DDL messages with binary garbage | `ddl/truncate-then-dml`, `ddl/move-mid-stream` | by design / open |
 | OLR 1.9.0 drops DML on the wide tables without a warning | `wide/*` | not fixed (1.9) |
 
@@ -224,7 +226,10 @@ Confirmed working on 2.0.0 and the fork: NUMBER(15,3) incl. 0.000/negatives/38 d
 TIMESTAMP(0-9) incl. pre-1970 and 9999, CHAR padding, '' vs NULL, UTF-8 text, savepoint rollback
 (also on a 313-column row), interleaved transactions, a 60 000-row transaction, a transaction over
 four log switches, MERGE/INSERT ALL/multi-row DML, PK updates, tables without PK, ADD COLUMN,
-extended stats, MOVE, SET UNUSED, identity/DEFAULT ON NULL and CREATE TABLE inside the range.
+extended stats, MOVE, SET UNUSED, identity/DEFAULT ON NULL, CREATE TABLE inside the range and
+`DBMS_REDEFINITION` (storage only, reordered/widened/added columns, NUMBER -> VARCHAR2 via the column mapping;
+DML during the copy, between SYNC and FINISH and after the swap; OLR restarted across the swap; the interim copy
+not attributed to the table).
 
 ## Connect mode (real Debezium)
 

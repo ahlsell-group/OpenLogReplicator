@@ -1,0 +1,9 @@
+description = "Minimal: DBMS_REDEFINITION widens NUMBER(15,3) to NUMBER(18,4) and adds a column; Debezium's OLR adapter keeps the old table model"
+tags = ["connect", "ddl", "redefinition"]
+tables = ["OLRT_CR3.T"]
+logminer_dict = "redo"
+
+[known_issue]
+delivery = "Debezium's OLR adapter keeps NUMBER(15,3) and no EXTRA after FINISH_REDEF_TABLE (no DDL for T, flags 0 or 32): QTY 1.2345 arrives as null, EXTRA missing"
+diff = "as delivery"
+replay = "as delivery"

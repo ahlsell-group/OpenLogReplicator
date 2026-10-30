@@ -1,0 +1,9 @@
+description = "Two DBMS_REDEFINITIONs of a captured table while Debezium (OLR adapter) streams: storage only, then a layout change; delivery, values and topic schema"
+tags = ["connect", "ddl", "redefinition"]
+tables = ["OLRT_CR1.T"]
+logminer_dict = "redo"
+
+[known_issue]
+delivery = "Debezium's OLR adapter keeps the pre-redefinition table model: FINISH_REDEF_TABLE swaps the objects without DDL naming T, so even with flags 32 no DDL reaches it; QTY values needing scale 4 arrive as null ('Failed to properly convert data value'), EXTRA is never in the topic schema (see redefinition-widen-min)"
+diff = "as delivery: QTY null for scale-4 values and EXTRA missing on rows written after the layout redefinition"
+replay = "as delivery"

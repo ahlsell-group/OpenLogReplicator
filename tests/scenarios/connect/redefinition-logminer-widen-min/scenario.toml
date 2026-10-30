@@ -1,0 +1,10 @@
+description = "Minimal: DBMS_REDEFINITION widens NUMBER(15,3) to NUMBER(18,4) and adds a column, on Debezium's LogMiner adapter (hybrid)"
+tags = ["connect", "ddl", "redefinition", "logminer"]
+tables = ["OLRT_CR5.T"]
+logminer_dict = "redo"
+
+[known_issue]
+run = "the task fails on the first UPDATE of T after FINISH_REDEF_TABLE changed its layout: 'Oracle LogMiner is unable to re-construct the SQL for UPDATE event'"
+delivery = "the transaction after the swap is not delivered (task FAILED)"
+diff = "as delivery"
+replay = "as delivery"

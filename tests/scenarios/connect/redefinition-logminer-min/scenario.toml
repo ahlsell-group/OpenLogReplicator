@@ -1,0 +1,8 @@
+description = "Minimal: storage-only DBMS_REDEFINITION with one UPDATE between START and FINISH, on Debezium's LogMiner adapter (hybrid)"
+tags = ["connect", "ddl", "redefinition", "logminer"]
+tables = ["OLRT_CR4.T"]
+logminer_dict = "redo"
+
+[known_issue]
+diff = "the refresh of the interim table in FINISH_REDEF_TABLE (DELETE + INSERT of row 1 on T_INT, the object that becomes T) arrives as an extra transaction on T, the DELETE with the stale before image QTY = 1"
+replay = "as diff"
