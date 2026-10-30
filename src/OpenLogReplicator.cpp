@@ -1128,7 +1128,7 @@ namespace OpenLogReplicator {
                                                  ", expected: one of {1 .. 1000000}");
             }
 
-            [[maybe_unused]] uint64_t continueGap = 0;
+            [[maybe_unused]] uint64_t continueGap = 1;
             if (writerJson.HasMember("continue-gap")) {
                 continueGap = Ctx::getJsonFieldU64(configFileName, writerJson, "continue-gap");
                 if (continueGap > 1)
