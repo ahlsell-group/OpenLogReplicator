@@ -1,0 +1,12 @@
+description = "DBMS_REDEFINITION (QTY NUMBER(15,3) -> NUMBER(18,4), EXTRA new), rows, then DROP TABLE, all while OLR is down; Debezium (OLR adapter) reaches the post-swap rows after the table is gone"
+tags = ["connect", "ddl", "redefinition"]
+tables = ["OLRT_CR7.T"]
+logminer_dict = "redo"
+allowed_warnings = ["^10061 network error"]
+
+[known_issue]
+replay = "by design: the table is dropped at the end, so the database has no rows to replay against"
+"delivery@3.7.0.Final-ahlsell.9" = "keeps the pre-redefinition model: QTY values needing scale 4 arrive as null, EXTRA is never in the topic schema"
+"diff@3.7.0.Final-ahlsell.9" = "as delivery"
+"delivery@3.7.0.Final-ahlsell.10" = "reference limitation: LogMiner has no EXTRA for rows of the dropped table; Debezium emits the EXTRA values the rows were written with ('set', 'new')"
+"diff@3.7.0.Final-ahlsell.10" = "as delivery"
