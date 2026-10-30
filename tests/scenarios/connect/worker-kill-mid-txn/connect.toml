@@ -2,6 +2,8 @@
 snapshot_mode = "no_data"
 [olr]
 queue_size = 65536
+# warn and continue (continue-gap 0): the loss_warn check pairs lost rows with warning 60039
+continue_gap = 0
 [[step]]
 connector = "create"
 [[step]]
