@@ -8,6 +8,10 @@ snapshot_mode = "no_data"
 heartbeat_ms = 60000
 [olr]
 state_interval_s = 10
+# no DDL messages: with SHOW_DDL (flags 32) OLR sends every DDL in the database, also Oracle's own (AWR purge alters
+# SYS.WRM$_DEEP_PURGE_INTERVAL); one sent to the dead connection stays unacknowledged, and Linux then retransmits instead
+# of sending keepalive probes. That case is olr-server-keepalive-unacked.
+flags = 0
 
 [[step]]
 connector = "create"
@@ -34,6 +38,8 @@ netns = "ss -tno '( dport = :5000 )'"
 wait = "idle"
 idle = 150
 timeout = 180
+[[step]]
+netns_olr = "ss -tnoi '( sport = :5000 )'"
 [[step]]
 expect_olr_log = "WARN  10061 network error, errno: 110, message: Connection timed out"
 [[step]]
