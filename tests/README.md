@@ -271,14 +271,23 @@ banner starts "Oracle Database" (23ai, `OLRT_ORACLE_IMAGE=gvenzl/oracle-free:23.
 
 ## CI
 
-`.github/workflows/olr-tests.yml` (repository root) runs on `workflow_dispatch` only, on
-`ubuntu-24.04`. Inputs: `images` (space-separated; `checkout` builds the checked-out ref,
+`.github/workflows/olr-tests.yml` (repository root) runs on `ubuntu-24.04`. Job `test` runs on
+`workflow_dispatch` only. Inputs: `jobs` (`all`, `test`, `connect`, `unit-sanitizers`), `images` (space-separated; `checkout` builds the checked-out ref,
 `build:<repo>@<ref>` builds a GitHub repository at a tag, branch or commit, anything else is pulled
 as a public image; default `checkout`), `scenarios` (ids, groups or tags; empty = all) and `profiles`
 (default `debezium,json`). Summary, JUnit and OLR logs are uploaded as the `olr-results` artifact. The
-job fails on any unexpected failure; known issues (`xfail`) do not fail it. Connect mode is not run in
-CI. Disk on the hosted runner is tight: the workflow removes preinstalled toolchains and prunes the
+job fails on any unexpected failure; known issues (`xfail`) do not fail it. Disk on the hosted runner is tight: the workflow removes preinstalled toolchains and prunes the
 build cache after each image; split large runs with `scenarios`.
+
+Job `connect` runs ten Connect scenarios (`CONNECT_SCENARIOS` in the workflow, or the `connect_scenarios`
+input) with profile `debezium-ddl` against an OLR image built from the checkout, first with upstream
+Debezium `3.7.0.Final`, then with our patched connector (`3.7.0.Final-ahlsell.8`). It runs on
+`workflow_dispatch` and on release tags `v2.0.0-ahlsell.*`, for about an hour. The patched jar is a release
+asset on `Aangbaeck/debezium`, downloaded and checked against its sha256 into
+`docker/connect/overlay/<version>/`; while it is not published that variant is skipped with a notice.
+Publish a new jar with `docker/connect/release-jar.sh <version> <jar> <commit>` (prints the
+`gh release create` command and the values for the workflow; `--yes` runs it). Results go to the
+`olr-connect-results` artifact; known issues per Debezium version (`"check@<version>"`) do not fail it.
 
 ## Limitations
 
