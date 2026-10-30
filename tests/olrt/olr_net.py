@@ -152,7 +152,7 @@ def make_config(scenario, profile, olr_opts, version=(2, 0)):
     cfg["target"][0]["writer"] = {"type": "network", "uri": "0.0.0.0:5000",
                                   "poll-interval-us": 1000,
                                   "queue-size": int(olr_opts.get("queue_size", 65536))}
-    # continue-gap (fork option): 1 = refuse a CONTINUE before the confirmed position whose messages were released
+    # continue-gap (fork option): 1 (default) = refuse a CONTINUE before the confirmed position whose messages were released, 0 = warn and continue
     gap = olr_opts.get("continue_gap", os.environ.get("OLRT_OLR_CONTINUE_GAP", ""))
     if gap != "":
         cfg["target"][0]["writer"]["continue-gap"] = int(gap)
