@@ -1,0 +1,60 @@
+# olr-server-keepalive with one more step: after the silence a DDL on a table that is not captured. With SHOW_DDL
+# (flags 32) OLR sends it to the dead connection, where it stays unacknowledged. Linux sends no keepalive probes while
+# data is unacknowledged, so the connection fails only by the retransmission timeout (tcp_retries2 = 15, about 15 min).
+# Oracle's own DDL (the AWR purge alters SYS.WRM$_DEEP_PURGE_INTERVAL) does the same at random. The expectation is the
+# keepalive one: OLR drops the dead connection about 2 minutes after the silence and serves the restarted task.
+[connector]
+snapshot_mode = "no_data"
+heartbeat_ms = 60000
+[olr]
+state_interval_s = 10
+flags = 32
+
+[[step]]
+connector = "create"
+[[step]]
+sql = "INSERT INTO olrt_cku.t VALUES (10, 10, 'before')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 4
+[[step]]
+sleep = 5
+[[step]]
+olr = "silence"
+[[step]]
+connector = "restart_task"
+settle = 5
+[[step]]
+# not captured: only the DDL message reaches the writer
+sql = "CREATE TABLE olrt_cku.other (x NUMBER)"
+[[step]]
+sleep = 3
+[[step]]
+netns_olr = "ss -tnoi '( sport = :5000 )'"
+[[step]]
+wait = "idle"
+idle = 150
+timeout = 180
+[[step]]
+netns_olr = "ss -tnoi '( sport = :5000 )'"
+[[step]]
+expect_olr_log = "WARN  10061 network error, errno: 110, message: Connection timed out"
+[[step]]
+sql = "INSERT INTO olrt_cku.t VALUES (11, 11, 'after the wait')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "rows"
+min_records = 1
+timeout = 120
+[[step]]
+olr = "unsilence"
+[[step]]
+sql = "INSERT INTO olrt_cku.t VALUES (12, 12, 'after unsilence')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+wait = "idle"
+idle = 8

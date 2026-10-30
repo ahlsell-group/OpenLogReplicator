@@ -17,6 +17,7 @@ A scenario opts in with connect.toml next to scenario.toml:
   [olr]
   state_interval_s = 600
   autostart = true                  # false: OLR is not started until an `olr = "start"` step
+  flags = 0                         # optional: OLR source flags instead of the profile's (0 = no DDL messages)
 
 
   [[step]]
@@ -64,6 +65,8 @@ A scenario opts in with connect.toml next to scenario.toml:
   [[step]]
   netns = "ss -tno state established"   # command in the Connect container's network namespace, output to events
   [[step]]
+  netns_olr = "ss -tnoi '( sport = :5000 )'"   # the same in OLR's network namespace (Send-Q, timers)
+  [[step]]
   expect_log_absent = "Producer failure"   # regex; a match in the Connect log since the run started fails "run"
   [[step]]
   expect_olr_log = "client requested scn: \\d+, idx: [1-9]"   # regex; no match in OLR's log so far fails "run"
@@ -74,7 +77,9 @@ A scenario opts in with connect.toml next to scenario.toml:
   [[step]]
   olr = "silence"        # the client vanishes without a FIN or RST reaching OLR: packets of the established
                          # connection(s) are dropped in both directions in the Connect container, OLR keeps running
-                         # and keeps the socket; new connections are not affected
+                         # and keeps the socket; new connections are not affected. First waits up to 10 s until OLR
+                         # has nothing unacknowledged on the connection(s) (Send-Q 0), else "run" fails as
+                         # inconclusive: Linux sends no keepalive probes while data is unacknowledged.
   [[step]]
   olr = "unsilence"      # removes the DROP rules of "vanish" and "silence"
 
@@ -203,13 +208,26 @@ def debug_env():
 NETADMIN_IMAGE = "olrt/netadmin:local"
 
 
-def netns(cmd):
-    """Run a shell command in the Connect container's network namespace, in a helper container with
-    iproute2 and iptables (docker/netadmin, built on first use)."""
+def netns(cmd, container=None):
+    """Run a shell command in the network namespace of the Connect container (or `container`), in a helper
+    container with iproute2 and iptables (docker/netadmin, built on first use)."""
     if _docker("image", "inspect", NETADMIN_IMAGE, check=False).returncode != 0:
         subprocess.run(["docker", "build", "-t", NETADMIN_IMAGE, str(S.ROOT / "docker" / "netadmin")], check=True)
-    return _docker("run", "--rm", "--network", f"container:{S.CONNECT_CONTAINER}", "--cap-add", "NET_ADMIN",
+    return _docker("run", "--rm", "--network", f"container:{container or S.CONNECT_CONTAINER}", "--cap-add", "NET_ADMIN",
                    NETADMIN_IMAGE, "sh", "-c", cmd, check=False)
+
+
+def olr_unacked(olr_container, ports, timeout=10):
+    """Wait until OLR's side of the connections from `ports` has nothing unacknowledged (Send-Q 0). Returns
+    (ok, ss -tnoi output)."""
+    flt = " or ".join(f"dport = :{p}" for p in ports)
+    deadline = time.time() + timeout
+    while True:
+        out = netns(f"ss -tnoiH '( sport = :5000 ) and ( {flt} )'", olr_container).stdout
+        sendq = [int(line.split()[2]) for line in out.splitlines() if line[:1].isalpha()]
+        if all(q == 0 for q in sendq) or time.time() > deadline:
+            return all(q == 0 for q in sendq), out.strip()
+        time.sleep(0.5)
 
 
 def olr_connections(olr_container):
@@ -750,6 +768,10 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
             elif "netns" in step:
                 r = netns(step["netns"])
                 events.append(f"step {i}: netns {step['netns']}: exit {r.returncode}\n{(r.stdout + r.stderr).strip()[:2000]}")
+            elif "netns_olr" in step:
+                r = netns(step["netns_olr"], cont.name)
+                events.append(f"step {i}: netns_olr {step['netns_olr']}: exit {r.returncode}\n"
+                              f"{(r.stdout + r.stderr).strip()[:2000]}")
             elif "expect_log_absent" in step:
                 found = re.findall(f".*(?:{step['expect_log_absent']}).*", connect_logs(since))
                 events.append(f"step {i}: expect log absent /{step['expect_log_absent']}/ -> {len(found)} match(es)")
@@ -771,6 +793,12 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 ip, ports = olr_connections(cont.name)
                 if not ports:
                     raise RuntimeError(f"step {i}: olr silence: no established connection to {ip}:5000")
+                idle, olr_ss = olr_unacked(cont.name, ports)
+                events.append(f"step {i}: OLR side before the silence:\n{olr_ss[:2000]}")
+                if not idle:
+                    run_info["expect_failures"].append(
+                        f"step {i}: OLR still had unacknowledged data on the connection after 10 s, silenced anyway: "
+                        f"keepalive does not run until the retransmission timeout (inconclusive)")
                 for port in ports:
                     for rule in (f"INPUT -p tcp -s {ip} --sport 5000 --dport {port} -j DROP",
                                  f"OUTPUT -p tcp -d {ip} --dport 5000 --sport {port} -j DROP"):
@@ -781,6 +809,8 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 run_info.setdefault("silence", []).append({"step": i, "t": time.time(), "olr_ip": ip, "ports": ports})
                 events.append(f"step {i}: connection(s) from port(s) {ports} to {ip}:5000 silenced in both directions")
             elif step.get("olr") == "unsilence":
+                r = netns("iptables -L -nvx | grep -E '^Chain|DROP'")
+                events.append(f"step {i}: DROP rule counters before removal:\n{r.stdout.strip()[:2000]}")
                 for rule in blackholes:
                     r = netns(f"iptables -D {rule}")
                     if r.returncode != 0:

@@ -16,6 +16,7 @@ client.toml:
   stop_signal = "INT"             # signal for the final stop ("TERM" = docker stop / pod stop)
   queue_size = 65536              # network writer queue-size
   trace = 0                       # OLR "trace" bit mask (e.g. 16384 = CHECKPOINT)
+  flags = 0                       # optional: source flags instead of the profile's (e.g. 0 = no DDL messages)
 
   [[step]]
   client = "connect"              # Debezium connect: INFO, then START(offset scn) if READY or
@@ -54,7 +55,8 @@ client.toml:
   olr = "silence"                 # the client vanishes without a FIN or RST reaching OLR: packets of OLR's established
                                   # client connection(s) are dropped in both directions in OLR's network namespace
                                   # (iptables, docker/netadmin); new connections are not affected. The rules go with
-                                  # the container.
+                                  # the container. First waits up to 10 s for Send-Q 0 on OLR's side, else "run" fails
+                                  # as inconclusive (no keepalive probes while data is unacknowledged).
   [[step]]
   expect_olr_log = "regex"        # no match in OLR's log so far fails "run"
   [[step]]
@@ -148,6 +150,8 @@ def make_config(scenario, profile, olr_opts, version=(2, 0)):
         state["keep-checkpoints"] = int(olr_opts["keep_checkpoints"])
     if "trace" in olr_opts:
         cfg["trace"] = int(olr_opts["trace"])
+    if "flags" in olr_opts:
+        src["flags"] = int(olr_opts["flags"])
     cfg["target"][0]["alias"] = "NET"
     cfg["target"][0]["writer"] = {"type": "network", "uri": "0.0.0.0:5000",
                                   "poll-interval-us": 1000,
@@ -458,11 +462,22 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                 events.append(f"step {i}: log switch x{step.get('count', 1)}{' (hard)' if step.get('hard') else ''},"
                               f" current seq {db.current_seq(rconn)}")
             elif step.get("olr") == "silence":
-                r = netns(cont.name, "ss -tnH state established '( sport = :5000 )'")
-                # columns with a state filter: Recv-Q Send-Q Local:Port Peer:Port
-                peers = sorted({line.split()[3] for line in r.stdout.splitlines() if line.strip()})
+                # Linux sends no keepalive probes while data is unacknowledged: wait up to 10 s for Send-Q 0
+                deadline = time.time() + 10
+                while True:
+                    r = netns(cont.name, "ss -tnH state established '( sport = :5000 )'")
+                    # columns with a state filter: Recv-Q Send-Q Local:Port Peer:Port
+                    rows = [line.split() for line in r.stdout.splitlines() if line.strip()]
+                    if all(int(c[1]) == 0 for c in rows) or time.time() > deadline:
+                        break
+                    time.sleep(0.5)
+                peers = sorted({c[3] for c in rows})
                 if not peers:
                     raise RuntimeError(f"client.toml step {i}: olr silence: no established client connection: {r.stderr.strip()}")
+                if any(int(c[1]) != 0 for c in rows):
+                    run_info["assert_failures"].append(
+                        f"step {i}: OLR still had unacknowledged data on the connection after 10 s, silenced anyway: "
+                        f"keepalive does not run until the retransmission timeout (inconclusive)")
                 for peer in peers:
                     ip, pport = peer.rsplit(":", 1)
                     for rule in (f"INPUT -p tcp -s {ip} --sport {pport} --dport 5000 -j DROP",

@@ -4,6 +4,9 @@
 # does about 120 s after the last traffic. Without keepalive it never does while the database is quiet.
 [olr]
 state_interval_s = 10
+# no DDL messages: with SHOW_DDL (json profile) any DDL in the database, also Oracle's own, would be sent to the dead
+# connection and stay unacknowledged; Linux then retransmits instead of sending keepalive probes
+flags = 0
 
 [[step]]
 client = "connect"

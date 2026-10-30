@@ -1,0 +1,13 @@
+description = "The client vanishes without a FIN or RST reaching OLR, then OLR sends a DDL message of another table to it; the unacknowledged data stops keepalive and OLR keeps the dead socket until the retransmission timeout"
+tags = ["connect", "restart", "keepalive"]
+tables = ["OLRT_CKU.T"]
+allowed_warnings = ['^10061 network error, errno: 110, message: Connection timed out',
+                    '^10061 network error, errno: 32, message: Broken pipe',
+                    '^10061 network error, errno: 104, message: Connection reset by peer']
+
+# No image fixes it yet: OLR sets SO_KEEPALIVE but not TCP_USER_TIMEOUT on the client socket
+[known_issue]
+run = "unacknowledged data on the dead connection: Linux retransmits instead of sending keepalive probes, OLR keeps the socket for the retransmission timeout (about 15 min); needs TCP_USER_TIMEOUT"
+delivery = "unacknowledged data on the dead connection: the restarted task is not served until the retransmission timeout (about 15 min)"
+diff = "unacknowledged data on the dead connection: the restarted task is not served until the retransmission timeout (about 15 min)"
+replay = "unacknowledged data on the dead connection: the restarted task is not served until the retransmission timeout (about 15 min)"
