@@ -4,6 +4,12 @@ tables = ["OLRT_CR1.T"]
 logminer_dict = "redo"
 
 [known_issue]
-delivery = "Debezium's OLR adapter keeps the pre-redefinition table model: FINISH_REDEF_TABLE swaps the objects without DDL naming T, so even with flags 32 no DDL reaches it; QTY values needing scale 4 arrive as null ('Failed to properly convert data value'), EXTRA is never in the topic schema (see redefinition-widen-min)"
-diff = "as delivery: QTY null for scale-4 values and EXTRA missing on rows written after the layout redefinition"
-replay = "as delivery"
+"delivery@3.7.0.Final" = "Debezium's OLR adapter keeps the pre-redefinition table model: FINISH_REDEF_TABLE swaps the objects without DDL naming T, so even with flags 32 no DDL reaches it; QTY values needing scale 4 arrive as null ('Failed to properly convert data value'), EXTRA is never in the topic schema (see redefinition-widen-min)"
+"delivery@3.7.0.Final-ahlsell.8" = "Debezium's OLR adapter keeps the pre-redefinition table model: FINISH_REDEF_TABLE swaps the objects without DDL naming T, so even with flags 32 no DDL reaches it; QTY values needing scale 4 arrive as null ('Failed to properly convert data value'), EXTRA is never in the topic schema (see redefinition-widen-min)"
+"delivery@3.7.0.Final-ahlsell.9" = "Debezium's OLR adapter keeps the pre-redefinition table model: FINISH_REDEF_TABLE swaps the objects without DDL naming T, so even with flags 32 no DDL reaches it; QTY values needing scale 4 arrive as null ('Failed to properly convert data value'), EXTRA is never in the topic schema (see redefinition-widen-min)"
+"diff@3.7.0.Final" = "as delivery: QTY null for scale-4 values and EXTRA missing on rows written after the layout redefinition"
+"diff@3.7.0.Final-ahlsell.8" = "as delivery: QTY null for scale-4 values and EXTRA missing on rows written after the layout redefinition"
+"diff@3.7.0.Final-ahlsell.9" = "as delivery: QTY null for scale-4 values and EXTRA missing on rows written after the layout redefinition"
+"replay@3.7.0.Final" = "as delivery"
+"replay@3.7.0.Final-ahlsell.8" = "as delivery"
+"replay@3.7.0.Final-ahlsell.9" = "as delivery"
