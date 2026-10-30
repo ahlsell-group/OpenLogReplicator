@@ -4,6 +4,9 @@ tables = ["OLRT_CR9.T"]
 logminer_dict = "redo"
 
 [known_issue]
+"delivery@3.7.0.Final" = "upstream keeps the pre-redefinition table model (no reload): TS stays DATE after the swap and values are truncated"
+"diff@3.7.0.Final" = "as delivery"
+"replay@3.7.0.Final" = "as delivery"
 "delivery@3.7.0.Final-ahlsell.10" = "detects only NUMBER changes and new columns, so it keeps TS as DATE after the swap: the post-swap timestamps arrive in milliseconds (12:34:56.123456 as 12:34:56.123, 01:02:03.000004 as 01:02:03); no reload logged"
 "diff@3.7.0.Final-ahlsell.10" = "as delivery"
 "replay@3.7.0.Final-ahlsell.10" = "as delivery; plus the reference limitation of replay@3.7.0.Final-ahlsell.11"
