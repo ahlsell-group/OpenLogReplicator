@@ -289,7 +289,7 @@ as a public image; default `checkout`), `scenarios` (ids, groups or tags; empty 
 job fails on any unexpected failure; known issues (`xfail`) do not fail it. Disk on the hosted runner is tight: the workflow removes preinstalled toolchains and prunes the
 build cache after each image; split large runs with `scenarios`.
 
-Job `connect` runs ten Connect scenarios (`CONNECT_SCENARIOS` in the workflow, or the `connect_scenarios`
+Job `connect` runs fourteen Connect scenarios (`CONNECT_SCENARIOS` in the workflow, or the `connect_scenarios`
 input) with profile `debezium-ddl` against an OLR image built from the checkout, first with upstream
 Debezium `3.7.0.Final`, then with our patched connector (`3.7.0.Final-ahlsell.8`). It runs on
 `workflow_dispatch` and on release tags `v2.0.0-ahlsell.*`, for about an hour. The patched jar is a release

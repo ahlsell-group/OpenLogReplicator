@@ -98,7 +98,7 @@ env:
     connect/smoke connect/olr-restart connect/quiet-checkpoint-stall connect/olr-server-keepalive
     connect/worker-kill-mid-txn connect/confirm-quiet-restart connect/confirm-interleaved-worker-kill
     connect/confirm-row-rejected connect/olr-vanish connect/olr-vanished-client-info
-    connect/redefinition-widen-min connect/redefinition-type-widen
+    connect/redefinition-widen-min connect/redefinition-type-widen connect/big-txn-queue connect/big-txn-olr-restart
 
 jobs:
   test:
