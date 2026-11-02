@@ -1,0 +1,6 @@
+description = "3 000 small transactions through an OLR queue-size of 2000, then a task restart"
+tags = ["connect", "queue", "mid-tx-confirm"]
+tables = ["OLRT_MT7.T"]
+allowed_warnings = ["^10061 network error"]
+checks = ["run", "diff", "replay", "txmeta"]
+exactly_once = true

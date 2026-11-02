@@ -1,0 +1,3 @@
+OLR's network writer runs with queue-size 2000 and one transaction inserts 20000 rows, ten times the queue. The connector sets `openlogreplicator.confirm.within.transactions`. Debezium 3.7.0.Final and 3.7.0.Final-ahlsell.11 confirm (offset scn, 0) and never release the transaction while it is emitted: the queue fills, OLR logs WARN 60040 and streaming stops with the task RUNNING (known issue). With the option, the flushed offset's (scn, scn_idx) is confirmed as the transaction is delivered.
+
+Checks: every row exactly once (delivery, exactly_once), one BEGIN and one END with event_count 20000 and total_order 1..20000 (txmeta), the row after the transaction arrives.

@@ -1,0 +1,17 @@
+description = "Connect worker SIGKILL in the middle of a 20000-row transaction larger than queue-size"
+tags = ["connect", "queue", "mid-tx-confirm"]
+tables = ["OLRT_MT5.T"]
+allowed_warnings = ["^10061 network error"]
+checks = ["run", "diff", "replay", "txmeta"]
+
+[known_issue]
+"run@3.7.0.Final" = "Debezium 3.7.0.Final confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"delivery@3.7.0.Final" = "Debezium 3.7.0.Final confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"txmeta@3.7.0.Final" = "Debezium 3.7.0.Final confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"diff@3.7.0.Final" = "Debezium 3.7.0.Final confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"replay@3.7.0.Final" = "Debezium 3.7.0.Final confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"run@3.7.0.Final-ahlsell.11" = "Debezium 3.7.0.Final-ahlsell.11 confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"delivery@3.7.0.Final-ahlsell.11" = "Debezium 3.7.0.Final-ahlsell.11 confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"txmeta@3.7.0.Final-ahlsell.11" = "Debezium 3.7.0.Final-ahlsell.11 confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"diff@3.7.0.Final-ahlsell.11" = "Debezium 3.7.0.Final-ahlsell.11 confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
+"replay@3.7.0.Final-ahlsell.11" = "Debezium 3.7.0.Final-ahlsell.11 confirms (offset scn, 0) while a transaction is emitted, so OLR keeps all of its messages; with more than queue-size (2000) the writer queue fills (WARN 60040), the writer stops and the rest of the 20000-row transaction and everything after it never arrive"
