@@ -225,6 +225,20 @@ The client is not confirming: it hangs, has lost the connection without OpenLogR
 Repeated every minute while the state lasts.
 Remediation: Check the client. The metrics `writer_queue_size` and `writer_queue_oldest_age_s` show the state before the queue is full.
 
+==== code 60048: "transaction committed below the stream position, xid: <xid>, commit scn: <scn>, sent at scn: <scn>; transactions like this since the last warning: <number>, total: <number>"
+
+A transaction's commit record came after one with a higher commit SCN, so the transaction is sent at the current position (`c_scn` of the messages), above its commit SCN; positions never move back.
+A restart from that position sends it again: the parser selects transactions by the position they get, not by their commit SCN, and the checkpoint it starts from was taken before the position reached the start SCN.
+At most once a minute; the metric `transactions_commit_scn_below_position` counts every one.
+Remediation: None needed. The count shows how often commit SCNs are out of order across redo write batches in this database.
+
+==== code 60049: "no checkpoint at or below scn: <scn> with a stream position below it could be read, using checkpoint scn: <scn>; a transaction committed below the start position before that checkpoint is not sent again"
+
+On a start or restart OpenLogReplicator reads redo from the newest schema checkpoint whose stream position was below the start SCN, so every message at or after the start position is built again with the same position.
+No such checkpoint could be read (they were deleted, or were written before the stream reached that point), so a checkpoint whose position had reached the start SCN is used.
+A transaction committed below the start position whose commit record lies before that checkpoint is then not sent again.
+Remediation: Keep more checkpoints (state `keep-checkpoints`), or restart from an earlier SCN if such a transaction matters.
+
 ==== code 60047: "TCP keepalive not set for client: <host>:<port>, <option>, errno: <number>, message: <message>; a client that vanishes without closing the connection is not noticed while nothing is sent"
 
 A `network` writer could not enable TCP keepalive on a new client connection; the connection is used without it.
