@@ -193,7 +193,8 @@ int main() {
     // The position can also be moved by a checkpoint. LWN 500 has no transaction that is sent; its checkpoint moves the
     // position to 500. T commits at 490 in a later LWN and is sent at (500, 2..). If the restart from 500 read from the
     // checkpoint at 500 itself, the parser would start after that LWN: the checkpoint is not built again and T is
-    // filtered. Keeping T in that checkpoint's min-tran does not help, T is not open there yet. So the restart reads
+    // filtered. Keeping T in that checkpoint's min-tran does not help when T begins after the checkpoint (if T were
+    // open there, the min-tran would make the restart read the LWN of 500 again). So the restart reads
     // from a checkpoint whose recorded position is below 500 (here 450, position 450), and the LWN of 500 is read again.
     {
         AttributeMap attributes;
