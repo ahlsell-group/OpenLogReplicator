@@ -856,7 +856,7 @@ namespace OpenLogReplicator {
 
         // Inclusive: a client restarting from the position of a transaction gets that transaction again in full and
         // drops what it already has, a transaction committed at the starting SCN is never lost
-        if ((transaction->commitScn >= metadata->firstDataScn && !transaction->system) ||
+        if ((metadata->isDataScn(transaction->commitScn) && !transaction->system) ||
             (transaction->commitScn > metadata->firstSchemaScn && transaction->system)) {
             if (transaction->begin) {
                 transaction->flush(metadata, builder);
@@ -1546,11 +1546,19 @@ namespace OpenLogReplicator {
                     }
                     flushDirectLoadWarnings(false);
 
-                    if (lwnScn > metadata->firstDataScn) {
+                    if (metadata->isDataScn(lwnScn)) {
                         if (unlikely(ctx->isTraceSet(Ctx::TRACE::CHECKPOINT)))
                             ctx->logTrace(Ctx::TRACE::CHECKPOINT, "on: " + lwnScn.toString());
                         builder->processCheckpoint(sequence, lwnScn, lwnTimestamp, FileOffset(currentBlock, reader->getBlockSize()), switchRedo);
+                        if (ctx->metrics != nullptr)
+                            ctx->metrics->emitCheckpointsOut(1);
+                    } else {
+                        if (ctx->metrics != nullptr)
+                            ctx->metrics->emitCheckpointsSkip(1);
+                    }
 
+                    // The schema checkpoint and min-tran pruning only past the starting SCN
+                    if (lwnScn > metadata->firstDataScn) {
                         Seq minSequence = Seq::none();
                         FileOffset minFileOffset;
                         Xid minXid;
@@ -1568,11 +1576,6 @@ namespace OpenLogReplicator {
                                 ctx->stopSoft();
                             }
                         }
-                        if (ctx->metrics != nullptr)
-                            ctx->metrics->emitCheckpointsOut(1);
-                    } else {
-                        if (ctx->metrics != nullptr)
-                            ctx->metrics->emitCheckpointsSkip(1);
                     }
 
                     lwnNumCnt = 0;
@@ -1593,7 +1596,7 @@ namespace OpenLogReplicator {
 
             // Processing finished
             if (!switchRedo && lwnScn > Scn::zero() && confirmedBufferStart == reader->getBufferEnd() && reader->getRet() == Reader::REDO_CODE::FINISHED) {
-                if (lwnScn > metadata->firstDataScn) {
+                if (metadata->isDataScn(lwnScn)) {
                     switchRedo = true;
                     if (unlikely(ctx->isTraceSet(Ctx::TRACE::CHECKPOINT)))
                         ctx->logTrace(Ctx::TRACE::CHECKPOINT, "on: " + lwnScn.toString() + " with switch");

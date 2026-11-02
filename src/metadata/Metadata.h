@@ -183,6 +183,8 @@ namespace OpenLogReplicator {
         void loadAdaptiveSchema();
         void allowCheckpoints();
         bool isNewData(Scn scn, typeIdx idx) const;
+        // A transaction committed or a checkpoint at this SCN is in the stream that starts at firstDataScn
+        bool isDataScn(Scn scn) const;
     };
 }
 

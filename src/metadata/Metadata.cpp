@@ -663,6 +663,12 @@ namespace OpenLogReplicator {
         allowedCheckpoints = true;
     }
 
+    // Inclusive, for transactions and the checkpoints given to the builder alike: positions at firstDataScn are numbered as
+    // in the run that sent them first only if both are
+    bool Metadata::isDataScn(Scn scn) const {
+        return scn >= firstDataScn;
+    }
+
     bool Metadata::isNewData(Scn scn, typeIdx idx) const {
         if (clientScn == Scn::none())
             return true;

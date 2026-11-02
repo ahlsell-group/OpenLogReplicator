@@ -130,6 +130,40 @@ int main() {
         check("T2 positions do not depend on the checkpoint being sent", live.lwnScn == replay.lwnScn && live.lwnIdx == replay.lwnIdx);
     }
 
+    // A checkpoint that moves the position to S, then T5 commits at S. A restart from S (START at T5's commit scn) must
+    // give T5 the same positions: the parser passes the checkpoint at S to the builder like the transactions at S.
+    // Both runs decide with the parser's predicate; the replay starts at firstDataScn = S.
+    for (const bool shown : {true, false}) {
+        const std::string kind = shown ? "visible" : "hidden";
+        if (shown)
+            ctx.flags |= static_cast<uint>(Ctx::REDO_FLAGS::SHOW_CHECKPOINT);
+        else
+            ctx.flags &= ~static_cast<uint>(Ctx::REDO_FLAGS::SHOW_CHECKPOINT);
+
+        metadata.firstDataScn = Scn(400);
+        BuilderJson live(&ctx, &locales, &metadata, format, 0);
+        live.initialize();
+        live.processBegin(Xid(1, 1, 1), 1, Seq(1), Scn(480), Time(0), Seq(1), Scn(490), Time(0), &attributes);
+        live.lwnIdx = 2;
+        if (metadata.isDataScn(Scn(500)))
+            live.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
+        live.processBegin(Xid(5, 5, 5), 1, Seq(1), Scn(495), Time(0), Seq(1), Scn(500), Time(0), &attributes);
+
+        metadata.firstDataScn = Scn(500);
+        BuilderJson replay(&ctx, &locales, &metadata, format, 0);
+        replay.initialize();
+        if (metadata.isDataScn(Scn(490)))
+            replay.processBegin(Xid(1, 1, 1), 1, Seq(1), Scn(480), Time(0), Seq(1), Scn(490), Time(0), &attributes);
+        if (metadata.isDataScn(Scn(500)))
+            replay.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
+        replay.processBegin(Xid(5, 5, 5), 1, Seq(1), Scn(495), Time(0), Seq(1), Scn(500), Time(0), &attributes);
+
+        check(kind + " checkpoint at the start SCN: T5 has the same positions after a restart from it",
+              live.lwnScn == Scn(500) && replay.lwnScn == Scn(500) && live.lwnIdx == replay.lwnIdx);
+    }
+    ctx.flags |= static_cast<uint>(Ctx::REDO_FLAGS::SHOW_CHECKPOINT);
+    metadata.firstDataScn = Scn::none();
+
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;
