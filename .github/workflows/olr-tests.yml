@@ -99,6 +99,7 @@ env:
     connect/worker-kill-mid-txn connect/confirm-quiet-restart connect/confirm-interleaved-worker-kill
     connect/confirm-row-rejected connect/olr-vanish connect/olr-vanished-client-info
     connect/redefinition-widen-min connect/redefinition-type-widen connect/big-txn-queue connect/big-txn-olr-restart
+    connect/big-txn-exact-queue connect/big-txn-olr-restart-fresh
 
 jobs:
   test:
