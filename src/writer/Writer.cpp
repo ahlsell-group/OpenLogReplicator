@@ -198,6 +198,15 @@ namespace OpenLogReplicator {
         }
     }
 
+    // The client has every message up to (scn, idx): release the queued ones, and confirm the ones read later at or below
+    // that position locally instead of sending them again (after a CONTINUE or START before it). CONTINUE resets the position.
+    void Writer::confirmClient(Scn scn, typeIdx idx) {
+        while (currentQueueSize > 0 && (queue[0]->lwnScn < scn || (queue[0]->lwnScn == scn && queue[0]->lwnIdx <= idx)))
+            confirmMessage(queue[0]);
+        if (scn != Scn::none())
+            advance(metadata->clientScn, metadata->clientIdx, scn, idx);
+    }
+
     void Writer::sortQueue() {
         if (currentQueueSize == 0)
             return;
