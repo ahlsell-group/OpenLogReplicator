@@ -34,7 +34,7 @@ class Scenario:
     fixed_in: list[str] = dataclasses.field(default_factory=list)  # image patterns where known_issue is fixed
     guards: str = ""
     checks: list[str] = dataclasses.field(default_factory=lambda: ["run", "diff", "replay"])
-    exactly_once: bool = False   # diff fails on a transaction delivered twice (default: a note)
+    exactly_once: bool = False   # diff (and in connect mode delivery, txmeta) fails on anything delivered twice (default: a note)
     xid_exact: bool = False      # xid format 3 must equal LogMiner's raw XID exactly (check diff)
     commit_time: bool = False    # also compare event timestamps with the DB commit time
     logminer_dict: str = "online"  # "redo": DBMS_LOGMNR_D.BUILD + DDL tracking, for DDL scenarios
