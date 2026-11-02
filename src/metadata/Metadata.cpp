@@ -488,8 +488,13 @@ namespace OpenLogReplicator {
     // given before it, by transactions it does not read again. From an earlier one the parser rebuilds them in the same order.
     bool Metadata::readCheckpointPosition(const std::string& name, Scn& positionScn) const {
         std::string content;
-        if (!stateRead(name, 1024, content))
+        try {
+            if (!state->read(name, 1024, content))
+                return false;
+        } catch (RuntimeException&) {
+            // Empty (a kill during the write) or too large
             return false;
+        }
         rapidjson::Document document;
         if (content.empty() || document.Parse(content.c_str()).HasParseError() || !document.IsObject() ||
             !document.HasMember("position-scn") || !document["position-scn"].IsUint64())
@@ -508,9 +513,15 @@ namespace OpenLogReplicator {
         const std::string positionPrefix(database + "-position-");
         for (const std::string& name: namesList) {
             if (name.length() > positionPrefix.length() && name.substr(0, positionPrefix.length()) == positionPrefix) {
+                const Scn scn(strtoull(name.substr(positionPrefix.length()).c_str(), nullptr, 10));
                 Scn positionScn;
-                if (readCheckpointPosition(name, positionScn))
-                    checkpointPositionMap.insert_or_assign(Scn(strtoull(name.substr(positionPrefix.length()).c_str(), nullptr, 10)), positionScn);
+                if (!readCheckpointPosition(name, positionScn)) {
+                    // Written by this build but not readable: its position is unknown, so the checkpoint is tried last
+                    ctx->warning(60051, "file: " + name + " - checkpoint stream position can't be read, the checkpoint scn: " +
+                                 scn.toString() + " is used only if no other one at or below the start scn can be");
+                    positionScn = Scn::none();
+                }
+                checkpointPositionMap.insert_or_assign(scn, positionScn);
             }
         }
 
@@ -533,6 +544,16 @@ namespace OpenLogReplicator {
 
             checkpointScnList.insert(scn);
             checkpointSchemaMap.insert_or_assign(scn, true);
+        }
+
+        // A position file without its checkpoint: a crash between the two writes, or a deletion by an older build
+        for (auto it = checkpointPositionMap.begin(); it != checkpointPositionMap.end();) {
+            if (checkpointScnList.find(it->first) == checkpointScnList.end()) {
+                if (!stateDrop(positionPrefix + it->first.toString()))
+                    break;
+                it = checkpointPositionMap.erase(it);
+            } else
+                ++it;
         }
 
         if (startScn != Scn::none())

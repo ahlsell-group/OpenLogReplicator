@@ -190,6 +190,43 @@ int main() {
         check("after a minute it is warned with the count", builder.commitsBelowPosition == 3 && builder.commitsBelowPositionUnwarned == 0);
     }
 
+    // The position can also be moved by a checkpoint. LWN 500 has no transaction that is sent; its checkpoint moves the
+    // position to 500. T commits at 490 in a later LWN and is sent at (500, 2..). If the restart from 500 read from the
+    // checkpoint at 500 itself, the parser would start after that LWN: the checkpoint is not built again and T is
+    // filtered. Keeping T in that checkpoint's min-tran does not help, T is not open there yet. So the restart reads
+    // from a checkpoint whose recorded position is below 500 (here 450, position 450), and the LWN of 500 is read again.
+    {
+        AttributeMap attributes;
+        attributes[Attribute::KEY::LOGIN_USER_NAME] = "TEST";
+        metadata.firstDataScn = Scn(400);
+        BuilderJson live(&ctx, &locales, &metadata, format, 0);
+        live.initialize();
+        live.processCheckpoint(Seq(1), Scn(450), Time(0), FileOffset(0), false);
+        live.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
+        const Scn positionAt500 = live.lwnScn;
+        live.processBegin(Xid(7, 1, 1), 1, Seq(1), Scn(480), Time(0), Seq(1), Scn(490), Time(0), &attributes);
+        check("checkpoint-moved position: T is sent at 500 after the checkpoint", positionAt500 == Scn(500) && live.lwnScn == Scn(500) &&
+              live.lwnIdx == 1);
+
+        metadata.firstDataScn = Scn(500);
+        BuilderJson fromCheckpoint500(&ctx, &locales, &metadata, format, 0);
+        fromCheckpoint500.initialize();
+        check("restart read from the checkpoint at 500: T would be filtered", !fromCheckpoint500.isDataCommit(Scn(490)));
+
+        BuilderJson fromCheckpoint450(&ctx, &locales, &metadata, format, 0);
+        fromCheckpoint450.initialize();
+        if (metadata.isDataScn(Scn(500)))
+            fromCheckpoint450.processCheckpoint(Seq(1), Scn(500), Time(0), FileOffset(0), false);
+        const bool sent = fromCheckpoint450.isDataCommit(Scn(490));
+        if (sent)
+            fromCheckpoint450.processBegin(Xid(7, 1, 1), 1, Seq(1), Scn(480), Time(0), Seq(1), Scn(490), Time(0), &attributes);
+        check("restart read from the checkpoint at 450: T is sent at the same position", sent && fromCheckpoint450.lwnScn == live.lwnScn &&
+              fromCheckpoint450.lwnIdx == live.lwnIdx);
+        std::vector<Scn> candidates;
+        Metadata::checkpointCandidates({Scn(450), Scn(500)}, {{Scn(450), Scn(450)}, {Scn(500), Scn(500)}}, Scn(500), candidates);
+        check("the checkpoint at 500 (position 500) is passed for a start at 500", !candidates.empty() && candidates.front() == Scn(450));
+    }
+
     metadata.firstDataScn = Scn::none();
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";

@@ -229,7 +229,7 @@ Remediation: Check the client. The metrics `writer_queue_size` and `writer_queue
 
 A transaction's commit record came after one with a higher commit SCN, so the transaction is sent at the current position (`c_scn` of the messages), above its commit SCN; positions never move back.
 A restart from that position sends it again: the parser selects transactions by the position they get, not by their commit SCN, and the checkpoint it starts from was taken before the position reached the start SCN.
-At most once a minute; the metric `transactions_commit_scn_below_position` counts every one.
+At most once a minute; the metric `transactions_commit_scn_below_position` counts every one. Dictionary (system) transactions are not counted, they are not sent.
 Remediation: None needed. The count shows how often commit SCNs are out of order across redo write batches in this database.
 
 ==== code 60049: "no checkpoint at or below scn: <scn> with a stream position below it could be read, using checkpoint scn: <scn>; a transaction committed below the start position before that checkpoint is not sent again"
@@ -238,6 +238,12 @@ On a start or restart OpenLogReplicator reads redo from the newest schema checkp
 No such checkpoint could be read (they were deleted, or were written before the stream reached that point), so a checkpoint whose position had reached the start SCN is used.
 A transaction committed below the start position whose commit record lies before that checkpoint is then not sent again.
 Remediation: Keep more checkpoints (state `keep-checkpoints`), or restart from an earlier SCN if such a transaction matters.
+
+==== code 60051: "file: <name> - checkpoint stream position can't be read, the checkpoint scn: <scn> is used only if no other one at or below the start scn can be"
+
+The `<database>-position-<scn>.json` file of a schema checkpoint is empty or not valid JSON, for example after OpenLogReplicator was killed while writing it.
+Without the stream position OpenLogReplicator cannot tell whether a restart from that checkpoint rebuilds the positions at the start SCN, so it tries every other checkpoint at or below the start SCN first.
+Remediation: None needed. The file is written again with the next checkpoint at that SCN; it is removed together with its checkpoint.
 
 ==== code 60047: "TCP keepalive not set for client: <host>:<port>, <option>, errno: <number>, message: <message>; a client that vanishes without closing the connection is not noticed while nothing is sent"
 
