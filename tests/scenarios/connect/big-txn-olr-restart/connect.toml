@@ -34,6 +34,8 @@ connector = "restart_task"
 [[step]]
 expect_task = "RUNNING"
 [[step]]
+expect_olr_log = "client requested scn: \\d+, idx: 0(?!\\d)"
+[[step]]
 wait = "idle"
 idle = 15
 timeout = 300
