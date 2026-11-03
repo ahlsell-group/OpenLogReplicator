@@ -75,6 +75,10 @@ _CAUTION:_ `output` and `append` cannot be used together.
 _NOTE:_ Valid only for `network` and `zeromq`.
 A client should confirm only what it has stored, then this never happens.
 
+CONFIRM at (`c_scn`, `c_idx`) releases the queued messages up to that position and also covers the messages read after it: until the next CONTINUE, a message at or below the confirmed position is confirmed by the writer itself and not sent.
+A client therefore must not confirm a position it has not stored; the messages up to it are not sent to it again on this connection.
+A client which confirms (`scn`, 0), as Debezium does without `openlogreplicator.confirm.within.transactions`, is not affected: no message has index 0 and everything below `scn` was sent already.
+
 Debezium 3.7.0.Final-ahlsell.9 and later fail the task on `FAILED_START`, so the gap is visible and the task can be restarted from an earlier SCN.
 Older Debezium OpenLogReplicator adapters (3.6, upstream 3.7) treat `FAILED_START` as a failed connect: they log "Server failed to enter streaming mode, OpenLogReplicator client shutting down." and "Failed to connect to OpenLogReplicator server." at WARN level and return without failing the task.
 The Kafka Connect task stays RUNNING and streams nothing until it is restarted; while OpenLogReplicator keeps running, a restart sends the same position and is refused again.

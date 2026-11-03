@@ -1337,6 +1337,11 @@ namespace OpenLogReplicator {
         BuilderQueue* lastBuilderQueue{nullptr};
         Scn lwnScn{Scn::none()};
         typeIdx lwnIdx{0};
+        // Transactions positioned above their commit SCN: total, and since the last warning 60048
+        uint64_t commitsBelowPosition{0};
+        uint64_t commitsBelowPositionUnwarned{0};
+        time_ut commitsBelowPositionWarned{0};
+        static constexpr time_ut COMMIT_BELOW_POSITION_WARN_US = 60000000;
         // Id of the first hidden checkpoint not taken by the writer, NO_HIDDEN_CHECKPOINT if none
         std::atomic<uint64_t> hiddenFirstId{NO_HIDDEN_CHECKPOINT};
         // One past the id of the last hidden checkpoint written
@@ -1356,6 +1361,17 @@ namespace OpenLogReplicator {
                 return firstDataScn;
             return scn;
         }
+
+        // The position SCN a transaction committed at commitScn gets: positions never move back, so a commit below the
+        // current position is placed at it. The parser sends a transaction when this SCN is at or after the start SCN.
+        [[nodiscard]] Scn positionScn(Scn scn) const {
+            if (lwnScn == Scn::none() || scn > lwnScn)
+                return scn;
+            return lwnScn;
+        }
+        // A transaction committed at scn is sent (Parser): its position is at or after the start SCN
+        [[nodiscard]] bool isDataCommit(Scn scn) const;
+        bool countCommitBelowPosition(Xid xid, Scn scn);
 
         Builder(Ctx* newCtx, Locales* newLocales, Metadata* newMetadata, const Format& newFormat, uint64_t newFlushBuffer);
         virtual ~Builder();

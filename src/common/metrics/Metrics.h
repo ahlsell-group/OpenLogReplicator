@@ -137,6 +137,8 @@ namespace OpenLogReplicator {
         virtual void emitTransactionsRollbackPartial(uint64_t counter) = 0;
         virtual void emitTransactionsCommitSkip(uint64_t counter) = 0;
         virtual void emitTransactionsRollbackSkip(uint64_t counter) = 0;
+        // A transaction committed below the current stream position, sent at that position
+        virtual void emitTransactionsCommitScnBelowPosition(uint64_t counter) = 0;
 
         // writer_queue_size
         virtual void emitWriterQueueSize(int64_t gauge) = 0;

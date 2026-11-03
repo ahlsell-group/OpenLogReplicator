@@ -20,6 +20,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <cmath>
 #include <vector>
 
+#include "../common/Clock.h"
 #include "../common/DbColumn.h"
 #include "../common/DbTable.h"
 #include "../common/RedoLogRecord.h"
@@ -704,7 +705,7 @@ namespace OpenLogReplicator {
         // position grows monotonically and a client can confirm or continue from it. The begin SCN does not grow
         // monotonically, with it a transaction which began before the client's position but committed after it is
         // filtered out as already seen. Commit SCNs are ordered only within an LWN, so a lower one never moves the position back.
-        if (lwnScn == Scn::none() || commitScn > lwnScn) {
+        if (positionScn(commitScn) != lwnScn) {
             lwnScn = commitScn;
             lwnIdx = 0;
         }
@@ -714,6 +715,30 @@ namespace OpenLogReplicator {
         if (attributes->empty()) {
             metadata->ctx->warning(50065, "empty attributes for XID: " + lastXid.toString());
         }
+    }
+
+    // Called before processBegin: a transaction committed below the current position is placed at it. A restart from
+    // that position sends it again only because the parser filters by position, not by commit SCN. Observability only.
+    bool Builder::isDataCommit(Scn scn) const {
+        return metadata->isDataScn(positionScn(scn));
+    }
+
+    bool Builder::countCommitBelowPosition(Xid xid, Scn newCommitScn) {
+        if (positionScn(newCommitScn) == newCommitScn)
+            return false;
+        ++commitsBelowPosition;
+        ++commitsBelowPositionUnwarned;
+        if (ctx->metrics != nullptr)
+            ctx->metrics->emitTransactionsCommitScnBelowPosition(1);
+        const time_ut now = ctx->clock->getTimeUt();
+        if (commitsBelowPositionWarned == 0 || now - commitsBelowPositionWarned >= COMMIT_BELOW_POSITION_WARN_US) {
+            ctx->warning(60048, "transaction committed below the stream position, xid: " + xid.toString() + ", commit scn: " +
+                         newCommitScn.toString() + ", sent at scn: " + lwnScn.toString() + "; transactions like this since the last warning: " +
+                         std::to_string(commitsBelowPositionUnwarned) + ", total: " + std::to_string(commitsBelowPosition));
+            commitsBelowPositionWarned = now;
+            commitsBelowPositionUnwarned = 0;
+        }
+        return true;
     }
 
     // 0x05010B0B

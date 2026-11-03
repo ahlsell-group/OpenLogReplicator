@@ -221,6 +221,9 @@ namespace OpenLogReplicator {
             builder->systemTransaction = new SystemTransaction(builder, metadata);
             metadata->schema->scn = commitScn;
         }
+        // Dictionary transactions are not sent
+        if (!system)
+            builder->countCommitBelowPosition(xid, commitScn);
         builder->processBegin(xid, thread, beginSequence, beginScn, beginTimestamp,
              commitSequence,  commitScn, commitTimestamp, &attributes);
 

@@ -154,6 +154,10 @@ namespace OpenLogReplicator {
         prometheus::Counter* transactionsCommitSkipCounter{nullptr};
         prometheus::Counter* transactionsRollbackSkipCounter{nullptr};
 
+        // transactions_commit_scn_below_position
+        prometheus::Family<prometheus::Counter>* transactionsCommitScnBelowPosition{nullptr};
+        prometheus::Counter* transactionsCommitScnBelowPositionCounter{nullptr};
+
         // service_satate
         prometheus::Family<prometheus::Gauge>* serviceState{nullptr};
         prometheus::Gauge* serviceStateInitializingGauge{nullptr};
@@ -265,6 +269,7 @@ namespace OpenLogReplicator {
         void emitTransactionsRollbackPartial(uint64_t counter) override;
         void emitTransactionsCommitSkip(uint64_t counter) override;
         void emitTransactionsRollbackSkip(uint64_t counter) override;
+        void emitTransactionsCommitScnBelowPosition(uint64_t counter) override;
 
         // service_state
         void emitServiceStateInitializing(int64_t gauge) override;

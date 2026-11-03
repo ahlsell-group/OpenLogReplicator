@@ -26,6 +26,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <mutex>
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
+#include <map>
 #include <set>
 #include <unordered_map>
 #include <vector>
@@ -135,6 +136,9 @@ namespace OpenLogReplicator {
         uint64_t schemaInterval{0};
         std::set<Scn> checkpointScnList;
         std::unordered_map<Scn, bool> checkpointSchemaMap;
+        // Stream position (builder position SCN) at each schema checkpoint, from its <database>-position-<scn> file
+        Scn checkpointPositionScn{Scn::none()};
+        std::map<Scn, Scn> checkpointPositionMap;
 
         std::vector<SchemaElement*> newSchemaElements;
 
@@ -171,7 +175,7 @@ namespace OpenLogReplicator {
         void setStatusReplicating(Thread* t);
         void wakeUp(Thread* t);
         void checkpoint(Thread* t, Scn newCheckpointScn, Time newCheckpointTime, Seq newCheckpointSequence, FileOffset newCheckpointFileOffset,
-                        uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid);
+                        uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn);
         void writeCheckpoint(Thread* t, bool force);
         // An interval of 0 disables that trigger
         static bool checkpointIntervalDue(uint64_t elapsedS, uint64_t elapsedMb, uint64_t intervalS, uint64_t intervalMb) {
@@ -179,10 +183,18 @@ namespace OpenLogReplicator {
         }
         void readCheckpoints();
         void readCheckpoint(Scn scn);
+        bool readCheckpointPosition(const std::string& name, Scn& positionScn) const;
         void deleteOldCheckpoints(Thread* t);
         void loadAdaptiveSchema();
         void allowCheckpoints();
         bool isNewData(Scn scn, typeIdx idx) const;
+        static bool scnFromName(const std::string& name, const std::string& prefix, Scn& scn);
+        // Schema checkpoints for a start at firstDataScn, in the order to try them: newest first those at or below it
+        // whose stream position was below it, then the others at or below it. Returns the number of the first kind.
+        static size_t checkpointCandidates(const std::set<Scn>& scns, const std::map<Scn, Scn>& positions, Scn firstDataScn,
+                                           std::vector<Scn>& candidates);
+        // A transaction committed or a checkpoint at this SCN is in the stream that starts at firstDataScn
+        bool isDataScn(Scn scn) const;
     };
 }
 

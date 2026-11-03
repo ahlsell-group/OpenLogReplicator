@@ -92,6 +92,7 @@ namespace OpenLogReplicator {
         bool holdLocal(const LocalPosition& position);
         static void advance(Scn& toScn, typeIdx& toIdx, Scn scn, typeIdx idx);
         void advanceConfirmed(Scn scn, typeIdx idx);
+        void confirmClient(Scn scn, typeIdx idx);
         void clearQueue();
         void warnQueueFull(time_ut fullSince, time_ut& fullWarned);
         void emitQueueMetrics();

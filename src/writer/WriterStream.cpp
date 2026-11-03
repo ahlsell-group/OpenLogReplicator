@@ -237,9 +237,7 @@ namespace OpenLogReplicator {
             return;
         }
 
-        while (currentQueueSize > 0 && (queue[0]->lwnScn < Scn(request.c_scn()) ||
-                (queue[0]->lwnScn == Scn(request.c_scn()) && queue[0]->lwnIdx <= request.c_idx())))
-            confirmMessage(queue[0]);
+        confirmClient(Scn(request.c_scn()), request.c_idx());
     }
 
     void WriterStream::pollQueue() {

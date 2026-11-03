@@ -179,6 +179,11 @@ Types:
 
 * `filter=skip` — transactions skipped because they were already confirmed or otherwise not processed.
 
+| transactions_commit_scn_below_position
+| counter
+|
+| Transactions whose commit record came after one with a higher commit SCN; they are sent at the current position, above their commit SCN (warning 60048).
+
 _IMPORTANT:_ `partial` and `skip` cases normally appear only at startup or during recovery; consult logs for details.
 
 | writer_queue_held_positions

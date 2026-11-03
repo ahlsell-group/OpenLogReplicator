@@ -297,6 +297,12 @@ namespace OpenLogReplicator {
             {"filter", "skip"}
         });
 
+        // transactions_commit_scn_below_position
+        transactionsCommitScnBelowPosition = &prometheus::BuildCounter().Name("transactions_commit_scn_below_position")
+                                                                        .Help("Transactions committed below the stream position and sent at it")
+                                                                        .Register(*registry);
+        transactionsCommitScnBelowPositionCounter = &transactionsCommitScnBelowPosition->Add({});
+
         // writer_queue_size
         writerQueueSize = &prometheus::BuildGauge().Name("writer_queue_size")
                                                    .Help("Messages sent to the client and not confirmed yet")
@@ -639,6 +645,11 @@ namespace OpenLogReplicator {
 
     void MetricsPrometheus::emitTransactionsRollbackSkip(uint64_t counter) {
         transactionsRollbackSkipCounter->Increment(counter);
+    }
+
+    // transactions_commit_scn_below_position
+    void MetricsPrometheus::emitTransactionsCommitScnBelowPosition(uint64_t counter) {
+        transactionsCommitScnBelowPositionCounter->Increment(counter);
     }
 
     // writer_queue_size

@@ -138,6 +138,7 @@ namespace {
         void emitSwapUsageMb(int64_t) override {}
         void emitTransactionsCommitOut(uint64_t) override {}
         void emitTransactionsRollbackOut(uint64_t) override {}
+        void emitTransactionsCommitScnBelowPosition(uint64_t) override {}
         void emitTransactionsCommitPartial(uint64_t) override {}
         void emitTransactionsRollbackPartial(uint64_t) override {}
         void emitTransactionsCommitSkip(uint64_t) override {}

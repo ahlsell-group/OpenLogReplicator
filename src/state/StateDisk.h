@@ -25,7 +25,10 @@ If not, see <http://www.gnu.org/licenses/>. */
 namespace OpenLogReplicator {
     class StateDisk final : public State {
     protected:
+        static constexpr const char* TEMPORARY_SUFFIX{".tmp"};
         std::string path;
+
+        void syncDirectory() const;
 
     public:
         explicit StateDisk(Ctx* newCtx, std::string newPath);
@@ -36,6 +39,7 @@ namespace OpenLogReplicator {
         [[nodiscard]] bool read(const std::string& name, uint64_t maxSize, std::string& in) override;
         void write(const std::string& name, Scn scn, const std::ostringstream& out) override;
         void drop(const std::string& name) override;
+        void dropTemporary(const std::string& prefix) override;
     };
 }
 

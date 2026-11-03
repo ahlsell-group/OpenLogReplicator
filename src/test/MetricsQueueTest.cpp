@@ -128,6 +128,13 @@ int main() {
     text = scrape(port);
     check("scrape: empty again", has(text, "writer_queue_oldest_age_s 0") && has(text, "writer_queue_size 0"));
 
+    check("scrape: commits below the position start at 0", has(text, "transactions_commit_scn_below_position 0") &&
+          text.find("# TYPE transactions_commit_scn_below_position counter") != std::string::npos);
+    metrics->emitTransactionsCommitScnBelowPosition(1);
+    metrics->emitTransactionsCommitScnBelowPosition(1);
+    text = scrape(port);
+    check("scrape: commits below the position counted", has(text, "transactions_commit_scn_below_position 2"));
+
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;
