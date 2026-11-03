@@ -409,6 +409,9 @@ namespace OpenLogReplicator {
     void Metadata::writeCheckpoint(Thread* t, bool force) {
         std::ostringstream ss;
         std::ostringstream positionSs;
+        Scn scn;
+        Scn positionScn;
+        bool storeSchema = true;
 
         {
             t->contextSet(Thread::CONTEXT::CHKPT, Thread::REASON::CHKPT);
@@ -426,7 +429,6 @@ namespace OpenLogReplicator {
                 return;
 
             // Schema did not change
-            bool storeSchema = true;
             if (schema->refScn != Scn::none() && schema->refScn >= schema->scn) {
                 if (schemaInterval < ctx->schemaForceInterval) {
                     storeSchema = false;
@@ -437,9 +439,10 @@ namespace OpenLogReplicator {
                 schemaInterval = 0;
 
             serializer->serialize(this, ss, storeSchema);
-            positionSs << R"({"database":")" << database << R"(","scn":)" << checkpointScn.toString() << R"(,"position-scn":)" <<
-                    (checkpointPositionScn == Scn::none() ? Scn::zero() : checkpointPositionScn).toString() << "}";
-            checkpointPositionMap.insert_or_assign(checkpointScn, checkpointPositionScn == Scn::none() ? Scn::zero() : checkpointPositionScn);
+            scn = checkpointScn;
+            positionScn = checkpointPositionScn == Scn::none() ? Scn::zero() : checkpointPositionScn;
+            positionSs << R"({"database":")" << database << R"(","scn":)" << scn.toString() << R"(,"position-scn":)" <<
+                    positionScn.toString() << "}";
 
             lastCheckpointScn = checkpointScn;
             lastSequence = sequence;
@@ -452,19 +455,38 @@ namespace OpenLogReplicator {
         }
         t->contextSet(Thread::CONTEXT::CPU);
 
-        const std::string checkpointName = database + "-chkpt-" + lastCheckpointScn.toString();
+        const std::string checkpointName = database + "-chkpt-" + scn.toString();
 
         if (unlikely(ctx->isTraceSet(Ctx::TRACE::CHECKPOINT)))
-            ctx->logTrace(Ctx::TRACE::CHECKPOINT, "write scn: " + lastCheckpointScn.toString() + " time: " +
+            ctx->logTrace(Ctx::TRACE::CHECKPOINT, "write scn: " + scn.toString() + " time: " +
                           std::to_string(lastCheckpointTime.getVal()) + " seq: " + lastSequence.toString() + " offset: " +
                           lastCheckpointFileOffset.toString() + " name: " + checkpointName);
 
-        // Before the checkpoint: a checkpoint without it is taken as written by an older build
-        const std::string positionName = database + "-position-" + lastCheckpointScn.toString();
-        if (!stateWrite(positionName, lastCheckpointScn, positionSs))
+        // Durable before the checkpoint is written: a checkpoint without it is taken as written by an older build
+        const std::string positionName = database + "-position-" + scn.toString();
+        bool written = false;
+        if (!stateWrite(positionName, scn, positionSs))
             ctx->warning(60018, "file: " + positionName + " - couldn't write checkpoint");
-        if (!stateWrite(checkpointName, lastCheckpointScn, ss))
+        else if (!stateWrite(checkpointName, scn, ss))
+            // The position file stays: the checkpoint may have reached the disk, else the file is removed at the next start
             ctx->warning(60018, "file: " + checkpointName + " - couldn't write checkpoint");
+        else
+            written = true;
+
+        t->contextSet(Thread::CONTEXT::CHKPT, Thread::REASON::CHKPT);
+        {
+            std::unique_lock const lck(mtxCheckpoint);
+            if (written)
+                checkpointPositionMap.insert_or_assign(scn, positionScn);
+            else {
+                // Not on disk: not to be deleted later, and the next checkpoint does not refer to its schema
+                checkpointScnList.erase(scn);
+                checkpointSchemaMap.erase(scn);
+                if (storeSchema && schema->refScn == scn)
+                    schema->refScn = Scn::none();
+            }
+        }
+        t->contextSet(Thread::CONTEXT::CPU);
     }
 
     size_t Metadata::checkpointCandidates(const std::set<Scn>& scns, const std::map<Scn, Scn>& positions, Scn firstDataScn,
@@ -508,36 +530,30 @@ namespace OpenLogReplicator {
             ctx->logTrace(Ctx::TRACE::CHECKPOINT, "searching for previous checkpoint information");
 
         std::set<std::string> namesList;
+        state->dropTemporary(database + "-chkpt");
+        state->dropTemporary(database + "-position-");
         state->list(namesList);
 
         const std::string positionPrefix(database + "-position-");
         for (const std::string& name: namesList) {
-            if (name.length() > positionPrefix.length() && name.substr(0, positionPrefix.length()) == positionPrefix) {
-                const Scn scn(strtoull(name.substr(positionPrefix.length()).c_str(), nullptr, 10));
-                Scn positionScn;
-                if (!readCheckpointPosition(name, positionScn)) {
-                    // Written by this build but not readable: its position is unknown, so the checkpoint is tried last
-                    ctx->warning(60051, "file: " + name + " - checkpoint stream position can't be read, the checkpoint scn: " +
-                                 scn.toString() + " is used only if no other one at or below the start scn can be");
-                    positionScn = Scn::none();
-                }
-                checkpointPositionMap.insert_or_assign(scn, positionScn);
+            Scn scn;
+            if (!scnFromName(name, positionPrefix, scn))
+                continue;
+            Scn positionScn;
+            if (!readCheckpointPosition(name, positionScn)) {
+                // Written by this build but not readable: its position is unknown, so the checkpoint is tried last
+                ctx->warning(60051, "file: " + name + " - checkpoint stream position can't be read, the checkpoint scn: " +
+                             scn.toString() + " is used only if no other one at or below the start scn can be");
+                positionScn = Scn::none();
             }
+            checkpointPositionMap.insert_or_assign(scn, positionScn);
         }
 
+        const std::string prefix(database + "-chkpt-");
         for (const std::string& name: namesList) {
-            const std::string prefix(database + "-chkpt-");
-            if (name.length() < prefix.length() || name.substr(0, prefix.length()) != prefix)
-                continue;
-
-            const std::string scnStr(name.substr(prefix.length(), name.length()));
             Scn scn;
-            try {
-                scn = strtoull(scnStr.c_str(), nullptr, 10);
-            } catch ([[maybe_unused]] const std::exception& e) {
-                // Ignore other files
+            if (!scnFromName(name, prefix, scn))
                 continue;
-            }
 
             if (unlikely(ctx->isTraceSet(Ctx::TRACE::CHECKPOINT)))
                 ctx->logTrace(Ctx::TRACE::CHECKPOINT, "found: " + name + " scn: " + scn.toString());
@@ -549,8 +565,7 @@ namespace OpenLogReplicator {
         // A position file without its checkpoint: a crash between the two writes, or a deletion by an older build
         for (auto it = checkpointPositionMap.begin(); it != checkpointPositionMap.end();) {
             if (checkpointScnList.find(it->first) == checkpointScnList.end()) {
-                if (!stateDrop(positionPrefix + it->first.toString()))
-                    break;
+                static_cast<void>(stateDrop(positionPrefix + it->first.toString()));
                 it = checkpointPositionMap.erase(it);
             } else
                 ++it;
@@ -577,9 +592,26 @@ namespace OpenLogReplicator {
                     ctx->warning(60049, "no checkpoint at or below scn: " + firstDataScn.toString() + " with a stream position below it " +
                                  "could be read, using checkpoint scn: " + candidates[i].toString() + "; a transaction committed below " +
                                  "the start position before that checkpoint is not sent again");
+                if (checkpointPositionMap.find(candidates[i]) == checkpointPositionMap.end())
+                    ctx->info(0, "checkpoint scn: " + candidates[i].toString() + " has no stream position file (written by an older " +
+                              "build), used as before");
                 readCheckpoint(candidates[i]);
             }
         }
+    }
+
+    // Only <prefix><scn> with scn in its canonical decimal form, so the name can be rebuilt from the SCN
+    bool Metadata::scnFromName(const std::string& name, const std::string& prefix, Scn& scn) {
+        if (name.length() <= prefix.length() || name.compare(0, prefix.length(), prefix) != 0)
+            return false;
+        const std::string scnStr(name.substr(prefix.length()));
+        if (scnStr.find_first_not_of("0123456789") != std::string::npos)
+            return false;
+        const Scn value(strtoull(scnStr.c_str(), nullptr, 10));
+        if (value.toString() != scnStr)
+            return false;
+        scn = value;
+        return true;
     }
 
     void Metadata::readCheckpoint(Scn scn) {

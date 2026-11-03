@@ -241,9 +241,11 @@ Remediation: Keep more checkpoints (state `keep-checkpoints`), or restart from a
 
 ==== code 60051: "file: <name> - checkpoint stream position can't be read, the checkpoint scn: <scn> is used only if no other one at or below the start scn can be"
 
-The `<database>-position-<scn>.json` file of a schema checkpoint is empty or not valid JSON, for example after OpenLogReplicator was killed while writing it.
+The `<database>-position-<scn>.json` file of a schema checkpoint is empty, too large or not valid JSON.
+State files are replaced atomically and synced, so this means the file was damaged on disk or edited by hand.
 Without the stream position OpenLogReplicator cannot tell whether a restart from that checkpoint rebuilds the positions at the start SCN, so it tries every other checkpoint at or below the start SCN first.
-Remediation: None needed. The warning repeats at every start until the checkpoint ages out and is removed together with the file; to stop it sooner, delete that position file while OpenLogReplicator is stopped.
+Remediation: None needed. The warning repeats at every start until the checkpoint ages out and is removed together with the file.
+Do not delete only the position file: a checkpoint without one is taken as written by an older build and used before the others.
 
 ==== code 60047: "TCP keepalive not set for client: <host>:<port>, <option>, errno: <number>, message: <message>; a client that vanishes without closing the connection is not noticed while nothing is sent"
 

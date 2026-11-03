@@ -18,8 +18,10 @@ License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <dirent.h>
+#include <fcntl.h>
 #include <fstream>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -91,25 +93,93 @@ namespace OpenLogReplicator {
         return true;
     }
 
+    // Written to a temporary file, synced and renamed over the old one: a crash leaves either the old or the new content
     void StateDisk::write(const std::string& name, Scn scn __attribute__((unused)), const std::ostringstream& out) {
         const std::string fileName(path + "/" + name + ".json");
-        std::ofstream outputStream;
+        const std::string tmpName(fileName + TEMPORARY_SUFFIX);
+        const std::string content(out.str());
 
-        outputStream.open(fileName.c_str(), std::ios::out | std::ios::trunc);
-        if (!outputStream.is_open())
-            throw RuntimeException(10006, "file: " + fileName + " - open for writing returned: " + strerror(errno));
+        const int fd = open(tmpName.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0666);
+        if (fd == -1)
+            throw RuntimeException(10006, "file: " + tmpName + " - open for writing returned: " + strerror(errno));
 
-        outputStream << out.str();
-        if (outputStream.bad() || outputStream.fail())
-            throw RuntimeException(10007, "file: " + fileName + " - 0 bytes written instead of " +
-                                          std::to_string(out.str().length()) + ", code returned: " + strerror(errno));
+        size_t written = 0;
+        while (written < content.length()) {
+            const ssize_t bytes = ::write(fd, content.data() + written, content.length() - written);
+            if (bytes == -1 && errno == EINTR)
+                continue;
+            if (bytes <= 0) {
+                const int err = errno;
+                close(fd);
+                unlink(tmpName.c_str());
+                throw RuntimeException(10007, "file: " + tmpName + " - " + std::to_string(written) + " bytes written instead of " +
+                                              std::to_string(content.length()) + ", code returned: " + strerror(err));
+            }
+            written += static_cast<size_t>(bytes);
+        }
 
-        outputStream.close();
+        if (fsync(fd) != 0) {
+            const int err = errno;
+            close(fd);
+            unlink(tmpName.c_str());
+            throw RuntimeException(10073, "file: " + tmpName + " - sync returned: " + strerror(err));
+        }
+        if (close(fd) != 0) {
+            const int err = errno;
+            unlink(tmpName.c_str());
+            throw RuntimeException(10073, "file: " + tmpName + " - close returned: " + strerror(err));
+        }
+
+        if (rename(tmpName.c_str(), fileName.c_str()) != 0) {
+            const int err = errno;
+            unlink(tmpName.c_str());
+            throw RuntimeException(10074, "file: " + tmpName + " - rename to: " + fileName + " returned: " + strerror(err));
+        }
+        syncDirectory();
     }
 
     void StateDisk::drop(const std::string& name) {
         const std::string fileName(path + "/" + name + ".json");
         if (unlink(fileName.c_str()) != 0)
             throw RuntimeException(10010, "file: " + fileName + " - delete returned: " + strerror(errno));
+        syncDirectory();
+    }
+
+    void StateDisk::dropTemporary(const std::string& prefix) {
+        DIR* dir = opendir(path.c_str());
+        if (dir == nullptr)
+            throw RuntimeException(10012, "directory: " + path + " - can't read");
+
+        std::set<std::string> names;
+        const std::string suffix(std::string(".json") + TEMPORARY_SUFFIX);
+        const dirent* ent;
+        while ((ent = readdir(dir)) != nullptr) {
+            const std::string fileName(ent->d_name);
+            if (fileName.length() >= prefix.length() + suffix.length() && fileName.compare(0, prefix.length(), prefix) == 0 &&
+                fileName.compare(fileName.length() - suffix.length(), suffix.length(), suffix) == 0)
+                names.insert(fileName);
+        }
+        closedir(dir);
+
+        for (const std::string& fileName: names) {
+            const std::string fullName(path + "/" + fileName);
+            if (unlink(fullName.c_str()) != 0)
+                ctx->warning(10010, "file: " + fullName + " - delete returned: " + strerror(errno));
+            else
+                ctx->info(0, "deleted unfinished state file from previous execution: " + fullName);
+        }
+    }
+
+    // A rename or unlink is durable only once the directory is synced
+    void StateDisk::syncDirectory() const {
+        const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (fd == -1)
+            throw RuntimeException(10073, "directory: " + path + " - sync returned: " + strerror(errno));
+        if (fsync(fd) != 0) {
+            const int err = errno;
+            close(fd);
+            throw RuntimeException(10073, "directory: " + path + " - sync returned: " + strerror(err));
+        }
+        close(fd);
     }
 }

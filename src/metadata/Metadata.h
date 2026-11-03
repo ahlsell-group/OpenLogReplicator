@@ -188,6 +188,7 @@ namespace OpenLogReplicator {
         void loadAdaptiveSchema();
         void allowCheckpoints();
         bool isNewData(Scn scn, typeIdx idx) const;
+        static bool scnFromName(const std::string& name, const std::string& prefix, Scn& scn);
         // Schema checkpoints for a start at firstDataScn, in the order to try them: newest first those at or below it
         // whose stream position was below it, then the others at or below it. Returns the number of the first kind.
         static size_t checkpointCandidates(const std::set<Scn>& scns, const std::map<Scn, Scn>& positions, Scn firstDataScn,

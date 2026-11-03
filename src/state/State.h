@@ -41,6 +41,8 @@ namespace OpenLogReplicator {
         [[nodiscard]] virtual bool read(const std::string& name, uint64_t maxSize, std::string& in) = 0;
         virtual void write(const std::string& name, Scn scn, const std::ostringstream& out) = 0;
         virtual void drop(const std::string& name) = 0;
+        // Removes what a write interrupted by a crash left behind, for names starting with prefix
+        virtual void dropTemporary(const std::string& prefix) = 0;
     };
 }
 

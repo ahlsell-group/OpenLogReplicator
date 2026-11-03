@@ -396,3 +396,15 @@ The file will be partially read.
 
 A message exceeds the writer buffer.
 Increase `write-buffer-max-mb` and possibly `max-mb`.
+
+==== code 10073: "file: <file name> - sync returned: <error>"
+
+A state file (checkpoint) was written but could not be synced to disk, so it is not known to survive a crash.
+The same code is used as "file: <file name> - close returned: <error>" when closing the written file fails, and as "directory: <directory name> - sync returned: <error>" when the state directory can't be synced after a file in it was replaced or deleted.
+The new content replaces the old file only after a successful sync, so the previous checkpoint stays in place.
+Check filesystem health, free space and, for network storage, its availability.
+
+==== code 10074: "file: <file name> - rename to: <file name> returned: <error>"
+
+A state file is written to `<name>.json.tmp` first and then renamed over `<name>.json`; the rename failed and the previous file stays in place.
+Verify directory permissions and that the target is not a directory.

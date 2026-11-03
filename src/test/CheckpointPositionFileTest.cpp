@@ -145,6 +145,61 @@ int main() {
               std::filesystem::exists(dir + "/TEST-position-300.json"));
     }
 
+    {
+        // Rollback to an older build and forward again: its newer checkpoints have no position files and are used as before,
+        // not passed for an older one with a known position (that could need archived redo that is gone)
+        const std::string dir = fresh(base, "rollback");
+        write(ctx, locales, dir, {{300, 310}, {450, 470}, {600, 610}, {700, 710}});
+        std::filesystem::remove(dir + "/TEST-position-600.json");
+        std::filesystem::remove(dir + "/TEST-position-700.json");
+        check("checkpoints of an older build after ones of this build: the newest at or below the start is read",
+              restart(ctx, locales, dir, 700) == 70);
+    }
+
+    {
+        // Leftovers of writes interrupted by a crash are not checkpoints and are removed at start
+        const std::string dir = fresh(base, "tmp");
+        write(ctx, locales, dir, {{300, 310}, {480, 500}});
+        bool tmpLeft = false;
+        for (const auto& entry: std::filesystem::directory_iterator(dir))
+            tmpLeft = tmpLeft || entry.path().extension() == ".tmp";
+        check("no temporary file is left after the checkpoint writes", !tmpLeft);
+        std::ofstream(dir + "/TEST-chkpt-490.json.tmp") << R"({"database":"TE)";
+        std::ofstream(dir + "/TEST-position-490.json.tmp").close();
+        std::ofstream(dir + "/TEST-chkpt.json.tmp").close();
+        std::ofstream(dir + "/OTHER-chkpt-490.json.tmp").close();
+        check("start at 501 with unfinished files at 490: 480 is read", restart(ctx, locales, dir, 501) == 48);
+        check("unfinished files of this database are removed at start", !std::filesystem::exists(dir + "/TEST-chkpt-490.json.tmp") &&
+              !std::filesystem::exists(dir + "/TEST-position-490.json.tmp") && !std::filesystem::exists(dir + "/TEST-chkpt.json.tmp"));
+        check("unfinished files of another database are kept", std::filesystem::exists(dir + "/OTHER-chkpt-490.json.tmp"));
+    }
+
+    {
+        // The position file can't be written: the checkpoint is not written either, so it is never taken as one of an older build
+        const std::string dir = fresh(base, "position-fails");
+        std::filesystem::create_directory(dir + "/TEST-position-480.json");
+        write(ctx, locales, dir, {{300, 310}, {480, 500}});
+        check("no checkpoint is written without its position file", !std::filesystem::exists(dir + "/TEST-chkpt-480.json") &&
+              std::filesystem::exists(dir + "/TEST-chkpt-300.json"));
+        check("start at 500: 300 is read", restart(ctx, locales, dir, 500) == 30);
+    }
+
+    {
+        // Position-file names that are not <database>-position-<scn> are skipped and do not stop the orphan sweep
+        const std::string dir = fresh(base, "garbage");
+        write(ctx, locales, dir, {{300, 310}, {450, 470}});
+        std::ofstream(dir + "/TEST-position-abc.json") << "{}";
+        std::ofstream(dir + "/TEST-position-450x.json") << R"({"database":"TEST","scn":450,"position-scn":9999})";
+        std::ofstream(dir + "/TEST-position-998.json") << R"({"database":"TEST","scn":998,"position-scn":1000})";
+        std::ofstream(dir + "/TEST-position-999.json") << R"({"database":"TEST","scn":999,"position-scn":1000})";
+        std::ofstream(dir + "/TEST-chkpt-450-copy.json") << "{}";
+        check("start at 500 with odd names: 450 is read", restart(ctx, locales, dir, 500) == 45);
+        check("orphans after an odd name are removed", !std::filesystem::exists(dir + "/TEST-position-998.json") &&
+              !std::filesystem::exists(dir + "/TEST-position-999.json"));
+        check("odd names are left alone", std::filesystem::exists(dir + "/TEST-position-abc.json") &&
+              std::filesystem::exists(dir + "/TEST-position-450x.json") && std::filesystem::exists(dir + "/TEST-chkpt-450-copy.json"));
+    }
+
     std::filesystem::remove_all(base);
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";
