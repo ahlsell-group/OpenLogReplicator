@@ -420,12 +420,22 @@ def to_output(records, sc):
         if "op" not in v:
             continue
         by_topic.setdefault(r["topic"], []).append(r)
-    merged = []
-    for t, rs in by_topic.items():
+    # Each topic stays in offset order: CreateTime is not monotonic within a partition (a step back of a few
+    # ms happens), so sorting by it moves rows. Topics are interleaved by the timestamp of their next record.
+    for rs in by_topic.values():
         rs.sort(key=lambda r: r["offset"])
-        for i, r in enumerate(rs):
-            merged.append((r["ts"], i, t, r))
-    merged.sort(key=lambda x: (x[0], int(x[3]["value"]["source"].get("scn") or 0), x[2], x[1]))
+    merged, heads = [], {t: 0 for t in by_topic}
+
+    def head_key(t):
+        r = by_topic[t][heads[t]]
+        return r["ts"], int(r["value"]["source"].get("scn") or 0), t
+
+    while heads:
+        t = min(heads, key=head_key)
+        merged.append((None, heads[t], t, by_topic[t][heads[t]]))
+        heads[t] += 1
+        if heads[t] == len(by_topic[t]):
+            del heads[t]
     lines = []
     cur, last_order = None, None
 
@@ -461,9 +471,10 @@ def to_output(records, sc):
     return lines, snap, markers
 
 
-def check_delivery(rec, txns, since_scn):
+def check_delivery(rec, txns, since_scn, exactly_once=False):
     """Per LogMiner transaction committed after the stream start: rows missing in or
-    duplicated on the topics (multiset of full row images, all deliveries together)."""
+    duplicated on the topics (multiset of full row images, all deliveries together). Duplicates
+    are a note, or a failure with exactly_once."""
     r = checks.Result("delivery")
     by = {}
     for t in txns:
@@ -497,7 +508,7 @@ def check_delivery(rec, txns, since_scn):
             r.fail(f"txn {xid}: {miss} of {len(t['events'])} rows not on the topics ({ndeliv} deliveries)")
         if extra:
             dup += extra
-            r.note(f"txn {xid}: {extra} duplicate rows ({ndeliv} deliveries)")
+            (r.fail if exactly_once else r.note)(f"txn {xid}: {extra} duplicate rows ({ndeliv} deliveries)")
         if foreign:
             nwrong += foreign
             r.fail(f"txn {xid}: {foreign} rows on the topics differ from LogMiner (see diff)")
@@ -507,6 +518,77 @@ def check_delivery(rec, txns, since_scn):
             r.note(f"txn {xid}: on the topics, not in LogMiner's range ({sum(len(d['events']) for d in ds)} rows)")
     r.note(f"{lost} rows lost, {dup} rows duplicated, {nwrong} rows with other values")
     r.lost = lost
+    return r
+
+
+def check_txmeta(rec, records, since_scn, exactly_once=False):
+    """Transaction metadata (provide.transaction.metadata) per LogMiner transaction committed after the
+    stream start: a BEGIN and an END on the transaction topic, every END with the transaction's row count
+    in event_count and per table in data_collections, and the rows' total_order and data_collection_order
+    covering 1..n (per table) with none missing. Counters that restart after a connector restart in the
+    middle of a transaction show as a wrong END count or orders outside 1..n. With exactly_once also exactly
+    one BEGIN and END and every order once."""
+    r = checks.Result("txmeta")
+    raw_map = {t["xid_raw"].upper(): tuple(t["xid"]) for t in rec["logminer"]["transactions"]}
+    begins, ends, orders = {}, {}, {}
+    for rec_ in records:
+        v = rec_.get("value")
+        if not isinstance(v, dict):
+            continue
+        if rec_["topic"].endswith(".transaction"):
+            x = checks.parse_xid(v.get("id"), raw_map)
+            if v.get("status") == "BEGIN":
+                begins[x] = begins.get(x, 0) + 1
+            elif v.get("status") == "END":
+                ends.setdefault(x, []).append(v)
+            continue
+        if v.get("op") not in ("c", "u", "d"):
+            continue
+        src, tx = v["source"], v.get("transaction") or {}
+        x = checks.parse_xid(src.get("txId"), raw_map)
+        orders.setdefault(x, []).append((tx.get("total_order"), f"{src.get('schema')}.{src.get('table')}",
+                                         tx.get("data_collection_order")))
+    checked = 0
+    for t in rec["logminer"]["transactions"]:
+        if not t["events"] or (t.get("commit_scn") or 0) <= since_scn:
+            continue
+        x = tuple(t["xid"])
+        checked += 1
+        n = len(t["events"])
+        per_table = {}
+        for e in t["events"]:
+            per_table[e["table"]] = per_table.get(e["table"], 0) + 1
+        nb, es = begins.get(x, 0), ends.get(x, [])
+        if not nb or not es:
+            r.fail(f"txn {x}: {nb} BEGIN, {len(es)} END on the transaction topic")
+        elif exactly_once and (nb != 1 or len(es) != 1):
+            r.fail(f"txn {x}: {nb} BEGIN, {len(es)} END (exactly_once)")
+        elif nb != 1 or len(es) != 1:
+            r.note(f"txn {x}: {nb} BEGIN, {len(es)} END")
+        for end in es:
+            if end.get("event_count") != n:
+                r.fail(f"txn {x}: END event_count {end.get('event_count')}, {n} rows in the transaction")
+            got = {str(d.get("data_collection")).split(".", 1)[-1]: d.get("event_count")
+                   for d in end.get("data_collections") or []}
+            if got != per_table:
+                r.fail(f"txn {x}: END data_collections {got}, rows per table {per_table}")
+        o = orders.get(x, [])
+        totals = [a for a, _, _ in o]
+        if None in totals:
+            r.fail(f"txn {x}: {totals.count(None)} rows without a transaction block")
+        tset = {a for a in totals if a is not None}
+        missing = n - len(tset & set(range(1, n + 1)))
+        outside = sorted(tset - set(range(1, n + 1)))
+        if missing or outside:
+            r.fail(f"txn {x}: total_order misses {missing} of 1..{n}, {len(outside)} outside it (first {outside[:3]})")
+        if exactly_once and len(totals) != len(tset):
+            r.fail(f"txn {x}: {len(totals) - len(tset)} total_order values repeated (exactly_once)")
+        for table, cnt in per_table.items():
+            dset = {d for _, tb, d in o if tb == table and d is not None}
+            if dset != set(range(1, cnt + 1)):
+                r.fail(f"txn {x}: {table} data_collection_order has {len(dset)} of 1..{cnt}"
+                       f"{' and values outside it' if dset - set(range(1, cnt + 1)) else ''}")
+    r.note(f"{checked} transactions checked")
     return r
 
 
@@ -1008,7 +1090,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
 
 # ---------------------------------------------------------------- checks
 
-CHECKS = ["run", "delivery", "loss_warn", "scn", "diff", "replay"]
+CHECKS = ["run", "delivery", "loss_warn", "scn", "txmeta", "diff", "replay"]
 
 
 def apply_known(sc, profile, version, res, image=None):
@@ -1091,12 +1173,14 @@ def check(sc, workdir):
     rec_stream = dict(rec)
     rec_stream["logminer"] = {"transactions": [t for t in rec["logminer"]["transactions"]
                                                if (t.get("commit_scn") or 0) > snap_scn]}
-    res["delivery"] = check_delivery(rec, out[0], snap_scn)
+    res["delivery"] = check_delivery(rec, out[0], snap_scn, sc.exactly_once)
     lw = check_loss_warn(sc, workdir, run_info.get("image"), res["delivery"].lost)
     if lw is not None:
         res["loss_warn"] = lw
     if (load_spec(sc) or {}).get("connector", {}).get("check_scn"):
         res["scn"] = check_scn(rec, records, snap_scn)
+    if "txmeta" in sc.checks:
+        res["txmeta"] = check_txmeta(rec, records, snap_scn, sc.exactly_once)
     # diff/replay see one delivery per transaction: the deliveries spliced in order (a worker
     # kill leaves a partial first delivery and Debezium may continue in the middle of the
     # transaction; duplicates are the delivery check's business)

@@ -1,0 +1,1 @@
+As big-txn-olr-restart, but OLR is killed with SIGKILL, so it writes no final checkpoint and restarts from the last one written (state interval 2 s), which may lie earlier in the transaction or before it.

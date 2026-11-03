@@ -216,7 +216,7 @@ carries every fix listed; the scenarios list it in `fixed_in`.
 | Debezium waits for the INFO answer without a timeout, so an OLR that still holds a vanished client's socket leaves the task RUNNING without streaming | `connect/olr-vanished-client-info` | fixed in Debezium 3.7.0.Final-ahlsell.8 (`openlogreplicator.info.timeout.ms`); OLR side fixed by the network writer keepalive |
 | Debezium confirms the offset of the last acknowledged record, which can be a heartbeat acked before a row of the same transaction on another partition, so OLR may release data not yet in Kafka | `connect/confirm-row-rejected` | fixed in Debezium 3.7.0.Final-ahlsell.8 (CONFIRM only from flushed offsets) |
 | Debezium 3.7.0 keeps its last transaction unconfirmed until a later captured change | `connect/confirm-*` (and `-off` variants) | opt-in in Debezium 3.7.0.Final-ahlsell.8: `openlogreplicator.confirm.completed.transactions` (fork OLR only) |
-| A transaction larger than the network writer's `queue-size` deadlocks with a client that confirms only when `c_scn` grows | `adv/net-small-queue` | open; the fork logs WARN 60040; keep `queue-size` above the largest transaction |
+| A transaction larger than the network writer's `queue-size` deadlocks with a client that confirms only when `c_scn` grows (Debezium 3.7.0.Final up to ahlsell.11) | `adv/net-small-queue`, `connect/big-txn-*` | the fork logs WARN 60040; fixed on Debezium branch `ahlsell/olr-mid-tx-confirm` (not released): `openlogreplicator.confirm.within.transactions` confirms and continues the flushed (scn, scn_idx) inside a transaction |
 | CONTINUE before the client's confirmed position | `connect/restart-task-mid-txn`, `connect/worker-kill-mid-txn` | the fork logs WARN 60039 |
 | `DBMS_REDEFINITION` with a layout change: `FINISH_REDEF_TABLE` swaps the objects without DDL naming the table, so Debezium's OLR adapter keeps the old table model (flags 0 and 32): a value needing the wider NUMBER scale arrives as null ("Failed to properly convert data value"), a new column never reaches the topic schema. OLR itself decodes the swap correctly (`ddl/redefinition-*` pass) | `connect/redefinition`, `connect/redefinition-widen-min` | open (Debezium 3.7.0 and 3.7.0.Final-ahlsell.8) |
 | `DBMS_REDEFINITION` that changes a non-NUMBER type (`DATE` -> `TIMESTAMP(6)`, `VARCHAR2(10)` -> `VARCHAR2(50)`): Debezium 3.7.0.Final-ahlsell.10 reloads the table model only for new columns and NUMBER changes, so it keeps converting TS as DATE (microseconds lost) | `connect/redefinition-type-widen` | fixed in Debezium 3.7.0.Final-ahlsell.11 (reload on any type change; unchanged columns whose OLR metadata differs from the model, such as char-semantics lengths, NVARCHAR2 and TIMESTAMP(3), must not reload) |
@@ -250,9 +250,12 @@ make venv && make db-up
 ```
 
 Checks: **run** (OLR log, task state per step, expected states), **delivery** (per LogMiner transaction
-committed after the snapshot SCN: rows lost, duplicated, or with other values; all deliveries together),
-**diff** (LogMiner) and **replay** (from the DB AS OF the snapshot SCN; with `snapshot.mode=initial` the
-snapshot records are compared too). Evidence per run in
+committed after the snapshot SCN: rows lost, duplicated, or with other values; all deliveries together;
+duplicates fail with `exactly_once`), **txmeta** (with `checks` including it: BEGIN and END per transaction,
+END `event_count` and `data_collections` equal to the transaction's rows, `total_order` and
+`data_collection_order` covering 1..n), **diff** (LogMiner) and **replay** (from the DB AS OF the snapshot SCN;
+with `snapshot.mode=initial` the snapshot records are compared too). Topics are merged into one stream in
+offset order per topic; CreateTime is only used to interleave topics. Evidence per run in
 `results/<run>/connect/<image>/<profile>@dbz-<version>/<scenario>/`: `kafka.jsonl` (decoded records),
 `schema-history.jsonl`, `connect.log`, `olr.log`, `run.json` (steps, task states, topic schema columns,
 offsets). Topics are deleted after each run (Redpanda with 1 GB allows 256 partitions); set
@@ -286,7 +289,7 @@ as a public image; default `checkout`), `scenarios` (ids, groups or tags; empty 
 job fails on any unexpected failure; known issues (`xfail`) do not fail it. Disk on the hosted runner is tight: the workflow removes preinstalled toolchains and prunes the
 build cache after each image; split large runs with `scenarios`.
 
-Job `connect` runs ten Connect scenarios (`CONNECT_SCENARIOS` in the workflow, or the `connect_scenarios`
+Job `connect` runs sixteen Connect scenarios (`CONNECT_SCENARIOS` in the workflow, or the `connect_scenarios`
 input) with profile `debezium-ddl` against an OLR image built from the checkout, first with upstream
 Debezium `3.7.0.Final`, then with our patched connector (`3.7.0.Final-ahlsell.8`). It runs on
 `workflow_dispatch` and on release tags `v2.0.0-ahlsell.*`, for about an hour. The patched jar is a release
