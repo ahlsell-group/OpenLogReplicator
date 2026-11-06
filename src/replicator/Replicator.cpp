@@ -199,8 +199,10 @@ namespace OpenLogReplicator {
                     if (metadata->firstSchemaScn != Scn::none())
                         ctx->info(0, "first schema SCN: " + metadata->firstSchemaScn.toString());
 
-                    if (metadata->firstDataScn == Scn::none() || metadata->sequence == Seq::none())
+                    if (metadata->firstDataScn == Scn::none() || metadata->sequence == Seq::none()) {
+                        metadata->dormantSeed.clear();
                         positionReader();
+                    }
 
                     // No schema available?
                     if (metadata->schema->scn == Scn::none())
@@ -211,6 +213,8 @@ namespace OpenLogReplicator {
 
                     if (metadata->sequence == Seq::none())
                         throw BootException(10028, "starting sequence is unknown");
+
+                    seedDormantTransactions();
 
                     if (metadata->firstDataScn == Scn::none())
                         ctx->info(0, "last confirmed scn: <none>, starting sequence: " + metadata->sequence.toString() + ", offset: " +
@@ -289,6 +293,20 @@ namespace OpenLogReplicator {
             ss << std::this_thread::get_id();
             ctx->logTrace(Ctx::TRACE::THREADS, "replicator (" + ss.str() + ") stop");
         }
+    }
+
+    // Transactions the checkpoint recorded as dormant whose begin lies before the starting position: recreated as if their
+    // begin had been read
+    void Replicator::seedDormantTransactions() {
+        if (metadata->dormantSeed.empty())
+            return;
+
+        const DormantTransaction& oldest = metadata->dormantSeed.front();
+        for (const DormantTransaction& dormant: metadata->dormantSeed)
+            static_cast<void>(transactionBuffer->seedDormant(metadata->schema->xmlCtxDefault, dormant));
+        ctx->info(0, "recreated " + std::to_string(metadata->dormantSeed.size()) + " dormant transaction(s), oldest xid: " +
+                  oldest.xid.toString() + " begin scn: " + oldest.beginScn.toString() + " seq: " + oldest.beginSequence.toString());
+        metadata->dormantSeed.clear();
     }
 
     Reader* Replicator::readerCreate(int group) {

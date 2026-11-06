@@ -23,6 +23,10 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <rapidjson/document.h>
 #include <rapidjson/error/en.h>
 
+#include <memory>
+#include <vector>
+
+#include "../common/DormantTransaction.h"
 #include "Serializer.h"
 
 #define SERIALIZER_ENDL     <<'\n'
@@ -33,6 +37,10 @@ namespace OpenLogReplicator {
 
     class SerializerJson final : public Serializer {
     protected:
+        static void serializeDormant(const Metadata* metadata, std::ostringstream& ss);
+        static void deserializeDormant(const Metadata* metadata, const std::string& fileName, const rapidjson::Value& document,
+                                       const rapidjson::Value& dormantJson, Seq& dormantSequence, FileOffset& dormantFileOffset,
+                                       std::vector<DormantTransaction>& dormantSeed);
         static void deserializeSysCCol(const Metadata* metadata, const std::string& fileName, const rapidjson::Value& sysCColJson);
         static void deserializeSysCDef(Metadata* metadata, const std::string& fileName, const rapidjson::Value& sysCDefJson);
         static void deserializeSysCol(Metadata* metadata, const std::string& fileName, const rapidjson::Value& sysColJson);
