@@ -98,6 +98,7 @@ namespace {
 
     constexpr typeObj FILTERED = 77;
     constexpr typeObj OTHER = 88;
+    constexpr typeObj DICTIONARY = 18;
 
     struct Env {
         Ctx ctx;
@@ -107,6 +108,7 @@ namespace {
         std::unique_ptr<TransactionBuffer> buffer;
         std::unique_ptr<Parser> parser;
         DbTable* table;
+        DbTable* dictionary;
 
         explicit Env(uint flags = 0) {
             ctx.parserThread = &thread;
@@ -118,6 +120,10 @@ namespace {
             table->addColumn(new DbColumn(1, -1, 1, "ID", SysCol::COLTYPE::VARCHAR, 10, -1, -1, 0, 1, false, false, false, false, false, false,
                                           false, false, false));
             metadata->schema->tablePartitionMap.insert_or_assign(FILTERED, table);
+            dictionary = new DbTable(DICTIONARY, DICTIONARY, 100, 0, DbTable::OPTIONS::SYSTEM_TABLE, "SYS", "OBJ$");
+            dictionary->addColumn(new DbColumn(1, -1, 1, "OBJ#", SysCol::COLTYPE::NUMBER, 22, -1, -1, 0, 1, false, false, false, false, false,
+                                               false, false, false, false));
+            metadata->schema->tablePartitionMap.insert_or_assign(DICTIONARY, dictionary);
             buffer = std::make_unique<TransactionBuffer>(&ctx);
             parser = std::make_unique<Parser>(&ctx, nullptr, metadata.get(), buffer.get(), 0, "test");
         }
@@ -130,6 +136,7 @@ namespace {
             ctx.swapChunks.clear();
             metadata->schema->tablePartitionMap.clear();
             delete table;
+            delete dictionary;
         }
 
         void dml(Xid xid, uint16_t op, typeObj obj, typeConId conId = 0) {
@@ -237,6 +244,34 @@ int main() {
         rb.r.slt = 1;
         const std::string err = captureStderr([&] { ParserTestAccess::rollback(*env.parser, &rb.r); });
         check("partial rollback of an unknown xid: 60010 as before, not 60011", count(err, "60010") == 1 && count(err, "60011") == 0);
+    }
+    {
+        // A dictionary change committed between the first schema SCN and the first data SCN is applied to the schema by
+        // OLR (appendToTransactionCommit); lost, it leaves the schema behind
+        Env env;
+        env.metadata->firstSchemaScn = Scn(400);
+        env.dml(A, 0x0B05, DICTIONARY);
+        check("dictionary change committed after the first schema scn, before the first data scn: reported",
+              count(env.commit(A, 450), "60011") == 1);
+        env.dml(B, 0x0B05, DICTIONARY);
+        check("dictionary change committed before the first schema scn: silent", count(env.commit(B, 350), "60011") == 0);
+        const Xid c(5, 3, 300);
+        env.dml(c, 0x0B02, FILTERED);
+        check("rows committed after the first schema scn but before the first data scn: silent", count(env.commit(c, 450), "60011") == 0);
+    }
+    {
+        // Rows rolled back to a savepoint, then the commit: reported although nothing committed is lost (OLR can't tell
+        // without the rows); the undo itself gives 60010 as before
+        Env env;
+        env.dml(A, 0x0B02, FILTERED);
+        Record rb(0x0506, Xid(5, 1, 0), FILTERED);
+        rb.r.opc = 0x0B01;
+        rb.r.flg = OpCode::FLG_USERUNDODDONE;
+        rb.r.usn = 5;
+        rb.r.slt = 1;
+        const std::string undo = captureStderr([&] { ParserTestAccess::rollback(*env.parser, &rb.r); });
+        check("rolled back to a savepoint then committed: 60010 for the undo, 60011 at the commit",
+              count(undo, "60010") == 1 && count(env.commit(A, 600), "60011") == 1);
     }
     {
         Env env(static_cast<uint>(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS));

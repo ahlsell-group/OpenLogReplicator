@@ -922,35 +922,44 @@ namespace OpenLogReplicator {
 
     // A change for a transaction OLR has not seen begin (without flag 1024 none is created for it): remembered when it is
     // one OLR would have sent (a table in the filter or the dictionary, a LOB of one, DDL with SHOW_DDL), so its commit can
-    // be reported. alwaysRelevant: no table lookup needed.
+    // be reported, with whether it changed a dictionary table. alwaysRelevant: relevant without a table in the dictionary.
     void Parser::noteUnknown(const RedoLogRecord* redoLogRecord1, typeObj obj, bool alwaysRelevant) {
         if (redoLogRecord1->xid.sqn() == 0 || (metadata->conId > 0 && redoLogRecord1->conId != metadata->conId))
             return;
-        if (transactionBuffer->unknownXids.find(redoLogRecord1->xid) != transactionBuffer->unknownXids.end())
+        const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
+        if (it != transactionBuffer->unknownXids.end() && it->second)
             return;
-        if (!alwaysRelevant) {
-            const DbTable* table;
+        const DbTable* table = nullptr;
+        if (obj != 0) {
             ctx->parserThread->contextSet(Thread::CONTEXT::TRAN);
             {
                 std::unique_lock const lckTransaction(metadata->mtxTransaction);
                 table = metadata->schema->checkTableDict(obj);
             }
             ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
-            if (table == nullptr)
-                return;
         }
-        transactionBuffer->unknownXids.insert(redoLogRecord1->xid);
+        if (table == nullptr && !alwaysRelevant)
+            return;
+        const bool system = table != nullptr && DbTable::isSystemTable(table->options);
+        if (it != transactionBuffer->unknownXids.end())
+            it->second = system;
+        else
+            transactionBuffer->unknownXids.emplace(redoLogRecord1->xid, system);
     }
 
     // Commit of a transaction OLR has not seen begin. Loud when it changed something OLR would have sent and is itself to
-    // be sent (commit at or after the first data SCN, not a rollback); a cold start has already named the transactions
-    // open at the start it can't read (60011 at startup).
+    // be applied, by the rule of appendToTransactionCommit: at or after the first data SCN, or for a dictionary change after
+    // the first schema SCN (a lost schema change), not a rollback. A cold start has already named the transactions open at
+    // the start it can't read (60011 at startup).
     void Parser::checkUnknownCommit(const RedoLogRecord* redoLogRecord1) {
         const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
         if (likely(it == transactionBuffer->unknownXids.end()))
             return;
+        const bool system = it->second;
         transactionBuffer->unknownXids.erase(it);
-        if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || redoLogRecord1->scn < metadata->firstDataScn ||
+        const bool applied = system ? redoLogRecord1->scn > metadata->firstSchemaScn || redoLogRecord1->scn >= metadata->firstDataScn
+                                    : redoLogRecord1->scn >= metadata->firstDataScn;
+        if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || !applied ||
             metadata->coldStartLostXids.find(redoLogRecord1->xid) != metadata->coldStartLostXids.end())
             return;
         ctx->warning(60011, "skipping transaction with no beginning, changes committed after the starting scn are lost: xid: " +
