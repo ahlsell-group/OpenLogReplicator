@@ -146,6 +146,9 @@ namespace OpenLogReplicator {
             return;
         }
 
+        // A recreated transaction held only session records, which were before the start: nothing to roll back
+        if (recreated && !relevant && opCodes == 0)
+            return;
         ctx->warning(70004, "rollback failed for " + std::to_string(redoLogRecord1->opCode) + " empty buffer, offset: " +
                      redoLogRecord1->fileOffset.toString() + ", xid: " + xid.toString() + ", pos: 2");
     }
@@ -195,6 +198,8 @@ namespace OpenLogReplicator {
             return;
         }
 
+        if (recreated && !relevant && opCodes == 0)
+            return;
         metadata->ctx->warning(70004, "rollback failed for " + std::to_string(redoLogRecord1->opCode) +
                                " empty buffer, offset: " + redoLogRecord1->fileOffset.toString() + ", xid: " + xid.toString() + ", pos: 1");
     }

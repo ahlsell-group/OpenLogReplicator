@@ -53,9 +53,13 @@ The checkpoint keeps `min-tran` unchanged (classic position) and gets an optiona
 `seq`/`offset` is the restart position (`xid` only when a transaction pins it), `fingerprint` is FNV-1a over `flags`, `transaction-max-mb`, the debug table and the `filter` object of the configuration.
 A checkpoint without the object always means the classic position: the option was off, or nothing was dormant, or the restart position was not later than `min-tran`.
 
+A filter change by a configuration reload at runtime bumps a generation: every transaction open at that moment is treated as not dormant from then on (it may hold changes the old filter skipped), state computed before the change is discarded, and the new fingerprint is used.
+
 == Fallback to min-tran
 
 The restart uses `min-tran` and recreates nothing when:
+
+* the checkpoint, including its schema (its own or the one named by `schema-ref-scn`), did not load completely, or `flags` has ADAPTIVE_SCHEMA (INFO "schema not loaded from the checkpoint, not restarting past dormant transactions"); the position past the dormant transactions is applied only at the end of a successful `Metadata::readCheckpoint`;
 
 * the option is off (INFO "has dormant transactions, restart past them is off");
 * the fingerprint differs, i.e. the filter, flags, `transaction-max-mb` or debug table changed (INFO "filter or flags changed since the checkpoint"): a table added to the filter may hold rows a dormant transaction wrote before the checkpoint;
@@ -63,6 +67,14 @@ The restart uses `min-tran` and recreates nothing when:
 * the checkpoint has no `dormant-tran`.
 
 An unknown attribute name in the list rejects the checkpoint file (error 20003), like any unknown field.
+
+== Safety net (warning 60061)
+
+After a start past dormant transactions every transaction open at the checkpoint was either recreated or has its begin read again.
+A commit (not a rollback) of a transaction OpenLogReplicator does not know, at or after the first data SCN, in the replicated container and not in the skip list, therefore means the dormant state was wrong: WARN 60061 names the xid and SCN and the `transactions_commit_partial` metric counts it.
+Without the option such a commit is dropped silently (flag 1024 unset) or with 60011 (flag 1024 set).
+It does not fire for transactions that began before the start position and committed before the first data SCN (they are not sent anyway; a commit at or after the SCN of the computation LWN pins the position through the committed begins), for rollbacks, for other containers, for transactions in the skip list or dropped by `transaction-max-mb`, or for a slot reused after a recreated transaction committed (its commit is read again first).
+
 
 == Compatibility
 
@@ -72,6 +84,8 @@ Every older checkpoint is safe for them: `min-tran` is always the full classic p
 If no checkpoint without the field is kept, the old version cold-starts (low watermark from `V$TRANSACTION`, bounded by `cold-start-max-age-s`, and a fresh dictionary read).
 With `disable-checks` bit JSON_TAGS an old version ignores the field and restarts from `min-tran`, which is correct.
 To go back to an older version without the cold start, run with `dormant-transactions-max: 0` until one checkpoint is written.
+If that is not possible (the new version does not start), start the older version with reader `"disable-checks": 8` (JSON_TAGS): it then ignores unknown names in checkpoint and configuration files, reads `min-tran` and starts from the classic position, which is correct (tested with `restart/dormant-downgrade-disable-checks`). Remove the setting once it has written its own checkpoints: it also hides typos in the configuration.
+Without either, the older version cold-starts if no checkpoint without the field is kept; the cold start's low watermark (`V$TRANSACTION`, bounded by `cold-start-max-age-s`) covers transactions open at that moment, older ones are lost with 60011 (flag 1024) or silently.
 * Toggling: on to off ignores the field (restart from `min-tran`); off to on finds checkpoints without the field (restart from `min-tran`) until the next checkpoint.
 
 == Known limits
@@ -80,6 +94,8 @@ To go back to an older version without the cold start, run with `dormant-transac
 * The size counted against `transaction-max-mb` of a recreated transaction starts at zero; session records before the restart position (a few hundred bytes) are not counted.
 * The checkpoint format has one position, like `min-tran`: one redo thread is assumed (no RAC), as for `committedAtOrAfterLwn`.
 * Transactions created without a begin (flag 1024) are never dormant.
+* A single-record undo (OP 5.6/5.11) against a recreated transaction that never buffered anything is ignored instead of warning 70004 (the session records it could apply to lay before the start).
+* Warnings tied to redo before the start are not repeated: a direct-path load (60042) by a transaction recreated from the checkpoint is not reported again, a classic restart from `min-tran` would report it again.
 * Any LOB index change (OP 26.2, also of a table outside the filter) is buffered and makes a transaction relevant; conservative.
 * A transaction that once buffered rows stays relevant even if they were rolled back to a savepoint.
 * Restart cost is bounded by the oldest relevant transaction, by the oldest orphaned LOB page's possible owners, and by `dormant-transactions-max`, not by the checkpoint distance alone.

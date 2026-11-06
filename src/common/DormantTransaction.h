@@ -22,6 +22,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include <cstdint>
 #include <memory>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <string>
 #include <vector>
 
@@ -55,6 +58,7 @@ namespace OpenLogReplicator {
     // the checkpoint at that LWN and every later one. valid = false: never computed, checkpoints are written without them.
     struct DormantCheckpoint {
         bool valid{false};
+        uint64_t generation{0};
         Seq sequence{Seq::none()};
         FileOffset fileOffset;
         Xid xid;
@@ -83,6 +87,17 @@ namespace OpenLogReplicator {
             hash >>= 4;
         }
         return out;
+    }
+
+    inline std::string dormantFingerprint(uint flags, uint64_t transactionSizeMax, const std::string& debugOwner, const std::string& debugTable,
+                                          const rapidjson::Value* filter) {
+        rapidjson::StringBuffer filterBuffer;
+        if (filter != nullptr) {
+            rapidjson::Writer<rapidjson::StringBuffer> filterWriter(filterBuffer);
+            filter->Accept(filterWriter);
+        }
+        return dormantFingerprint("1|flags:" + std::to_string(flags) + "|transaction-max:" + std::to_string(transactionSizeMax) + "|debug:" +
+                                  debugOwner + "." + debugTable + "|filter:" + filterBuffer.GetString());
     }
 }
 

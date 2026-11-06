@@ -45,9 +45,6 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <utility>
 #include <unistd.h>
 
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-
 #include "builder/BuilderJson.h"
 #include "common/Ctx.h"
 #include "common/DormantTransaction.h"
@@ -1075,16 +1072,8 @@ namespace OpenLogReplicator {
                 replicator->metadata->logArchiveFormat = Ctx::getJsonFieldS(configFileName, DbTable::VPARAMETER_LENGTH, readerJson, "log-archive-format");
             }
 
-            {
-                rapidjson::StringBuffer filterBuffer;
-                if (sourceJson.HasMember("filter")) {
-                    rapidjson::Writer<rapidjson::StringBuffer> filterWriter(filterBuffer);
-                    sourceJson["filter"].Accept(filterWriter);
-                }
-                metadata->dormantFingerprint = dormantFingerprint("1|flags:" + std::to_string(ctx->flags) + "|transaction-max:" +
-                                                                  std::to_string(ctx->transactionSizeMax) + "|debug:" + debugOwner + "." +
-                                                                  debugTable + "|filter:" + filterBuffer.GetString());
-            }
+            metadata->dormantFingerprint = dormantFingerprint(ctx->flags, ctx->transactionSizeMax, debugOwner, debugTable,
+                                                              sourceJson.HasMember("filter") ? &sourceJson["filter"] : nullptr);
 
             metadata->commitElements();
             replicators.push_back(replicator);

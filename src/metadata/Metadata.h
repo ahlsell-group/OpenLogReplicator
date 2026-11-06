@@ -140,7 +140,15 @@ namespace OpenLogReplicator {
         // transactions to recreate on start (from the checkpoint read)
         DormantCheckpoint dormant;
         std::string dormantFingerprint;
+        // Bumped when the filter changes at runtime: the parser then treats every open transaction as not dormant, and
+        // state computed before is not used
+        std::atomic<uint64_t> dormantGeneration{0};
         std::vector<DormantTransaction> dormantSeed;
+        Seq dormantPendingSequence{Seq::none()};
+        FileOffset dormantPendingFileOffset;
+        std::vector<DormantTransaction> dormantPendingSeed;
+        // Set when the start uses a dormant position: a commit of a transaction OLR does not know is then a loss (60061)
+        bool dormantRestart{false};
         uint64_t schemaInterval{0};
         std::set<Scn> checkpointScnList;
         std::unordered_map<Scn, bool> checkpointSchemaMap;
@@ -186,6 +194,7 @@ namespace OpenLogReplicator {
                         uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn,
                         DormantCheckpoint* newDormant = nullptr);
         void writeCheckpoint(Thread* t, bool force);
+        void changeDormantFingerprint(Thread* t, const std::string& newFingerprint);
         // An interval of 0 disables that trigger
         static bool checkpointIntervalDue(uint64_t elapsedS, uint64_t elapsedMb, uint64_t intervalS, uint64_t intervalMb) {
             return (intervalS > 0 && elapsedS >= intervalS) || (intervalMb > 0 && elapsedMb >= intervalMb);
@@ -193,6 +202,8 @@ namespace OpenLogReplicator {
         void readCheckpoints();
         void readCheckpoint(Scn scn);
         bool readCheckpointPosition(const std::string& name, Scn& positionScn) const;
+        void applyDormantRestart(const std::string& fileName);
+        void dropDormantPending(const std::string& fileName);
         void deleteOldCheckpoints(Thread* t);
         void loadAdaptiveSchema();
         void allowCheckpoints();

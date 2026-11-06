@@ -366,9 +366,16 @@ namespace OpenLogReplicator {
         dormant.valid = true;
     }
 
+    // After a filter change at runtime: what an open transaction did before it was judged by the old filter
+    void TransactionBuffer::pinOpenTransactions() {
+        for (const auto& [_, transaction]: xidTransactionMap)
+            transaction->relevant = true;
+    }
+
     Transaction* TransactionBuffer::seedDormant(XmlCtx* xmlCtx, const DormantTransaction& dormant) {
         Transaction* transaction = findTransaction(xmlCtx, dormant.xid, dormant.conId, dormant.thread, false, true, false);
         transaction->begin = true;
+        transaction->recreated = true;
         transaction->beginSequence = dormant.beginSequence;
         transaction->beginScn = dormant.beginScn;
         transaction->beginTimestamp = dormant.beginTimestamp;

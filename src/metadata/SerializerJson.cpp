@@ -66,7 +66,8 @@ namespace OpenLogReplicator {
                     R"(,"xid":")" << metadata->minXid.toString() << R"("})";
         }
         // Only when it starts later than min-tran; without it a restart starts from min-tran
-        if (metadata->dormant.valid && !metadata->dormant.transactions.empty() && metadata->minSequence != Seq::none() &&
+        if (metadata->dormant.valid && !metadata->dormantFingerprint.empty() && !metadata->dormant.transactions.empty() &&
+            metadata->minSequence != Seq::none() &&
             (metadata->minSequence < metadata->dormant.sequence ||
              (metadata->minSequence == metadata->dormant.sequence && metadata->minFileOffset < metadata->dormant.fileOffset)))
             serializeDormant(metadata, ss);
@@ -629,6 +630,8 @@ namespace OpenLogReplicator {
                                         " is not a multiplication of " + std::to_string(Ctx::MIN_BLOCK_SIZE));
 
                 metadata->dormantSeed.clear();
+                metadata->dormantPendingSequence = Seq::none();
+                metadata->dormantPendingSeed.clear();
                 Seq dormantSequence = Seq::none();
                 FileOffset dormantFileOffset;
                 std::vector<DormantTransaction> dormantSeed;
@@ -757,15 +760,10 @@ namespace OpenLogReplicator {
                     users.clear();
                 }
 
-                if (dormantSequence != Seq::none()) {
-                    metadata->ctx->info(0, "restart past dormant transactions: from seq: " + dormantSequence.toString() + " offset: " +
-                                        dormantFileOffset.toString() + " instead of seq: " + metadata->sequence.toString() + " offset: " +
-                                        metadata->fileOffset.toString() + ", recreating " + std::to_string(dormantSeed.size()) +
-                                        " transaction(s) begun before");
-                    metadata->sequence = dormantSequence;
-                    metadata->fileOffset = dormantFileOffset;
-                    metadata->dormantSeed = std::move(dormantSeed);
-                }
+                // Applied by Metadata::readCheckpoint once the whole checkpoint, schema included, is loaded
+                metadata->dormantPendingSequence = dormantSequence;
+                metadata->dormantPendingFileOffset = dormantFileOffset;
+                metadata->dormantPendingSeed = std::move(dormantSeed);
             }
 
             if (loadSchema) {

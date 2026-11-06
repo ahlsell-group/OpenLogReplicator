@@ -404,8 +404,24 @@ namespace OpenLogReplicator {
             minFileOffset = newMinFileOffset;
             minXid = newMinXid;
             checkpointPositionScn = newPositionScn;
-            if (newDormant != nullptr)
-                std::swap(dormant, *newDormant);
+            if (newDormant != nullptr) {
+                if (newDormant->generation == dormantGeneration)
+                    std::swap(dormant, *newDormant);
+                else
+                    dormant.valid = false;
+            }
+        }
+        t->contextSet(Thread::CONTEXT::CPU);
+    }
+
+    // Empty newFingerprint: a change is under way, no dormant state is written until the next call
+    void Metadata::changeDormantFingerprint(Thread* t, const std::string& newFingerprint) {
+        {
+            t->contextSet(Thread::CONTEXT::CHKPT, Thread::REASON::CHKPT);
+            std::unique_lock const lck(mtxCheckpoint);
+            ++dormantGeneration;
+            dormant.valid = false;
+            dormantFingerprint = newFingerprint;
         }
         t->contextSet(Thread::CONTEXT::CPU);
     }
@@ -632,10 +648,13 @@ namespace OpenLogReplicator {
             sequence = Seq::none();
             return;
         }
+        dormantPendingSequence = Seq::none();
+        dormantPendingSeed.clear();
         if (!serializer->deserialize(this, ss, name1, msgs, tablesUpdated, true, true)) {
             for (const auto& [_, tableName]: tablesUpdated) {
                 ctx->info(0, tableName);
             }
+            dropDormantPending(name1);
             return;
         }
 
@@ -650,6 +669,7 @@ namespace OpenLogReplicator {
         if (schema->scn == Scn::none()) {
             if (schema->refScn == Scn::none()) {
                 ctx->warning(60019, "file: " + name1 + " - load checkpoint failed, reference SCN missing");
+                dropDormantPending(name1);
                 return;
             }
 
@@ -657,13 +677,16 @@ namespace OpenLogReplicator {
             const std::string name2(database + "-chkpt-" + schema->refScn.toString());
             ctx->info(0, "reading schema for " + database + " for scn: " + schema->refScn.toString());
 
-            if (!stateRead(name2, CHECKPOINT_SCHEMA_FILE_MAX_SIZE, ss))
+            if (!stateRead(name2, CHECKPOINT_SCHEMA_FILE_MAX_SIZE, ss)) {
+                dropDormantPending(name1);
                 return;
+            }
 
             if (!serializer->deserialize(this, ss, name2, msgs, tablesUpdated, false, true)) {
                 for (const auto& msg: msgs) {
                     ctx->info(0, msg);
                 }
+                dropDormantPending(name1);
                 return;
             }
 
@@ -677,6 +700,34 @@ namespace OpenLogReplicator {
 
         if (schema->scn != Scn::none())
             firstSchemaScn = schema->scn;
+        applyDormantRestart(name1);
+    }
+
+    void Metadata::dropDormantPending(const std::string& fileName) {
+        if (dormantPendingSequence == Seq::none())
+            return;
+        ctx->info(0, "file: " + fileName + " - schema not loaded from the checkpoint, not restarting past dormant transactions");
+        dormantPendingSequence = Seq::none();
+        dormantPendingSeed.clear();
+    }
+
+    // Only after the whole checkpoint, its schema (own or referenced) included, loaded; otherwise the start stays at min-tran
+    void Metadata::applyDormantRestart(const std::string& fileName) {
+        if (dormantPendingSequence == Seq::none())
+            return;
+        if (schema->scn == Scn::none() || ctx->isFlagSet(Ctx::REDO_FLAGS::ADAPTIVE_SCHEMA)) {
+            dropDormantPending(fileName);
+            return;
+        }
+        ctx->info(0, "restart past dormant transactions: from seq: " + dormantPendingSequence.toString() + " offset: " +
+                  dormantPendingFileOffset.toString() + " instead of seq: " + sequence.toString() + " offset: " + fileOffset.toString() +
+                  ", recreating " + std::to_string(dormantPendingSeed.size()) + " transaction(s) begun before");
+        sequence = dormantPendingSequence;
+        fileOffset = dormantPendingFileOffset;
+        dormantSeed = std::move(dormantPendingSeed);
+        dormantPendingSeed.clear();
+        dormantPendingSequence = Seq::none();
+        dormantRestart = true;
     }
 
     void Metadata::deleteOldCheckpoints(Thread* t) {

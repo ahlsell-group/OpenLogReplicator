@@ -952,8 +952,13 @@ namespace OpenLogReplicator {
     // change after the first schema SCN (a lost schema change), not a rollback. A cold start has already named the transactions open at
     // the start it can't read (60011 at startup).
     void Parser::checkUnknownCommit(const RedoLogRecord* redoLogRecord1) {
+        bool changed = false;
         const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
-        if (likely(it == transactionBuffer->unknownXids.end()))
+        if (it != transactionBuffer->unknownXids.end()) {
+            transactionBuffer->unknownXids.erase(it);
+            changed = true;
+        }
+        if (likely(!changed && !metadata->dormantRestart))
             return;
         const bool system = it->second;
         transactionBuffer->unknownXids.erase(it);
@@ -961,10 +966,19 @@ namespace OpenLogReplicator {
         if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || !applied ||
             metadata->coldStartLostXids.find(redoLogRecord1->xid) != metadata->coldStartLostXids.end())
             return;
-        ctx->warning(60011, "skipping transaction with no beginning, changes committed after the starting scn are lost: xid: " +
-                     redoLogRecord1->xid.toString() + " commit-scn: " + redoLogRecord1->scn.toString() + " commit-seq: " +
-                     redoLogRecord1->sequence.toString());
-        ctx->hint("start from a checkpoint or with an earlier start-seq to read the whole transaction");
+        if (metadata->dormantRestart) {
+            ctx->warning(60061, "commit of transaction " + redoLogRecord1->xid.toString() + " at scn " + redoLogRecord1->scn.toString() +
+                         " which was not recreated after the restart past dormant transactions, its changes are lost");
+            ctx->hint("restart with state.dormant-transactions-max 0 from a checkpoint before scn " + redoLogRecord1->scn.toString() +
+                      " and report this");
+        } else {
+            if (metadata->coldStartLostXids.find(redoLogRecord1->xid) != metadata->coldStartLostXids.end())
+                return;
+            ctx->warning(60011, "skipping transaction with no beginning, changes committed after the starting scn are lost: xid: " +
+                         redoLogRecord1->xid.toString() + " commit-scn: " + redoLogRecord1->scn.toString() + " commit-seq: " +
+                         redoLogRecord1->sequence.toString());
+            ctx->hint("start from a checkpoint or with an earlier start-seq to read the whole transaction");
+        }
         if (ctx->metrics != nullptr)
             ctx->metrics->emitTransactionsCommitPartial(1);
     }
@@ -1644,9 +1658,16 @@ namespace OpenLogReplicator {
                         transactionBuffer->checkpoint(lwnScn, minSequence, minFileOffset, minXid);
                         // At most once per second of redo; the last result stays valid for later checkpoints
                         DormantCheckpoint* dormant = nullptr;
+                        const uint64_t dormantGeneration = metadata->dormantGeneration.load();
+                        if (ctx->dormantTransactionsMax > 0 && dormantGeneration != transactionBuffer->dormantGeneration) {
+                            transactionBuffer->pinOpenTransactions();
+                            transactionBuffer->dormantGeneration = dormantGeneration;
+                            dormantComputed = false;
+                        }
                         if (ctx->dormantTransactionsMax > 0 && (!dormantComputed || lwnTimestamp.getVal() != dormantComputedAt)) {
                             transactionBuffer->checkpointDormant(ctx->dormantTransactionsMax, sequence, FileOffset(currentBlock, reader->getBlockSize()),
                                                                  dormantCheckpoint);
+                            dormantCheckpoint.generation = dormantGeneration;
                             dormantComputed = true;
                             dormantComputedAt = lwnTimestamp.getVal();
                             dormant = &dormantCheckpoint;

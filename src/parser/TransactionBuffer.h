@@ -100,6 +100,8 @@ namespace OpenLogReplicator {
             return committedAtOrAfterLwn.size();
         }
         void checkpoint(Scn checkpointScn, Seq& minSequence, FileOffset& minFileOffset, Xid& minXid);
+        uint64_t dormantGeneration{0};
+        void pinOpenTransactions();
         void checkpointDormant(uint64_t dormantMax, Seq checkpointSequence, FileOffset checkpointFileOffset, DormantCheckpoint& dormant);
         Transaction* seedDormant(XmlCtx* xmlCtx, const DormantTransaction& dormant);
         void addOrphanedLob(RedoLogRecord* redoLogRecord1);

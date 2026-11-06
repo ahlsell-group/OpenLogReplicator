@@ -69,6 +69,8 @@ namespace OpenLogReplicator {
         bool dump{false};
         // Set once the transaction buffered anything but session information; never reset
         bool relevant{false};
+        // Recreated on start from a checkpoint (dormant), its begin was not read
+        bool recreated{false};
         typeTransactionSize size{0};
         uint16_t thread;
 

@@ -28,6 +28,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/exception/ConfigurationException.h"
 #include "../common/exception/RuntimeException.h"
 #include "../common/DbTable.h"
+#include "../common/DormantTransaction.h"
 #include "../common/table/SysObj.h"
 #include "../common/table/SysUser.h"
 #include "Checkpoint.h"
@@ -131,6 +132,7 @@ namespace OpenLogReplicator {
                                          " elements, expected: 1 element");
         }
 
+        std::string newDormantFingerprint;
         for (rapidjson::SizeType j = 0; j < sourceArrayJson.Size(); ++j) {
             const rapidjson::Value& sourceJson = Ctx::getJsonFieldO(configFileName, sourceArrayJson, "source", j);
 
@@ -179,6 +181,9 @@ namespace OpenLogReplicator {
                     ctx->info(0, "will shutdown after committed DML in " + debugOwner + "." + debugTable);
                 }
             }
+
+            newDormantFingerprint = dormantFingerprint(ctx->flags, ctx->transactionSizeMax, debugOwner, debugTable,
+                                                       sourceJson.HasMember("filter") ? &sourceJson["filter"] : nullptr);
 
             std::set<std::string> users;
             if (!debugOwner.empty() && !debugTable.empty()) {
@@ -245,6 +250,11 @@ namespace OpenLogReplicator {
             }
         }
 
+        // Open transactions were judged by the old filter: no dormant state across the change, before and after it
+        const bool dormantChange = newDormantFingerprint != metadata->dormantFingerprint;
+        if (dormantChange)
+            metadata->changeDormantFingerprint(this, "");
+
         ctx->info(0, "scanning objects which match the configuration file");
         // Suspend transaction processing for the schema update
         {
@@ -268,6 +278,12 @@ namespace OpenLogReplicator {
             metadata->schema->resetTouched();
         }
         contextSet(CONTEXT::CPU);
+
+        if (dormantChange) {
+            metadata->changeDormantFingerprint(this, newDormantFingerprint);
+            if (ctx->dormantTransactionsMax > 0)
+                ctx->info(0, "filter changed: transactions open now are not restarted past (dormant)");
+        }
     }
 
     void Checkpoint::run() {
