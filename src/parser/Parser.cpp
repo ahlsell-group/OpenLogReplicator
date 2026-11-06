@@ -951,14 +951,28 @@ namespace OpenLogReplicator {
     // be applied, by the rule of appendToTransactionCommit: sent by its position (Builder::isDataCommit), or for a dictionary
     // change after the first schema SCN (a lost schema change), not a rollback. A cold start has already named the transactions open at
     // the start it can't read (60011 at startup).
+    // After a start past dormant transactions, a transaction the checkpoint named (dormant or pinned) was recreated or had
+    // its begin read again: its unknown commit means the dormant state was wrong (60061, whatever it changed). Other
+    // unknown transactions were unknown before the checkpoint already (e.g. lost at an earlier cold start): 60011 as above.
     void Parser::checkUnknownCommit(const RedoLogRecord* redoLogRecord1) {
-        bool changed = false;
-        const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
-        if (it != transactionBuffer->unknownXids.end()) {
-            transactionBuffer->unknownXids.erase(it);
-            changed = true;
+        if (unlikely(metadata->dormantRestart) &&
+            metadata->dormantKnownXids.find(redoLogRecord1->xid) != metadata->dormantKnownXids.end()) {
+            transactionBuffer->unknownXids.erase(redoLogRecord1->xid);
+            if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || redoLogRecord1->scn < metadata->firstDataScn ||
+                (metadata->conId > 0 && redoLogRecord1->conId != metadata->conId))
+                return;
+            ctx->warning(60061, "commit of transaction " + redoLogRecord1->xid.toString() + " at scn " + redoLogRecord1->scn.toString() +
+                         " which the checkpoint names but was not recreated after the restart past dormant transactions, its changes "
+                         "are lost");
+            ctx->hint("restart with state.dormant-transactions-max 0 from a checkpoint before scn " + redoLogRecord1->scn.toString() +
+                      " and report this");
+            if (ctx->metrics != nullptr)
+                ctx->metrics->emitTransactionsCommitPartial(1);
+            return;
         }
-        if (likely(!changed && !metadata->dormantRestart))
+
+        const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
+        if (likely(it == transactionBuffer->unknownXids.end()))
             return;
         const bool system = it->second;
         transactionBuffer->unknownXids.erase(it);
@@ -966,19 +980,10 @@ namespace OpenLogReplicator {
         if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || !applied ||
             metadata->coldStartLostXids.find(redoLogRecord1->xid) != metadata->coldStartLostXids.end())
             return;
-        if (metadata->dormantRestart) {
-            ctx->warning(60061, "commit of transaction " + redoLogRecord1->xid.toString() + " at scn " + redoLogRecord1->scn.toString() +
-                         " which was not recreated after the restart past dormant transactions, its changes are lost");
-            ctx->hint("restart with state.dormant-transactions-max 0 from a checkpoint before scn " + redoLogRecord1->scn.toString() +
-                      " and report this");
-        } else {
-            if (metadata->coldStartLostXids.find(redoLogRecord1->xid) != metadata->coldStartLostXids.end())
-                return;
-            ctx->warning(60011, "skipping transaction with no beginning, changes committed after the starting scn are lost: xid: " +
-                         redoLogRecord1->xid.toString() + " commit-scn: " + redoLogRecord1->scn.toString() + " commit-seq: " +
-                         redoLogRecord1->sequence.toString());
-            ctx->hint("start from a checkpoint or with an earlier start-seq to read the whole transaction");
-        }
+        ctx->warning(60011, "skipping transaction with no beginning, changes committed after the starting scn are lost: xid: " +
+                     redoLogRecord1->xid.toString() + " commit-scn: " + redoLogRecord1->scn.toString() + " commit-seq: " +
+                     redoLogRecord1->sequence.toString());
+        ctx->hint("start from a checkpoint or with an earlier start-seq to read the whole transaction");
         if (ctx->metrics != nullptr)
             ctx->metrics->emitTransactionsCommitPartial(1);
     }

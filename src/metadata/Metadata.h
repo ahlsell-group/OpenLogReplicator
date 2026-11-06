@@ -147,6 +147,9 @@ namespace OpenLogReplicator {
         Seq dormantPendingSequence{Seq::none()};
         FileOffset dormantPendingFileOffset;
         std::vector<DormantTransaction> dormantPendingSeed;
+        std::set<Xid> dormantPendingKnown;
+        // Transactions the checkpoint of a dormant start names (recreated or begin read again), see Parser::checkUnknownCommit
+        std::set<Xid> dormantKnownXids;
         // Set when the start uses a dormant position: a commit of a transaction OLR does not know is then a loss (60061)
         bool dormantRestart{false};
         uint64_t schemaInterval{0};

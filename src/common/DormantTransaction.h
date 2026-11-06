@@ -63,6 +63,8 @@ namespace OpenLogReplicator {
         FileOffset fileOffset;
         Xid xid;
         std::vector<DormantTransaction> transactions;
+        // The other open transactions (their begin is read again on a start from this state)
+        std::vector<Xid> pinned;
 
         void clear() {
             valid = false;
@@ -70,6 +72,7 @@ namespace OpenLogReplicator {
             fileOffset = FileOffset::zero();
             xid = Xid::zero();
             transactions.clear();
+            pinned.clear();
         }
     };
 

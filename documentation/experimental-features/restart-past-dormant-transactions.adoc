@@ -46,10 +46,12 @@ The checkpoint keeps `min-tran` unchanged (classic position) and gets an optiona
   "list": [
     {"xid": "0x0134.00b.00450290", "con-id": 0, "thread": 1, "seq": 1190, "offset": 1024,
      "scn": 7700123456, "time": 1234567890, "attributes": {"login username": "APP", "session number": "123"}}
-  ]
+  ],
+  "pinned": ["0x0007.01a.0000c3f2"]
 }
 ----
 
+`pinned` names the other transactions open when the state was computed (their begin is read again).
 `seq`/`offset` is the restart position (`xid` only when a transaction pins it), `fingerprint` is FNV-1a over `flags`, `transaction-max-mb`, the debug table and the `filter` object of the configuration.
 A checkpoint without the object always means the classic position: the option was off, or nothing was dormant, or the restart position was not later than `min-tran`.
 
@@ -70,11 +72,12 @@ An unknown attribute name in the list rejects the checkpoint file (error 20003),
 
 == Safety net (warning 60061)
 
-After a start past dormant transactions every transaction open at the checkpoint was either recreated or has its begin read again.
-A commit (not a rollback) of a transaction OpenLogReplicator does not know, at or after the first data SCN, in the replicated container and not in the skip list, therefore means the dormant state was wrong: WARN 60061 names the xid and SCN and the `transactions_commit_partial` metric counts it.
-Without the option such a commit gives 60011 when the transaction changed something OpenLogReplicator sends (fix/loud-unknown-transaction), with or without flag 1024; after a start past dormant transactions 60061 is logged instead of that 60011, also when the transaction changed nothing sent.
-It does not fire for transactions that began before the start position and committed before the first data SCN (they are not sent anyway; a commit at or after the SCN of the computation LWN pins the position through the committed begins), for rollbacks, for other containers, for transactions in the skip list or dropped by `transaction-max-mb`, or for a slot reused after a recreated transaction committed (its commit is read again first).
+After a start past dormant transactions every transaction the checkpoint names (in `list` or `pinned`) was either recreated or has its begin read again.
+A commit (not a rollback) of such a transaction that OpenLogReplicator does not know, at or after the first data SCN and in the replicated container, therefore means the dormant state was wrong: WARN 60061 names the xid and SCN and the `transactions_commit_partial` metric counts it, whatever the transaction changed.
+Any other unknown transaction was unknown before the checkpoint already, for example one a cold start of an earlier run could not read; the restart is not to blame. It follows the general rule of fix/loud-unknown-transaction: 60011 at its commit when it changed something OpenLogReplicator sends (with or without flag 1024), silence otherwise. A transaction named lost at the cold start of the same process is not reported again; after a restart that list is gone, so such a transaction is reported once more with 60011 if it changed something sent.
+It does not fire for rollbacks, for commits below the first data SCN (they are not sent anyway), for other containers, for transactions in the skip list or dropped by `transaction-max-mb`, or for a slot reused after a recreated transaction committed (its commit is read again first, and the reused slot has another xid).
 
+Warning 60010 ("no match found for transaction rollback") can appear after any restart, with or without the option: a single-record undo (OP 5.6/5.11) of a transaction OpenLogReplicator does not know, in practice an Oracle background transaction or one of another container (that code path has no container filter). It is base behaviour, logged once per slot, and says nothing about the dormant state; the scenarios allow it.
 
 == Compatibility
 

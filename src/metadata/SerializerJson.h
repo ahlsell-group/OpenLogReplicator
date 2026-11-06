@@ -24,6 +24,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <rapidjson/error/en.h>
 
 #include <memory>
+#include <set>
 #include <vector>
 
 #include "../common/DormantTransaction.h"
@@ -40,7 +41,7 @@ namespace OpenLogReplicator {
         static void serializeDormant(const Metadata* metadata, std::ostringstream& ss);
         static void deserializeDormant(const Metadata* metadata, const std::string& fileName, const rapidjson::Value& document,
                                        const rapidjson::Value& dormantJson, Seq& dormantSequence, FileOffset& dormantFileOffset,
-                                       std::vector<DormantTransaction>& dormantSeed);
+                                       std::vector<DormantTransaction>& dormantSeed, std::set<Xid>& dormantKnown);
         static void deserializeSysCCol(const Metadata* metadata, const std::string& fileName, const rapidjson::Value& sysCColJson);
         static void deserializeSysCDef(Metadata* metadata, const std::string& fileName, const rapidjson::Value& sysCDefJson);
         static void deserializeSysCol(Metadata* metadata, const std::string& fileName, const rapidjson::Value& sysColJson);

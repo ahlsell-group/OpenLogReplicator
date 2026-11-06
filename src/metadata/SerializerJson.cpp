@@ -635,9 +635,10 @@ namespace OpenLogReplicator {
                 Seq dormantSequence = Seq::none();
                 FileOffset dormantFileOffset;
                 std::vector<DormantTransaction> dormantSeed;
+                std::set<Xid> dormantKnown;
                 if (document.HasMember("dormant-tran"))
                     deserializeDormant(metadata, fileName, document, Ctx::getJsonFieldO(fileName, document, "dormant-tran"), dormantSequence,
-                                       dormantFileOffset, dormantSeed);
+                                       dormantFileOffset, dormantSeed, dormantKnown);
 
                 metadata->minSequence = Seq::none();
                 metadata->minFileOffset = FileOffset::zero();
@@ -764,6 +765,7 @@ namespace OpenLogReplicator {
                 metadata->dormantPendingSequence = dormantSequence;
                 metadata->dormantPendingFileOffset = dormantFileOffset;
                 metadata->dormantPendingSeed = std::move(dormantSeed);
+                metadata->dormantPendingKnown = std::move(dormantKnown);
             }
 
             if (loadSchema) {
@@ -857,19 +859,28 @@ namespace OpenLogReplicator {
             }
             ss << "}}";
         }
+        ss << R"(],"pinned":[)";
+        first = true;
+        for (const Xid xid: dormant.pinned) {
+            if (!first)
+                ss << ",";
+            first = false;
+            ss << R"(")" << xid.toString() << R"(")";
+        }
         ss << "]}";
     }
 
     // Sets dormantSequence only if the restart can start past the dormant transactions; otherwise it starts from min-tran
     void SerializerJson::deserializeDormant(const Metadata* metadata, const std::string& fileName, const rapidjson::Value& document,
                                             const rapidjson::Value& dormantJson, Seq& dormantSequence, FileOffset& dormantFileOffset,
-                                            std::vector<DormantTransaction>& dormantSeed) {
+                                            std::vector<DormantTransaction>& dormantSeed, std::set<Xid>& dormantKnown) {
         Ctx* ctx = metadata->ctx;
         if (!ctx->isDisableChecksSet(Ctx::DISABLE_CHECKS::JSON_TAGS)) {
             static const std::vector<std::string> dormantJsonChildNames{
                 "fingerprint",
                 "list",
                 "offset",
+                "pinned",
                 "seq",
                 "xid"
             };
@@ -937,10 +948,17 @@ namespace OpenLogReplicator {
             }
             transaction.attributes = std::move(attributes);
 
+            dormantKnown.insert(transaction.xid);
             // Its begin is read again: the parser recreates it
             if (!transaction.beginsBefore(sequence, fileOffset))
                 continue;
             seed.push_back(std::move(transaction));
+        }
+
+        if (dormantJson.HasMember("pinned")) {
+            const rapidjson::Value& pinnedJson = Ctx::getJsonFieldA(fileName, dormantJson, "pinned");
+            for (rapidjson::SizeType i = 0; i < pinnedJson.Size(); ++i)
+                dormantKnown.insert(Xid(Ctx::getJsonFieldS(fileName, Ctx::JSON_XID_LENGTH, pinnedJson, "pinned", i)));
         }
 
         dormantSequence = sequence;

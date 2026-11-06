@@ -709,6 +709,7 @@ namespace OpenLogReplicator {
         ctx->info(0, "file: " + fileName + " - schema not loaded from the checkpoint, not restarting past dormant transactions");
         dormantPendingSequence = Seq::none();
         dormantPendingSeed.clear();
+        dormantPendingKnown.clear();
     }
 
     // Only after the whole checkpoint, its schema (own or referenced) included, loaded; otherwise the start stays at min-tran
@@ -726,6 +727,8 @@ namespace OpenLogReplicator {
         fileOffset = dormantPendingFileOffset;
         dormantSeed = std::move(dormantPendingSeed);
         dormantPendingSeed.clear();
+        dormantKnownXids = std::move(dormantPendingKnown);
+        dormantPendingKnown.clear();
         dormantPendingSequence = Seq::none();
         dormantRestart = true;
     }

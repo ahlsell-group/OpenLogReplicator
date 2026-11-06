@@ -333,6 +333,7 @@ namespace OpenLogReplicator {
                 (orphans && (transaction->beginSequence < orphanSequence ||
                              (transaction->beginSequence == orphanSequence && transaction->beginFileOffset <= orphanFileOffset)))) {
                 update(transaction->beginSequence, transaction->beginFileOffset, transaction->xid);
+                dormant.pinned.push_back(transaction->xid);
                 continue;
             }
 
@@ -350,8 +351,10 @@ namespace OpenLogReplicator {
         if (dormant.transactions.size() > dormantMax) {
             std::nth_element(dormant.transactions.begin(), dormant.transactions.begin() + static_cast<std::ptrdiff_t>(dormantMax),
                              dormant.transactions.end(), older);
-            for (auto it = dormant.transactions.begin() + static_cast<std::ptrdiff_t>(dormantMax); it != dormant.transactions.end(); ++it)
+            for (auto it = dormant.transactions.begin() + static_cast<std::ptrdiff_t>(dormantMax); it != dormant.transactions.end(); ++it) {
                 update(it->beginSequence, it->beginFileOffset, it->xid);
+                dormant.pinned.push_back(it->xid);
+            }
             dormant.transactions.resize(dormantMax);
         }
         std::sort(dormant.transactions.begin(), dormant.transactions.end(), older);
