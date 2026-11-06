@@ -36,12 +36,25 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../locales/Locales.h"
 #include "../metadata/Metadata.h"
 #include "../metadata/SerializerJson.h"
+#include "../metadata/Schema.h"
+#include "../common/DbColumn.h"
+#include "../common/DbTable.h"
+#include "../common/table/SysCol.h"
+#include "../parser/OpCode.h"
+#include "../parser/Parser.h"
 #include "../parser/Transaction.h"
 #include "../parser/TransactionBuffer.h"
 
 // The parser's checkpoint step and the restart are driven through TransactionBuffer, Transaction, Metadata and
 // SerializerJson the way Parser and Replicator call them; redo records are empty stubs with only the op codes set.
 using namespace OpenLogReplicator;
+
+namespace OpenLogReplicator {
+    struct ParserTestAccess {
+        static void append(Parser& parser, RedoLogRecord* r1, RedoLogRecord* r2) { parser.appendToTransaction(r1, r2); }
+        static void commit(Parser& parser, RedoLogRecord* r1) { parser.appendToTransactionCommit(r1); }
+    };
+}
 
 namespace {
     int failures = 0;
@@ -155,13 +168,14 @@ namespace {
 
     struct Restart {
         bool ok{false};
+        bool engaged{false};
         Seq sequence{Seq::none()};
         FileOffset fileOffset;
         std::vector<DormantTransaction> seed;
     };
 
     // As Metadata::readCheckpoint on a fresh process
-    Restart readCheckpoint(const std::string& json, uint64_t dormantMax, const std::string& fingerprint) {
+    Restart readCheckpoint(const std::string& json, uint64_t dormantMax, const std::string& fingerprint, bool schemaLoaded = true) {
         Ctx ctx;
         TestThread thread(&ctx);
         ctx.parserThread = &thread;
@@ -175,10 +189,26 @@ namespace {
         std::unordered_map<typeObj, std::string> tablesUpdated;
         Restart restart;
         restart.ok = serializer.deserialize(&metadata, json, "TEST-chkpt-1", msgs, tablesUpdated, true, false);
+        // as Metadata::readCheckpoint after the schema is loaded
+        if (restart.ok && schemaLoaded) {
+            metadata.schema->scn = Scn(1);
+            metadata.applyDormantRestart("TEST-chkpt-1");
+        } else
+            metadata.dropDormantPending("TEST-chkpt-1");
+        restart.engaged = metadata.dormantRestart;
         restart.sequence = metadata.sequence;
         restart.fileOffset = metadata.fileOffset;
         restart.seed = metadata.dormantSeed;
         return restart;
+    }
+
+    // stderr (warnings) of fn
+    template<typename F> std::string captureStderr(F fn) {
+        std::ostringstream captured;
+        std::streambuf* old = std::cerr.rdbuf(captured.rdbuf());
+        fn();
+        std::cerr.rdbuf(old);
+        return captured.str();
     }
 
     bool contains(const std::string& s, const std::string& part) {
@@ -480,6 +510,200 @@ int main() {
         static_cast<void>(env.checkpoint(502));
         check("attributes: new snapshot after a change", d1->attributesSnapshot != first && first->size() == 1 &&
               d1->attributesSnapshot->size() == 2);
+    }
+
+    {
+        // Parser classification: session information alone, a row of a table outside the filter, a row of a filtered table
+        Env env(1000);
+        auto* table = new DbTable(77, 77, 100, 0, DbTable::OPTIONS::DEFAULT, "TEST", "T");
+        table->addColumn(new DbColumn(1, -1, 1, "ID", SysCol::COLTYPE::VARCHAR, 10, -1, -1, 0, 1, false, false, false, false, false, false,
+                                      false, false, false));
+        env.metadata->schema->tablePartitionMap.insert_or_assign(77, table);
+        auto parserPtr = std::make_unique<Parser>(&env.ctx, nullptr, env.metadata.get(), env.buffer.get(), 0, "test");
+        Parser& parser = *parserPtr;
+        Transaction* s = env.begin(D1, 10, 1024, 100);
+        Transaction* u = env.begin(D2, 10, 1536, 101);
+        Transaction* f = env.begin(R1, 10, 2048, 102);
+        Record s1(0x0501, 0), s2(0x0513, 0), u1(0x0501, 88), u2(0x0B05, 88), f1(0x0501, 77), f2(0x0B02, 77);
+        for (auto* r: {&s1.r, &s2.r}) r->xid = D1;
+        for (auto* r: {&u1.r, &u2.r}) r->xid = D2;
+        for (auto* r: {&f1.r, &f2.r}) r->xid = R1;
+        u1.r.dataObj = 88;
+        f1.r.dataObj = 77;
+        ParserTestAccess::append(parser, &s1.r, &s2.r);
+        ParserTestAccess::append(parser, &u1.r, &u2.r);
+        ParserTestAccess::append(parser, &f1.r, &f2.r);
+        check("parser: [5.1, 5.19] buffered, not relevant", s->size > 0 && !s->holdsRestartState());
+        check("parser: [5.1, 11.5] outside the filter not buffered, dormant", u->size == 0 && !u->holdsRestartState());
+        check("parser: [5.1, 11.2] of a filtered table pins", f->size > 0 && f->holdsRestartState());
+        const DormantCheckpoint c = env.checkpoint(500);
+        check("parser: position at the filtered transaction, two dormant", c.sequence == Seq(10) && c.fileOffset == FileOffset(2048) &&
+              c.transactions.size() == 2);
+
+        // Safety net after a start past dormant transactions
+        env.metadata->firstDataScn = Scn(600);
+        Record commit(0x0504);
+        commit.r.xid = Xid(40, 1, 1);
+        commit.r.scn = Scn(700);
+        std::string err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
+        check("net: silent without a dormant restart", !contains(err, "60061"));
+        env.metadata->dormantRestart = true;
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
+        check("net: unknown commit after a dormant restart warns 60061", contains(err, "60061"));
+        commit.r.scn = Scn(599);
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
+        check("net: unknown commit below the first data scn is not reported", !contains(err, "60061"));
+        commit.r.scn = Scn(700);
+        commit.r.flg = OpCode::FLG_ROLLBACK_OP0504;
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
+        check("net: unknown rollback is not reported", !contains(err, "60061"));
+        commit.r.flg = 0;
+        env.metadata->conId = 3;
+        commit.r.conId = 1;
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
+        check("net: commit of another container is not reported", !contains(err, "60061"));
+        env.metadata->conId = 0;
+        commit.r.conId = 0;
+        env.buffer->skipXidList.insert(commit.r.xid);
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
+        check("net: skipped transaction is not reported", !contains(err, "60061"));
+        env.metadata->schema->tablePartitionMap.clear();
+        delete table;
+    }
+
+    {
+        // Rollback record against a recreated transaction that never buffered anything
+        Env env(1000);
+        DormantTransaction d;
+        d.xid = D1;
+        d.thread = 1;
+        d.beginSequence = Seq(10);
+        d.beginFileOffset = FileOffset(1024);
+        Transaction* t = env.buffer->seedDormant(nullptr, d);
+        Record u(0x0B01, 77);
+        std::string err = captureStderr([&] { t->rollbackLastOp(env.metadata.get(), env.buffer.get(), &u.r); });
+        check("rollback: recreated and empty, no 70004", !contains(err, "70004"));
+        Record u2(0x0B03, 77), u3(0x0501, 77);
+        err = captureStderr([&] { t->rollbackLastOp(env.metadata.get(), env.buffer.get(), &u2.r, &u3.r); });
+        check("rollback: recreated and empty, two vectors, no 70004", !contains(err, "70004"));
+        Transaction* n = env.begin(D2, 10, 2048, 110);
+        err = captureStderr([&] { n->rollbackLastOp(env.metadata.get(), env.buffer.get(), &u.r); });
+        check("rollback: not recreated, 70004 as before", contains(err, "70004"));
+    }
+
+    {
+        // Filter changed at runtime
+        Env env(1000);
+        Transaction* d1 = env.begin(D1, 10, 1024, 100);
+        env.session(d1, "U1");
+        DormantCheckpoint before;
+        env.buffer->checkpointDormant(1000, Seq(12), FileOffset(8192), before);
+        before.generation = env.metadata->dormantGeneration;
+        env.metadata->changeDormantFingerprint(&env.thread, "");
+        env.metadata->checkpoint(&env.thread, Scn(500), Time(0), Seq(12), FileOffset(8192), 0, Seq(10), FileOffset(1024), D1, &before);
+        check("reload: state computed before the change is dropped", !env.metadata->dormant.valid);
+        env.metadata->changeDormantFingerprint(&env.thread, "fp-2");
+        env.buffer->pinOpenTransactions();
+        const std::string json = env.writeCheckpoint(510, 12, 8704);
+        check("reload: transactions open at the change pin", !contains(json, "dormant-tran"));
+        Transaction* d2 = env.begin(D2, 12, 9216, 520);
+        env.session(d2, "U2");
+        env.buffer->dormantGeneration = env.metadata->dormantGeneration;
+        Seq ms = Seq::none(); FileOffset mo; Xid mx;
+        env.buffer->checkpoint(Scn(530), ms, mo, mx);
+        DormantCheckpoint after;
+        env.buffer->checkpointDormant(1000, Seq(13), FileOffset(512), after);
+        after.generation = env.metadata->dormantGeneration;
+        env.metadata->checkpoint(&env.thread, Scn(530), Time(0), Seq(13), FileOffset(512), 0, ms, mo, mx, &after);
+        std::ostringstream ss;
+        SerializerJson serializer;
+        serializer.serialize(env.metadata.get(), ss, false);
+        check("reload: a transaction open at the change pins, one begun after it is dormant",
+              env.metadata->dormant.valid && env.metadata->dormant.sequence == Seq(10) && env.metadata->dormant.fileOffset == FileOffset(1024) &&
+              env.metadata->dormant.transactions.size() == 1 && env.metadata->dormant.transactions[0].xid == D2);
+        check("reload: so no dormant-tran (not later than min-tran)", !contains(ss.str(), "dormant-tran"));
+        env.metadata->changeDormantFingerprint(&env.thread, "");
+        std::ostringstream ss2;
+        serializer.serialize(env.metadata.get(), ss2, false);
+        check("reload: nothing written while the change is under way", !contains(ss2.str(), "dormant-tran"));
+    }
+
+    {
+        // Schema of the checkpoint not loaded (referenced file missing, adaptive schema): min-tran, nothing recreated
+        Env env(1000);
+        Transaction* d1 = env.begin(D1, 10, 1024, 100);
+        env.session(d1, "U1");
+        const std::string json = env.writeCheckpoint(500, 12, 8192);
+        const Restart restart = readCheckpoint(json, 1000, "fp-1", false);
+        check("schema not loaded: min-tran", restart.ok && restart.sequence == Seq(10) && restart.seed.empty() && !restart.engaged);
+        check("schema loaded: engaged", readCheckpoint(json, 1000, "fp-1").engaged);
+    }
+
+    {
+        // Max 1 with the oldest transaction relevant: nothing later than min-tran, no field
+        Env env(1);
+        Transaction* r = env.begin(R1, 9, 512, 90);
+        env.insert(r, 77);
+        Transaction* a = env.begin(D1, 10, 1024, 100);
+        env.session(a, "U1");
+        Transaction* b = env.begin(D2, 11, 1024, 110);
+        env.session(b, "U2");
+        check("max 1, oldest relevant: no dormant-tran", !contains(env.writeCheckpoint(500, 12, 8192), "dormant-tran"));
+    }
+
+    {
+        // Dormant at the computation LWN, committed in the checkpoint LWN at or above its scn, client starts at that commit scn
+        Env env(1000);
+        Transaction* d1 = env.begin(D1, 10, 1024, 100);
+        env.session(d1, "U1");
+        static_cast<void>(env.writeCheckpoint(500, 12, 8192));
+        env.insert(d1, 77);
+        env.buffer->addCommitted(Scn(512), Scn(0), Seq(10), FileOffset(1024), D1);
+        env.buffer->dropTransaction(D1, 0);
+        d1->purge(&env.ctx);
+        delete d1;
+        const std::string json = env.writeCheckpoint(510, 12, 9216, false);
+        const Restart restart = readCheckpoint(json, 1000, "fp-1");
+        check("commit in the checkpoint LWN: min-tran is its begin", contains(json, R"("min-tran":{"seq":10,"offset":1024)"));
+        check("commit in the checkpoint LWN: start before its rows, recreated", restart.sequence == Seq(12) &&
+              restart.fileOffset == FileOffset(8192) && hasXid(restart.seed, D1));
+    }
+
+    {
+        // Slot reused between the computation LWN and the checkpoint; an older dormant transaction keeps min-tran before both
+        Env env(1000);
+        Transaction* d0 = env.begin(D2, 9, 512, 90);
+        env.session(d0, "U0");
+        Transaction* d1 = env.begin(D1, 10, 1024, 100);
+        env.session(d1, "U1");
+        static_cast<void>(env.writeCheckpoint(500, 12, 8192));
+        env.buffer->dropTransaction(D1, 0);
+        d1->purge(&env.ctx);
+        delete d1;
+        const Xid reuse(1, 1, 102);
+        Transaction* e = env.begin(reuse, 12, 9216, 520);
+        env.session(e, "U2");
+        const std::string json = env.writeCheckpoint(530, 12, 9728, false);
+        const Restart restart = readCheckpoint(json, 1000, "fp-1");
+        check("slot reuse: started past both", restart.engaged && restart.seed.size() == 2);
+        Env next(1000);
+        for (const DormantTransaction& d: restart.seed)
+            static_cast<void>(next.buffer->seedDormant(nullptr, d));
+        // the commit of D1 is read again (after the start), then the begin of the reused slot
+        Transaction* old = next.buffer->findTransaction(nullptr, D1, 0, 1, true, false, false);
+        check("slot reuse: old transaction recreated", old != nullptr);
+        next.buffer->dropTransaction(D1, 0);
+        if (old != nullptr) {
+            old->purge(&next.ctx);
+            delete old;
+        }
+        bool ok = true;
+        try {
+            static_cast<void>(next.buffer->findTransaction(nullptr, reuse, 0, 1, false, true, false));
+        } catch (const RedoLogException&) {
+            ok = false;
+        }
+        check("slot reuse: new transaction begins after the commit", ok);
     }
 
     check("fingerprint: stable", dormantFingerprint("a") == dormantFingerprint("a") && dormantFingerprint("a").size() == 16);
