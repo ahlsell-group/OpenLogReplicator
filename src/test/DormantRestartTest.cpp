@@ -550,6 +550,16 @@ int main() {
         env.metadata->dormantRestart = true;
         err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
         check("net: unknown commit after a dormant restart warns 60061", contains(err, "60061"));
+        Record r1(0x0501, 77), r2(0x0B02, 77);
+        r1.r.xid = Xid(41, 1, 1);
+        r2.r.xid = r1.r.xid;
+        r1.r.dataObj = 77;
+        ParserTestAccess::append(parser, &r1.r, &r2.r);
+        Record commit2(0x0504);
+        commit2.r.xid = r1.r.xid;
+        commit2.r.scn = Scn(700);
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit2.r); });
+        check("net: unknown with filtered rows after a dormant restart: 60061 only, no 60011", contains(err, "60061") && !contains(err, "60011"));
         commit.r.scn = Scn(599);
         err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
         check("net: unknown commit below the first data scn is not reported", !contains(err, "60061"));

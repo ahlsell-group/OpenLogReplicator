@@ -72,7 +72,7 @@ An unknown attribute name in the list rejects the checkpoint file (error 20003),
 
 After a start past dormant transactions every transaction open at the checkpoint was either recreated or has its begin read again.
 A commit (not a rollback) of a transaction OpenLogReplicator does not know, at or after the first data SCN, in the replicated container and not in the skip list, therefore means the dormant state was wrong: WARN 60061 names the xid and SCN and the `transactions_commit_partial` metric counts it.
-Without the option such a commit is dropped silently (flag 1024 unset) or with 60011 (flag 1024 set).
+Without the option such a commit gives 60011 when the transaction changed something OpenLogReplicator sends (fix/loud-unknown-transaction), with or without flag 1024; after a start past dormant transactions 60061 is logged instead of that 60011, also when the transaction changed nothing sent.
 It does not fire for transactions that began before the start position and committed before the first data SCN (they are not sent anyway; a commit at or after the SCN of the computation LWN pins the position through the committed begins), for rollbacks, for other containers, for transactions in the skip list or dropped by `transaction-max-mb`, or for a slot reused after a recreated transaction committed (its commit is read again first).
 
 
