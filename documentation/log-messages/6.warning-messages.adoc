@@ -56,6 +56,8 @@ Remediation: Usually benign if rollback started before replication; confirm rete
 
 Transaction began before the first redo log read and lacks a recorded start; the whole transaction is skipped, including the changes made after the starting SCN.
 Data is lost: alert on this warning.
+It is logged at the commit, with or without flag 1024 (`show-incomplete-transactions`). With the flag OpenLogReplicator keeps the changes it read and the details show the transaction; without it (the default) it keeps nothing of the transaction and the details are its xid, commit SCN and sequence.
+It is logged only when the transaction changed something OpenLogReplicator sends (a table in the filter, a dictionary table, a LOB of one, DDL with `show-ddl`) after the start, commits (not a rollback) at or after the starting SCN, and was not already named at startup (below). A transaction which only touched other tables is skipped silently. Also counted by the metric `transactions_commit_partial`.
 Remediation: Start from a checkpoint (its low watermark covers open transactions), or set `start-seq` to a redo log before the begin of the transaction.
 Without a checkpoint the `online` reader starts with the redo log containing the begin of the oldest transaction open at startup (needs `SELECT` on `SYS.V_$TRANSACTION`); transactions which were open at the starting SCN but committed before startup are not covered.
 

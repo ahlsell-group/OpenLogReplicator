@@ -80,6 +80,8 @@ namespace OpenLogReplicator {
         std::set<Xid> skipXidList;
         std::set<Xid> dumpXidList;
         std::set<XidMap> brokenXidMapList;
+        // Transactions without a begin read which changed something OLR sends, see Parser::noteUnknown
+        std::set<Xid> unknownXids;
         std::string dumpPath;
 
         explicit TransactionBuffer(Ctx* newCtx);

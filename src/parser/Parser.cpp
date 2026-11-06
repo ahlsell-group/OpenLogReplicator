@@ -590,8 +590,10 @@ namespace OpenLogReplicator {
         Transaction* transaction = transactionBuffer->findTransaction(metadata->schema->xmlCtxDefault, redoLogRecord1->xid, redoLogRecord1->conId,
                                                                       redoLogRecord1->thread, true,
                                                                       ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS), false);
-        if (transaction == nullptr)
+        if (transaction == nullptr) {
+            noteUnknown(redoLogRecord1, redoLogRecord1->obj, ctx->isFlagSet(Ctx::REDO_FLAGS::SCHEMALESS) || ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_DDL));
             return;
+        }
         lastTransaction = transaction;
 
         const DbTable* table;
@@ -677,8 +679,10 @@ namespace OpenLogReplicator {
         Transaction* transaction = transactionBuffer->findTransaction(metadata->schema->xmlCtxDefault, redoLogRecord1->xid, redoLogRecord1->conId,
                                                                       redoLogRecord1->thread, true,
                                                                       ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS), false);
-        if (transaction == nullptr)
+        if (transaction == nullptr) {
+            noteUnknown(redoLogRecord1, 0, true);
             return;
+        }
         lastTransaction = transaction;
 
         if (lob->table != nullptr && DbTable::isSystemTable(lob->table->options))
@@ -711,8 +715,11 @@ namespace OpenLogReplicator {
         Transaction* transaction = transactionBuffer->findTransaction(metadata->schema->xmlCtxDefault, redoLogRecord1->xid, redoLogRecord1->conId,
                                                                       redoLogRecord1->thread, true,
                                                                       ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS), false);
-        if (transaction == nullptr)
+        if (transaction == nullptr) {
+            if (redoLogRecord1->opc == 0x0501 || redoLogRecord1->opc == 0x0A16 || redoLogRecord1->opc == 0x0B01)
+                noteUnknown(redoLogRecord1, redoLogRecord1->obj, ctx->isFlagSet(Ctx::REDO_FLAGS::SCHEMALESS));
             return;
+        }
         lastTransaction = transaction;
 
         if (redoLogRecord1->opc != 0x0501 && redoLogRecord1->opc != 0x0A16 && redoLogRecord1->opc != 0x0B01) {
@@ -841,8 +848,10 @@ namespace OpenLogReplicator {
         Transaction* transaction = transactionBuffer->findTransaction(metadata->schema->xmlCtxDefault, redoLogRecord1->xid, redoLogRecord1->conId,
                                                                       redoLogRecord1->thread, true,
                                                                       ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS), false);
-        if (unlikely(transaction == nullptr))
+        if (unlikely(transaction == nullptr)) {
+            checkUnknownCommit(redoLogRecord1);
             return;
+        }
 
         transaction->log(ctx, "C   ", redoLogRecord1);
         transaction->commitSequence = redoLogRecord1->sequence;
@@ -911,6 +920,47 @@ namespace OpenLogReplicator {
         delete transaction;
     }
 
+    // A change for a transaction OLR has not seen begin (without flag 1024 none is created for it): remembered when it is
+    // one OLR would have sent (a table in the filter or the dictionary, a LOB of one, DDL with SHOW_DDL), so its commit can
+    // be reported. alwaysRelevant: no table lookup needed.
+    void Parser::noteUnknown(const RedoLogRecord* redoLogRecord1, typeObj obj, bool alwaysRelevant) {
+        if (redoLogRecord1->xid.sqn() == 0 || (metadata->conId > 0 && redoLogRecord1->conId != metadata->conId))
+            return;
+        if (transactionBuffer->unknownXids.find(redoLogRecord1->xid) != transactionBuffer->unknownXids.end())
+            return;
+        if (!alwaysRelevant) {
+            const DbTable* table;
+            ctx->parserThread->contextSet(Thread::CONTEXT::TRAN);
+            {
+                std::unique_lock const lckTransaction(metadata->mtxTransaction);
+                table = metadata->schema->checkTableDict(obj);
+            }
+            ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+            if (table == nullptr)
+                return;
+        }
+        transactionBuffer->unknownXids.insert(redoLogRecord1->xid);
+    }
+
+    // Commit of a transaction OLR has not seen begin. Loud when it changed something OLR would have sent and is itself to
+    // be sent (commit at or after the first data SCN, not a rollback); a cold start has already named the transactions
+    // open at the start it can't read (60011 at startup).
+    void Parser::checkUnknownCommit(const RedoLogRecord* redoLogRecord1) {
+        const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
+        if (likely(it == transactionBuffer->unknownXids.end()))
+            return;
+        transactionBuffer->unknownXids.erase(it);
+        if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || redoLogRecord1->scn < metadata->firstDataScn ||
+            metadata->coldStartLostXids.find(redoLogRecord1->xid) != metadata->coldStartLostXids.end())
+            return;
+        ctx->warning(60011, "skipping transaction with no beginning, changes committed after the starting scn are lost: xid: " +
+                     redoLogRecord1->xid.toString() + " commit-scn: " + redoLogRecord1->scn.toString() + " commit-seq: " +
+                     redoLogRecord1->sequence.toString());
+        ctx->hint("start from a checkpoint or with an earlier start-seq to read the whole transaction");
+        if (ctx->metrics != nullptr)
+            ctx->metrics->emitTransactionsCommitPartial(1);
+    }
+
     void Parser::appendToTransaction(RedoLogRecord* redoLogRecord1, RedoLogRecord* redoLogRecord2) {
         // Skip other PDB vectors
         if (metadata->conId > 0 && redoLogRecord2->conId != metadata->conId)
@@ -923,8 +973,17 @@ namespace OpenLogReplicator {
         Transaction* transaction = transactionBuffer->findTransaction(metadata->schema->xmlCtxDefault, redoLogRecord1->xid, redoLogRecord1->conId,
                                                                       redoLogRecord1->thread, true,
                                                                       ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS), false);
-        if (transaction == nullptr)
+        if (transaction == nullptr) {
+            switch (redoLogRecord2->opCode) {
+                case 0x0B02: case 0x0B03: case 0x0B05: case 0x0B06: case 0x0B08: case 0x0B0B: case 0x0B0C: case 0x0B10: case 0x0B16:
+                    noteUnknown(redoLogRecord1, redoLogRecord1->dataObj != 0 ? redoLogRecord1->obj : redoLogRecord2->obj,
+                                ctx->isFlagSet(Ctx::REDO_FLAGS::SCHEMALESS));
+                    break;
+                default:
+                    break;
+            }
             return;
+        }
         lastTransaction = transaction;
 
         typeObj obj;
@@ -1116,8 +1175,19 @@ namespace OpenLogReplicator {
         Transaction* transaction = transactionBuffer->findTransaction(metadata->schema->xmlCtxDefault, redoLogRecord1->xid, redoLogRecord1->conId,
                                                                       redoLogRecord1->thread, true,
                                                                       ctx->isFlagSet(Ctx::REDO_FLAGS::SHOW_INCOMPLETE_TRANSACTIONS), false);
-        if (transaction == nullptr)
+        if (transaction == nullptr) {
+            const typeDataObj unknownDataObj = redoLogRecord1->dataObj != 0 ? redoLogRecord1->dataObj : redoLogRecord2->dataObj;
+            const DbLob* unknownLob;
+            ctx->parserThread->contextSet(Thread::CONTEXT::TRAN);
+            {
+                std::unique_lock const lckTransaction(metadata->mtxTransaction);
+                unknownLob = metadata->schema->checkLobIndexDict(unknownDataObj);
+            }
+            ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
+            if (unknownLob != nullptr)
+                noteUnknown(redoLogRecord1, 0, true);
             return;
+        }
         lastTransaction = transaction;
 
         typeDataObj dataObj;
