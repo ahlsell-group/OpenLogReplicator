@@ -23,6 +23,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <cstddef>
 
 #include "../common/Ctx.h"
+#include "../common/DormantTransaction.h"
 #include "../common/RedoLogRecord.h"
 #include "../reader/Reader.h"
 #include "../common/types/Time.h"
@@ -83,6 +84,7 @@ namespace OpenLogReplicator {
         Scn lwnScn;
         typeBlk lwnCheckpointBlock{0};
         DirectLoadTracker directLoadTracker;
+        DormantCheckpoint dormantCheckpoint;
 
         void freeLwn();
         void analyzeLwn(LwnMember* lwnMember);

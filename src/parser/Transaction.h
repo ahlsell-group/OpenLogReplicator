@@ -21,6 +21,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #define TRANSACTION_H_
 
 #include <map>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -66,10 +67,13 @@ namespace OpenLogReplicator {
         bool shutdown{false};
         bool lastSplit{false};
         bool dump{false};
+        // Set once the transaction buffered anything but session information; never reset
+        bool relevant{false};
         typeTransactionSize size{0};
         uint16_t thread;
 
         AttributeMap attributes;
+        std::shared_ptr<const AttributeMap> attributesSnapshot;
 
         explicit Transaction(Xid newXid, std::map<LobKey, uint8_t*>* newOrphanedLobs, XmlCtx* newXmlCtx, uint16_t thread);
 
@@ -106,6 +110,12 @@ namespace OpenLogReplicator {
                       " flg: " + std::to_string(redoLogRecord1->flg) +
                       " split: " + std::to_string(lastSplit ? 1 : 0) +
                       " offset: " + redoLogRecord1->fileOffset.toString());
+        }
+
+        // Whether a restart must read this transaction from its begin (see DormantTransaction)
+        [[nodiscard]] bool holdsRestartState() const {
+            return relevant || !begin || system || schema || shutdown || lastSplit || mergeBuffer != nullptr || !lobCtx.lobs.empty() ||
+                    !lobCtx.listMap.empty();
         }
 
         [[nodiscard]] std::string toString(const Ctx* ctx) const;

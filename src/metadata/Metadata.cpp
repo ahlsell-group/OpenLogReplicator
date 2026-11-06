@@ -35,6 +35,7 @@ If not, see <http://www.gnu.org/licenses/>. */
  * production may lead to silent data corruption.
  */
 
+#include <utility>
 #include <vector>
 
 #include "../common/Ctx.h"
@@ -388,7 +389,8 @@ namespace OpenLogReplicator {
     }
 
     void Metadata::checkpoint(Thread* t, Scn newCheckpointScn, Time newCheckpointTime, Seq newCheckpointSequence, FileOffset newCheckpointFileOffset,
-                              uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn) {
+                              uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn,
+                              DormantCheckpoint* newDormant) {
         {
             t->contextSet(Thread::CONTEXT::CHKPT, Thread::REASON::CHKPT);
             std::unique_lock const lck(mtxCheckpoint);
@@ -402,6 +404,10 @@ namespace OpenLogReplicator {
             minFileOffset = newMinFileOffset;
             minXid = newMinXid;
             checkpointPositionScn = newPositionScn;
+            if (newDormant != nullptr)
+                std::swap(dormant, *newDormant);
+            else
+                dormant.valid = false;
         }
         t->contextSet(Thread::CONTEXT::CPU);
     }

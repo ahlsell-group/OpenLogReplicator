@@ -33,6 +33,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include "../common/Ctx.h"
 #include "../common/DbTable.h"
+#include "../common/DormantTransaction.h"
 #include "../common/types/FileOffset.h"
 #include "../common/types/Seq.h"
 #include "../common/types/Time.h"
@@ -135,6 +136,11 @@ namespace OpenLogReplicator {
         Xid minXid;
         // Transactions a cold start named as lost (60011 at startup)
         std::set<Xid> coldStartLostXids;
+        // Feature restart past dormant transactions: state of the last checkpoint, the configuration fingerprint it is valid
+        // for, and the transactions to recreate on start (from the checkpoint read)
+        DormantCheckpoint dormant;
+        std::string dormantFingerprint;
+        std::vector<DormantTransaction> dormantSeed;
         uint64_t schemaInterval{0};
         std::set<Scn> checkpointScnList;
         std::unordered_map<Scn, bool> checkpointSchemaMap;
@@ -177,7 +183,8 @@ namespace OpenLogReplicator {
         void setStatusReplicating(Thread* t);
         void wakeUp(Thread* t);
         void checkpoint(Thread* t, Scn newCheckpointScn, Time newCheckpointTime, Seq newCheckpointSequence, FileOffset newCheckpointFileOffset,
-                        uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn);
+                        uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn,
+                        DormantCheckpoint* newDormant = nullptr);
         void writeCheckpoint(Thread* t, bool force);
         // An interval of 0 disables that trigger
         static bool checkpointIntervalDue(uint64_t elapsedS, uint64_t elapsedMb, uint64_t intervalS, uint64_t intervalMb) {

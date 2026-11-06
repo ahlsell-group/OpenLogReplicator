@@ -61,6 +61,7 @@ namespace OpenLogReplicator {
         log(metadata->ctx, "add ", redoLogRecord1);
         transactionBuffer->addTransactionChunk(this, redoLogRecord1);
         ++opCodes;
+        relevant = true;
     }
 
     void Transaction::add(const Metadata* metadata, TransactionBuffer* transactionBuffer, RedoLogRecord* redoLogRecord1, const RedoLogRecord* redoLogRecord2) {
@@ -68,6 +69,8 @@ namespace OpenLogReplicator {
         log(metadata->ctx, "add2", redoLogRecord2);
         transactionBuffer->addTransactionChunk(this, redoLogRecord1, redoLogRecord2);
         ++opCodes;
+        if (redoLogRecord2->opCode != 0x0513 && redoLogRecord2->opCode != 0x0514)
+            relevant = true;
     }
 
     void Transaction::rollbackLastOp(const Metadata* metadata, TransactionBuffer* transactionBuffer, const RedoLogRecord* redoLogRecord1,
