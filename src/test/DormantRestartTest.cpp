@@ -19,6 +19,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include <iostream>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -169,6 +170,7 @@ namespace {
     struct Restart {
         bool ok{false};
         bool engaged{false};
+        std::set<Xid> known;
         Seq sequence{Seq::none()};
         FileOffset fileOffset;
         std::vector<DormantTransaction> seed;
@@ -196,6 +198,7 @@ namespace {
         } else
             metadata.dropDormantPending("TEST-chkpt-1");
         restart.engaged = metadata.dormantRestart;
+        restart.known = metadata.dormantKnownXids;
         restart.sequence = metadata.sequence;
         restart.fileOffset = metadata.fileOffset;
         restart.seed = metadata.dormantSeed;
@@ -352,6 +355,8 @@ int main() {
         check("pinned: dormant begun after it is read again, not recreated", !hasXid(restart.seed, D2));
         check("pinned: dormant begun in the same LWN is read again, not recreated", !hasXid(restart.seed, Xid(9, 9, 909)));
         check("pinned: one recreated", restart.seed.size() == 1);
+        check("pinned: the checkpoint names the pinned and all dormant transactions", contains(json, "\"pinned\":[\"" + R1.toString() + "\"]") &&
+              restart.known.size() == 4 && restart.known.count(R1) == 1 && restart.known.count(D2) == 1);
     }
 
     {
@@ -549,7 +554,11 @@ int main() {
         check("net: silent without a dormant restart", !contains(err, "60061"));
         env.metadata->dormantRestart = true;
         err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
-        check("net: unknown commit after a dormant restart warns 60061", contains(err, "60061"));
+        check("net: unknown commit the checkpoint did not name, nothing filtered: silent", !contains(err, "60061") && !contains(err, "60011"));
+        env.metadata->dormantKnownXids.insert(commit.r.xid);
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
+        check("net: unknown commit of a transaction the checkpoint named warns 60061", contains(err, "60061") && !contains(err, "60011"));
+        // A transaction OLR never knew (e.g. lost at an earlier cold start), with filtered rows after the restart
         Record r1(0x0501, 77), r2(0x0B02, 77);
         r1.r.xid = Xid(41, 1, 1);
         r2.r.xid = r1.r.xid;
@@ -559,7 +568,30 @@ int main() {
         commit2.r.xid = r1.r.xid;
         commit2.r.scn = Scn(700);
         err = captureStderr([&] { ParserTestAccess::commit(parser, &commit2.r); });
-        check("net: unknown with filtered rows after a dormant restart: 60061 only, no 60011", contains(err, "60061") && !contains(err, "60011"));
+        check("net: inherited unknown with filtered rows after a dormant restart: 60011, not 60061", contains(err, "60011") && !contains(err, "60061"));
+        // Review probe: named lost at the cold start of this run, then a dormant restart... (lost list of this process)
+        Record r3(0x0501, 77), r4(0x0B02, 77);
+        r3.r.xid = Xid(42, 1, 1);
+        r4.r.xid = r3.r.xid;
+        r3.r.dataObj = 77;
+        env.metadata->coldStartLostXids.insert(r3.r.xid);
+        ParserTestAccess::append(parser, &r3.r, &r4.r);
+        Record commit3(0x0504);
+        commit3.r.xid = r3.r.xid;
+        commit3.r.scn = Scn(700);
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit3.r); });
+        check("net: named lost at the cold start, after a dormant restart: no 60061, no second 60011", !contains(err, "60061") && !contains(err, "60011"));
+        // Review probe: unknown, only tables outside the filter
+        Record r5(0x0501, 88), r6(0x0B05, 88);
+        r5.r.xid = Xid(43, 1, 1);
+        r6.r.xid = r5.r.xid;
+        r5.r.dataObj = 88;
+        ParserTestAccess::append(parser, &r5.r, &r6.r);
+        Record commit4(0x0504);
+        commit4.r.xid = r5.r.xid;
+        commit4.r.scn = Scn(700);
+        err = captureStderr([&] { ParserTestAccess::commit(parser, &commit4.r); });
+        check("net: unknown outside the filter after a dormant restart: silent", !contains(err, "60061") && !contains(err, "60011"));
         commit.r.scn = Scn(599);
         err = captureStderr([&] { ParserTestAccess::commit(parser, &commit.r); });
         check("net: unknown commit below the first data scn is not reported", !contains(err, "60061"));
