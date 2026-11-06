@@ -85,6 +85,8 @@ namespace OpenLogReplicator {
         typeBlk lwnCheckpointBlock{0};
         DirectLoadTracker directLoadTracker;
         DormantCheckpoint dormantCheckpoint;
+        bool dormantComputed{false};
+        uint32_t dormantComputedAt{0};
 
         void freeLwn();
         void analyzeLwn(LwnMember* lwnMember);

@@ -61,13 +61,15 @@ namespace {
         std::string getName() const override { return "test"; }
     };
 
-    RedoLogRecord record(uint16_t opCode, typeObj obj = 0) {
+    struct Record {
         RedoLogRecord r{};
-        r.clear();
-        r.opCode = opCode;
-        r.obj = obj;
-        return r;
-    }
+
+        explicit Record(uint16_t opCode, typeObj obj = 0) {
+            r.clear();
+            r.opCode = opCode;
+            r.obj = obj;
+        }
+    };
 
     struct Env {
         Ctx ctx;
@@ -109,17 +111,17 @@ namespace {
 
         // 5.1 + 5.19: session information, buffered for every transaction
         void session(Transaction* t, const std::string& user) {
-            RedoLogRecord r1 = record(0x0501);
-            const RedoLogRecord r2 = record(0x0513);
+            Record r1(0x0501);
+            Record r2(0x0513);
             t->attributes.insert_or_assign(Attribute::KEY::LOGIN_USER_NAME, user);
-            t->add(metadata.get(), buffer.get(), &r1, &r2);
+            t->add(metadata.get(), buffer.get(), &r1.r, &r2.r);
         }
 
         // 5.1 + 11.2: an insert into a table in the filter
         void insert(Transaction* t, typeObj obj) {
-            RedoLogRecord r1 = record(0x0501, obj);
-            RedoLogRecord r2 = record(0x0B02, obj);
-            t->add(metadata.get(), buffer.get(), &r1, &r2);
+            Record r1(0x0501, obj);
+            Record r2(0x0B02, obj);
+            t->add(metadata.get(), buffer.get(), &r1.r, &r2.r);
         }
 
         DormantCheckpoint checkpoint(uint64_t scn) {
@@ -128,21 +130,22 @@ namespace {
             Xid minXid;
             buffer->checkpoint(Scn(scn), minSequence, minFileOffset, minXid);
             DormantCheckpoint dormant;
-            buffer->checkpointDormant(ctx.dormantTransactionsMax, dormant);
+            buffer->checkpointDormant(ctx.dormantTransactionsMax, Seq(12), FileOffset(8192), dormant);
             return dormant;
         }
 
         // As Parser: metadata->checkpoint at the end of an LWN, then the checkpoint file
-        std::string writeCheckpoint(uint64_t scn, uint32_t seq, uint64_t offset, bool withDormant = true) {
+        // computeDormant = false: as Parser within the same second of redo, the last computed state is kept
+        std::string writeCheckpoint(uint64_t scn, uint32_t seq, uint64_t offset, bool computeDormant = true) {
             Seq minSequence = Seq::none();
             FileOffset minFileOffset;
             Xid minXid;
             buffer->checkpoint(Scn(scn), minSequence, minFileOffset, minXid);
             DormantCheckpoint dormant;
-            if (ctx.dormantTransactionsMax > 0)
-                buffer->checkpointDormant(ctx.dormantTransactionsMax, dormant);
+            if (computeDormant && ctx.dormantTransactionsMax > 0)
+                buffer->checkpointDormant(ctx.dormantTransactionsMax, Seq(seq), FileOffset(offset), dormant);
             metadata->checkpoint(&thread, Scn(scn), Time(0), Seq(seq), FileOffset(offset), 0, minSequence, minFileOffset, minXid,
-                                 withDormant && ctx.dormantTransactionsMax > 0 ? &dormant : nullptr);
+                                 computeDormant && ctx.dormantTransactionsMax > 0 ? &dormant : nullptr);
             std::ostringstream ss;
             SerializerJson serializer;
             serializer.serialize(metadata.get(), ss, false);
@@ -209,6 +212,14 @@ int main() {
         Transaction* d3 = onNoField.begin(D1, 10, 1024, 100);
         onNoField.session(d3, "U1");
         check("off: output equals a checkpoint without dormant state", json == onNoField.writeCheckpoint(500, 12, 8192, false));
+
+        // A relevant transaction older than every dormant one: the position is min-tran, nothing to write
+        Env older(1000);
+        Transaction* r = older.begin(R1, 9, 512, 90);
+        older.insert(r, 77);
+        Transaction* d4 = older.begin(D1, 10, 1024, 100);
+        older.session(d4, "U1");
+        check("not later than min-tran: no dormant-tran", !contains(older.writeCheckpoint(500, 12, 8192), "dormant-tran"));
     }
 
     {
@@ -243,7 +254,8 @@ int main() {
         Transaction* d1 = env.begin(D1, 10, 1024, 100);
         env.session(d1, "U1");
         const DormantCheckpoint c = env.checkpoint(500);
-        check("only dormant: no position, the checkpoint position is used", c.valid && c.sequence == Seq::none());
+        check("only dormant: the position is the checkpoint", c.valid && c.sequence == Seq(12) && c.fileOffset == FileOffset(8192) &&
+              c.xid == Xid::zero());
         const std::string json = env.writeCheckpoint(500, 12, 8192);
         check("only dormant: dormant-tran points at the checkpoint", contains(json, R"("dormant-tran":{"fingerprint":"fp-1","seq":12,"offset":8192,"list")"));
         check("only dormant: min-tran stays the classic one", contains(json, R"("min-tran":{"seq":10,"offset":1024)"));
@@ -313,6 +325,22 @@ int main() {
     }
 
     {
+        // State computed at an earlier LWN, checkpoint written later: a transaction begun in between reads again
+        Env env(1000);
+        Transaction* d1 = env.begin(D1, 10, 1024, 100);
+        env.session(d1, "U1");
+        static_cast<void>(env.writeCheckpoint(500, 12, 8192));
+        Transaction* r1 = env.begin(R1, 12, 9216, 520);
+        env.insert(r1, 77);
+        env.insert(d1, 77);
+        const std::string json = env.writeCheckpoint(530, 13, 4096, false);
+        const Restart restart = readCheckpoint(json, 1000, "fp-1");
+        check("stale state: restart at the position it was computed at", restart.sequence == Seq(12) && restart.fileOffset == FileOffset(8192));
+        check("stale state: rows buffered since are read again", restart.seed.size() == 1 && restart.seed[0].xid == D1);
+        check("stale state: min-tran of the later checkpoint unchanged", contains(json, R"("min-tran":{"seq":10,"offset":1024)"));
+    }
+
+    {
         // Committed at or after the LWN of the checkpoint: pins as before
         Env env(1000);
         Transaction* d1 = env.begin(D1, 10, 1024, 100);
@@ -330,10 +358,10 @@ int main() {
         env.session(d1, "U1");
         Transaction* d2 = env.begin(D2, 11, 8192, 210);
         env.session(d2, "U2");
-        RedoLogRecord lob = record(0x1A06);
-        lob.sequence = Seq(11);
-        lob.fileOffset = FileOffset(4096 + 16);
-        env.buffer->addOrphanedLob(&lob);
+        Record lob(0x1A06);
+        lob.r.sequence = Seq(11);
+        lob.r.fileOffset = FileOffset(4096 + 16);
+        env.buffer->addOrphanedLob(&lob.r);
         const DormantCheckpoint c = env.checkpoint(500);
         check("orphaned LOB: dormant begun before it pins the position", c.sequence == Seq(10) && c.fileOffset == FileOffset(1024) && c.xid == D1);
         check("orphaned LOB: dormant begun after it stays dormant", c.transactions.size() == 1 && c.transactions[0].xid == D2);
@@ -399,9 +427,9 @@ int main() {
         Transaction* d1 = env.begin(D1, 10, 1024, 100);
         env.session(d1, "U1");
         env.insert(d1, 77);
-        RedoLogRecord u1 = record(0x0B03, 77);
-        const RedoLogRecord u2 = record(0x0501, 77);
-        d1->rollbackLastOp(env.metadata.get(), env.buffer.get(), &u1, &u2);
+        Record u1(0x0B03, 77);
+        Record u2(0x0501, 77);
+        d1->rollbackLastOp(env.metadata.get(), env.buffer.get(), &u1.r, &u2.r);
         const DormantCheckpoint c = env.checkpoint(500);
         check("partial rollback of all rows: still pins", c.sequence == Seq(10) && c.transactions.empty());
     }

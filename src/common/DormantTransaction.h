@@ -51,8 +51,8 @@ namespace OpenLogReplicator {
         }
     };
 
-    // Restart position over the transactions that are not dormant, and the dormant ones, for one checkpoint.
-    // valid = false: not computed for this checkpoint, which then is written without them.
+    // Restart position over the transactions that are not dormant, and the dormant ones, computed at one LWN. Valid for
+    // the checkpoint at that LWN and every later one. valid = false: never computed, checkpoints are written without them.
     struct DormantCheckpoint {
         bool valid{false};
         Seq sequence{Seq::none()};

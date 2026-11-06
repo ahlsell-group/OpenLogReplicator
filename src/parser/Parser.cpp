@@ -1642,13 +1642,20 @@ namespace OpenLogReplicator {
                         FileOffset minFileOffset;
                         Xid minXid;
                         transactionBuffer->checkpoint(lwnScn, minSequence, minFileOffset, minXid);
-                        if (ctx->dormantTransactionsMax > 0)
-                            transactionBuffer->checkpointDormant(ctx->dormantTransactionsMax, dormantCheckpoint);
+                        // At most once per second of redo; the last result stays valid for later checkpoints
+                        DormantCheckpoint* dormant = nullptr;
+                        if (ctx->dormantTransactionsMax > 0 && (!dormantComputed || lwnTimestamp.getVal() != dormantComputedAt)) {
+                            transactionBuffer->checkpointDormant(ctx->dormantTransactionsMax, sequence, FileOffset(currentBlock, reader->getBlockSize()),
+                                                                 dormantCheckpoint);
+                            dormantComputed = true;
+                            dormantComputedAt = lwnTimestamp.getVal();
+                            dormant = &dormantCheckpoint;
+                        }
                         if (unlikely(ctx->isTraceSet(Ctx::TRACE::LWN)))
                             ctx->logTrace(Ctx::TRACE::LWN, "* checkpoint: " + lwnScn.toString());
                         metadata->checkpoint(ctx->parserThread, lwnScn, lwnTimestamp, sequence, FileOffset(currentBlock, reader->getBlockSize()),
                                              static_cast<uint64_t>(currentBlock - lwnConfirmedBlock) * reader->getBlockSize(), minSequence,
-                                             minFileOffset, minXid, builder->lwnScn, ctx->dormantTransactionsMax > 0 ? &dormantCheckpoint : nullptr);
+                                             minFileOffset, minXid, builder->lwnScn, dormant);
 
                         if (ctx->stopCheckpoints > 0 && metadata->isNewData(lwnScn, builder->lwnIdx)) {
                             --ctx->stopCheckpoints;

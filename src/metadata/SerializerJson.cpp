@@ -65,7 +65,10 @@ namespace OpenLogReplicator {
                     R"(,"offset":)" << metadata->minFileOffset.toString() <<
                     R"(,"xid":")" << metadata->minXid.toString() << R"("})";
         }
-        if (metadata->dormant.valid && !metadata->dormant.transactions.empty())
+        // Only when it starts later than min-tran; without it a restart starts from min-tran
+        if (metadata->dormant.valid && !metadata->dormant.transactions.empty() && metadata->minSequence != Seq::none() &&
+            (metadata->minSequence < metadata->dormant.sequence ||
+             (metadata->minSequence == metadata->dormant.sequence && metadata->minFileOffset < metadata->dormant.fileOffset)))
             serializeDormant(metadata, ss);
         ss << R"(,"big-endian":)" << std::dec << (metadata->ctx->isBigEndian() ? 1 : 0) <<
                 R"(,"context":")";
@@ -822,12 +825,10 @@ namespace OpenLogReplicator {
 
     void SerializerJson::serializeDormant(const Metadata* metadata, std::ostringstream& ss) {
         const DormantCheckpoint& dormant = metadata->dormant;
-        const bool pinned = dormant.sequence != Seq::none();
         ss << R"(,"dormant-tran":{"fingerprint":")";
         Data::writeEscapeValue(ss, metadata->dormantFingerprint);
-        ss << R"(","seq":)" << (pinned ? dormant.sequence : metadata->checkpointSequence).toString() <<
-                R"(,"offset":)" << (pinned ? dormant.fileOffset : metadata->checkpointFileOffset).toString();
-        if (pinned)
+        ss << R"(","seq":)" << dormant.sequence.toString() << R"(,"offset":)" << dormant.fileOffset.toString();
+        if (dormant.xid != Xid::zero())
             ss << R"(,"xid":")" << dormant.xid.toString() << R"(")";
         ss << R"(,"list":[)";
         bool first = true;

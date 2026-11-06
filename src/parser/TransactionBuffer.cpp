@@ -298,11 +298,14 @@ namespace OpenLogReplicator {
             update(committed.sequence, committed.fileOffset, committed.xid);
     }
 
-    // Call after checkpoint() for the same checkpoint (it has pruned the committed begins). The restart position over the
-    // transactions a restart has to read from their begin, and the others (dormant) with what recreates them. A dormant
-    // transaction began at or before a LOB page OLR holds without a transaction (orphaned) may own it, so it pins the
-    // position too. Beyond dormantMax the dormant transactions that began last pin the position.
-    void TransactionBuffer::checkpointDormant(uint64_t dormantMax, DormantCheckpoint& dormant) {
+    // Call after checkpoint() for the checkpoint at checkpointSequence/checkpointFileOffset (it has pruned the committed
+    // begins). The restart position over the transactions a restart has to read from their begin (the checkpoint if none), and the others
+    // (dormant) with what recreates them. A dormant transaction began at or before a LOB page OLR holds without a
+    // transaction (orphaned) may own it, so it pins the position too. Beyond dormantMax the dormant transactions that began
+    // last pin the position. The result stays valid for any later checkpoint: whatever a dormant transaction buffers later
+    // lies after the checkpoint and is read again.
+    void TransactionBuffer::checkpointDormant(uint64_t dormantMax, Seq checkpointSequence, FileOffset checkpointFileOffset,
+                                              DormantCheckpoint& dormant) {
         dormant.clear();
         const auto update = [&](Seq sequence, FileOffset fileOffset, Xid xid) {
             if (sequence < dormant.sequence || (sequence == dormant.sequence && fileOffset < dormant.fileOffset)) {
@@ -356,6 +359,10 @@ namespace OpenLogReplicator {
         for (const auto& [_, committed]: committedAtOrAfterLwn)
             update(committed.sequence, committed.fileOffset, committed.xid);
 
+        if (dormant.sequence == Seq::none()) {
+            dormant.sequence = checkpointSequence;
+            dormant.fileOffset = checkpointFileOffset;
+        }
         dormant.valid = true;
     }
 

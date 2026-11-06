@@ -406,8 +406,6 @@ namespace OpenLogReplicator {
             checkpointPositionScn = newPositionScn;
             if (newDormant != nullptr)
                 std::swap(dormant, *newDormant);
-            else
-                dormant.valid = false;
         }
         t->contextSet(Thread::CONTEXT::CPU);
     }

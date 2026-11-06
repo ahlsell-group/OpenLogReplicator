@@ -22,10 +22,13 @@ An open transaction is _dormant_ at a checkpoint when it has buffered nothing a 
 What a transaction buffers already depends only on the filter, the flags (SCHEMALESS, SHOW_DDL, ...), `transaction-max-mb` and the debug table: everything else is skipped in `Parser::appendToTransaction*` before `Transaction::add`.
 A dormant transaction is thus fully described by its begin: xid, container id, redo thread, begin sequence, offset, SCN and time, and the attributes from its session records (written into the begin and commit messages; without them the builder logs 50065).
 
-At every checkpoint (every LWN after `firstDataScn`) the parser computes, besides the classic `min-tran`:
+At a checkpoint (an LWN after `firstDataScn`), at most once per second of redo time, the parser computes besides the classic `min-tran`:
 
-* the restart position: the oldest begin over the transactions that are not dormant and over the committed begins kept for clients starting at a commit SCN in the LWN of the checkpoint (`committedAtOrAfterLwn`); none means the checkpoint position;
+* the restart position: the oldest begin over the transactions that are not dormant and over the committed begins kept for clients starting at a commit SCN in the LWN of the checkpoint (`committedAtOrAfterLwn`); none means the position of this checkpoint;
 * the dormant transactions, ordered by begin, at most `dormant-transactions-max`; beyond that the dormant ones that began last pin the position like a relevant one.
+
+The result stays valid for every later checkpoint, so the checkpoints in between keep the last one: a transaction that begins later begins after the restart position and is read again, and whatever a dormant transaction buffers later lies after the position it was computed at and is read again too.
+A dormant transaction that commits in between is recreated and its commit read again.
 
 On start from such a checkpoint OpenLogReplicator reads from the restart position and recreates each dormant transaction whose begin lies before it, as if the begin record had been read (`TransactionBuffer::seedDormant`).
 A dormant transaction whose begin is at or after the restart position is not recreated: its begin is read again and creates it (recreating it as well would stop with 50039).
@@ -33,7 +36,7 @@ Positions are LWN start blocks on both sides, so the comparison is exact.
 
 == Checkpoint format
 
-The checkpoint keeps `min-tran` unchanged (classic position) and gets an optional object, written only when the option is on and at least one transaction is dormant:
+The checkpoint keeps `min-tran` unchanged (classic position) and gets an optional object, written only when the option is on, at least one transaction is dormant and the restart position is later than `min-tran`:
 
 [source,json]
 ----
@@ -48,7 +51,7 @@ The checkpoint keeps `min-tran` unchanged (classic position) and gets an optiona
 ----
 
 `seq`/`offset` is the restart position (`xid` only when a transaction pins it), `fingerprint` is FNV-1a over `flags`, `transaction-max-mb`, the debug table and the `filter` object of the configuration.
-A checkpoint without the object always means the classic position: either the option was off or no transaction was dormant, and then the two positions are equal.
+A checkpoint without the object always means the classic position: the option was off, or nothing was dormant, or the restart position was not later than `min-tran`.
 
 == Fallback to min-tran
 
@@ -65,7 +68,7 @@ An unknown attribute name in the list rejects the checkpoint file (error 20003),
 
 * Option off: no state is computed, no field is written, reading a checkpoint without the field is unchanged; the only differences are a flag in `Transaction` and the accepted field name.
 * Older versions (2.0.0-ahlsell.13 and before) check the top-level names of a checkpoint (`checkJsonFields`) and reject one with `dormant-tran`: ERROR 20003 per file, then `Metadata::readCheckpoints` tries the next older checkpoint.
-Every older checkpoint is safe for them (written without the field, or written with it when nothing was dormant, so `min-tran` is the full classic position).
+Every older checkpoint is safe for them: `min-tran` is always the full classic position, with or without the option.
 If no checkpoint without the field is kept, the old version cold-starts (low watermark from `V$TRANSACTION`, bounded by `cold-start-max-age-s`, and a fresh dictionary read).
 With `disable-checks` bit JSON_TAGS an old version ignores the field and restarts from `min-tran`, which is correct.
 To go back to an older version without the cold start, run with `dormant-transactions-max: 0` until one checkpoint is written.
@@ -80,5 +83,5 @@ To go back to an older version without the cold start, run with `dormant-transac
 * Any LOB index change (OP 26.2, also of a table outside the filter) is buffered and makes a transaction relevant; conservative.
 * A transaction that once buffered rows stays relevant even if they were rolled back to a savepoint.
 * Restart cost is bounded by the oldest relevant transaction, by the oldest orphaned LOB page's possible owners, and by `dormant-transactions-max`, not by the checkpoint distance alone.
-* Cost per LWN with the option on: one pass over the open transactions (as for `min-tran`) plus a copy of the dormant ones; attribute maps are shared, not copied, while unchanged.
+* Cost with the option on: once per second of redo, one pass over the open transactions (as for `min-tran` at every LWN) plus a copy of the dormant ones; attribute maps are shared, not copied, while unchanged. The restart position can therefore be up to one second of redo older than necessary.
 * Tested with the unit test `DormantRestartTest` and the `restart/dormant-*` scenarios of openlogreplicator-tests on a single-instance Oracle Free; not with XA, RAC or a PDB other than the one in the harness.

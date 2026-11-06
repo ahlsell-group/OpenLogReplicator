@@ -136,8 +136,8 @@ namespace OpenLogReplicator {
         Xid minXid;
         // Transactions a cold start named as lost (60011 at startup)
         std::set<Xid> coldStartLostXids;
-        // Feature restart past dormant transactions: state of the last checkpoint, the configuration fingerprint it is valid
-        // for, and the transactions to recreate on start (from the checkpoint read)
+        // Restart past dormant transactions: the last state the parser computed, the configuration fingerprint, and the
+        // transactions to recreate on start (from the checkpoint read)
         DormantCheckpoint dormant;
         std::string dormantFingerprint;
         std::vector<DormantTransaction> dormantSeed;
