@@ -130,6 +130,8 @@ def chart_offsets(prefix, scn, commit_scn, snapshot_scn, workdir):
     vals = workdir / "alter-offsets-values.yaml"
     vals.write_text(f"debezium:\n  enabled: true\n  topicPrefix: {prefix}\n  alterOffsets:\n    scn: {scn}\n"
                     f"    commitScn: \"{commit_scn}\"\n    snapshotScn: {snapshot_scn}\n")
+    if not GITOPS_CHART:
+        raise RuntimeError('offsets_via = "chart" needs OLRT_GITOPS_CHART (path to the chart rendering offsets.json)')
     out = subprocess.run(["helm", "template", "olrt", GITOPS_CHART, "-f", os.path.join(GITOPS_CHART, GITOPS_VALUES),
                           "-f", str(vals)], capture_output=True, text=True, check=True).stdout
     (workdir / "alter-offsets-render.yaml").write_text(out)
