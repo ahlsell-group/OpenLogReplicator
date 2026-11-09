@@ -18,7 +18,9 @@ Checks (failures go to run.json "assert_failures", so check run fails):
     from the "scn" field (a restarted run raises the SCN of messages below its start SCN to it) and the
     schema column list (printed once per table and process with schema "first");
   - B's log shows the dormant position was used (unless expect_engaged = false), C's does not;
-  - no 60061, 50039, 70003, 70004 in B or C, and the same 60011 lines in both.
+  - no 60061, 50039, 70003, 70004 in B or C, and the same 60011 lines in both;
+  - the same transactions committed below the stream position (60048: xid, commit and position SCN) in B and C;
+  - every checkpoint SCN both B and C wrote a <db>-position-<scn>.json for has the same position SCN.
 
 client.toml:
 
@@ -119,6 +121,20 @@ def _no_scn(raw):
     return json.dumps(msg, sort_keys=True)
 
 
+def _positions(state, db):
+    out = {}
+    for p in state.glob(f"{db}-position-*.json"):
+        try:
+            doc = json.loads(p.read_text())
+            out[int(doc["scn"])] = int(doc["position-scn"])
+        except (ValueError, KeyError, OSError):
+            continue
+    return out
+
+
+BELOW = re.compile(r"60048 .*xid: (\S+), commit scn: (\d+), sent at scn: (\d+)")
+
+
 def _first_diff(x, y):
     i = next((i for i, (p, q) in enumerate(zip(x, y)) if p != q), min(len(x), len(y)))
     return i, (x[i][:200] if i < len(x) else "-"), (y[i][:200] if i < len(y) else "-")
@@ -168,6 +184,16 @@ def run(image, scenario, profile, workdir, spec, rec, make_config, container_cls
             fails.append(f"equivalence: run {name}: {line[:200]}")
     if warns(b_log, "60011") != warns(c_log, "60011"):
         fails.append(f"equivalence: 60011 differs between B and C: {warns(b_log, '60011')[:3]} | {warns(c_log, '60011')[:3]}")
-    info = {"restart_scn": s, "checkpoints": len(chk), "with_dormant": len(with_dormant), "a": len(a), "a_after": len(a_tail),
+    below_b = [m.groups() for m in BELOW.finditer(b_log)]
+    below_c = [m.groups() for m in BELOW.finditer(c_log)]
+    if below_b != below_c:
+        fails.append(f"equivalence: 60048 differs between B and C: {below_b[:3]} | {below_c[:3]}")
+    pos_b = _positions(workdir / "eq-b" / "state", scenario.db_name)
+    pos_c = _positions(workdir / "eq-c" / "state", scenario.db_name)
+    common = sorted(set(pos_b) & set(pos_c))
+    differ = [(scn, pos_b[scn], pos_c[scn]) for scn in common if pos_b[scn] != pos_c[scn]]
+    if differ:
+        fails.append(f"equivalence: checkpoint position SCN differs between B and C (scn, B, C): {differ[:3]}")
+    info = {"restart_scn": s, "positions_compared": len(common), "below_position": len(below_b), "checkpoints": len(chk), "with_dormant": len(with_dormant), "a": len(a), "a_after": len(a_tail),
             "b": len(b), "c": len(c), "b_engaged": bool(ENGAGED.search(b_log))}
     return fails, info

@@ -461,8 +461,33 @@ again); the rows are missing by OLR's design, so only run and equivalence are ch
 scenario("dormant-commit-unchanged", 26, "a recreated transaction commits without changing anything after the restart", """
 Session 2 is dormant (U only) at the checkpoint, OLR is killed and restarted past it, then session 2
 commits without another change: nothing is sent for it, the same as without the restart (equivalence).
+Its commit still takes a stream position, as the session records it buffered before the restart
+position make it do in a run that reads its begin: the transaction session 1 commits right after it
+must get the same position (c_scn, c_idx) and the checkpoints the same position SCN with the option on
+and off (equivalence B and C), and no commit below the position (60048) may appear in one run only.
 """, lambda u: (sql(f"UPDATE {u}.u SET v = 'dormant' WHERE id = 1", 2) + checkpoint() + commit_and_read(u, 3, "after checkpoint")
-               + restart("KILL") + sql("COMMIT", 2) + '[[step]]\nread = "idle"\nidle = 5\n' + commit_and_read(u, 5, "after")),
+               + restart("KILL") + sql("COMMIT", 2) + commit_and_read(u, 4, "right after the dormant commit")
+               + '[[step]]\nread = "idle"\nidle = 5\n' + commit_and_read(u, 5, "after")),
+         [PAST, RECREATED], ["60011", "50039"], equivalence=True)
+
+scenario("dormant-commit-then-confirm-mid-txn", 31, "a recreated transaction commits unchanged, the client confirms in the middle of the next one, OLR restarts", """
+Session 2 is dormant (U only) at the checkpoint; OLR is killed and restarted past it and recreates it.
+Session 2 then commits without another change, and session 1 commits 3000 rows into T. The client
+reads part of them, keeps the offset (c_scn, c_idx) in the middle of that transaction, and OLR is
+killed with the writer checkpoint deleted, so the restart picks a schema checkpoint by its position
+file. The rest of the 3000 rows must arrive (diff, replay) at the positions a run without the option
+gives them (equivalence B and C: messages, checkpoint position SCNs and 60048 identical).
+
+With commit SCNs in redo order (one instance) the dormant commit cannot be above the next commit,
+so this does not reproduce the commit below the position (a later commit record with a lower SCN,
+60048) that the unit test DormantPositionTest covers; it covers the restart flow around it.
+""", lambda u: (sql(f"UPDATE {u}.u SET v = 'dormant' WHERE id = 1", 2) + checkpoint() + commit_and_read(u, 3, "after checkpoint")
+               + restart("KILL") + sql("COMMIT", 2)
+               + sql(f"INSERT INTO {u}.t SELECT 1000 + LEVEL, 'big-' || LEVEL FROM dual CONNECT BY LEVEL <= 3000") + sql("COMMIT")
+               + '[[step]]\nread = "messages"\ncount = 1200\ntimeout = 60\n[[step]]\nclient = "commit_offset"\n'
+               + '[[step]]\nclient = "disconnect"\n[[step]]\nolr = "restart"\nsignal = "KILL"\ndelete_writer_checkpoint = true\n'
+               + '[[step]]\nclient = "connect"\n[[step]]\nread = "idle"\nidle = 10\n[[step]]\nclient = "commit_offset"\n'
+               + commit_and_read(u, 5000, "after")),
          [PAST, RECREATED], ["60011", "50039"], equivalence=True)
 
 # Filter reload after the state was computed, kill before the next checkpoint

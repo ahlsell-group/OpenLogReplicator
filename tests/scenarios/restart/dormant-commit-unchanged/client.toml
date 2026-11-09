@@ -57,6 +57,18 @@ idle = 8
 sql = "COMMIT"
 session = 2
 [[step]]
+sql = "INSERT INTO OLRT_DRM26.t VALUES (4, 'right after the dormant commit')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
 read = "idle"
 idle = 5
 [[step]]
