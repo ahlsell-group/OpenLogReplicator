@@ -50,3 +50,6 @@ CONNECT_PORT = int(os.environ.get("OLRT_CONNECT_PORT", str(ORACLE_PORT + 12000))
 # Debezium's database user (common user, as for a LogMiner/OLR connector account)
 DBZ_USER = "c##dbzuser"
 DBZ_PASSWORD = "dbz"
+# Older OLR image for downgrade scenarios (client.toml image = "old"): e.g. the last release without the option under test,
+# built with `make image-ref REF=ahlsell-group/OpenLogReplicator@2.0.0-ahlsell.13`
+OLD_IMAGE = os.environ.get("OLRT_OLD_IMAGE", "olrt/olr:2.0.0-ahlsell.13")

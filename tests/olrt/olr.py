@@ -5,6 +5,7 @@ so OLR reads the archived logs of the recording and stops by itself after the la
 Arch-only mode (flags bit 0) is not used: on a cold start it never finds an archived log
 (see README, findings).
 """
+import fnmatch
 import functools
 import hashlib
 import json
@@ -87,7 +88,7 @@ def olr_version(image):
     return (int(m.group(1)), int(m.group(2))) if m else (2, 0)
 
 
-def make_config(rec, scenario, profile, state_dir="work/state", version=(2, 0)):
+def make_config(rec, scenario, profile, state_dir="work/state", version=(2, 0), image=None):
     legacy = version < (2, 0)
     table = PROFILES_19 if legacy else PROFILES
     p = table.get(profile) or table[profile.split("-")[0]]
@@ -127,6 +128,11 @@ def make_config(rec, scenario, profile, state_dir="work/state", version=(2, 0)):
         }],
     }
     src = cfg["source"][0]
+    # OLRT_DORMANT_MAX: fork option state.dormant-transactions-max for every scenario (client.toml dormant_max overrides),
+    # only for images matching OLRT_DORMANT_MAX_IMAGES (fnmatch) when that is set
+    pattern = os.environ.get("OLRT_DORMANT_MAX_IMAGES", "")
+    if os.environ.get("OLRT_DORMANT_MAX", "") != "" and (not pattern or (image and fnmatch.fnmatch(image, pattern))):
+        cfg["state"]["dormant-transactions-max"] = int(os.environ["OLRT_DORMANT_MAX"])
     src["flags"] |= int(getattr(scenario, "olr_flags", 0) or 0)
     src["reader"].update(p.get("reader", {}))
     src["reader"].update(getattr(scenario, "olr_reader", {}) or {})
@@ -303,7 +309,7 @@ def _run(image, rec, scenario, profile, workdir, extra_args=(), on_start=None):
     (workdir / "state").mkdir(parents=True)
     os.chmod(workdir, 0o777)
     os.chmod(workdir / "state", 0o777)
-    cfg = make_config(rec, scenario, profile, version=olr_version(image))
+    cfg = make_config(rec, scenario, profile, version=olr_version(image), image=image)
     (workdir / "config.json").write_text(json.dumps(cfg, indent=2))
     name = container_name(workdir)
     subprocess.run(["docker", "rm", "-f", name], capture_output=True)

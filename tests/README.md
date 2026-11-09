@@ -130,7 +130,9 @@ source, no debezium preset: the JSON block from Debezium's OLR docs instead). Se
   container's zone), `olr_timeout`, `container = "root"` (tables, OLR user `C##OLR` and OLR's
   connection in CDB$ROOT instead of the PDB: there `SYS.V_$PDBS` has no row for the container, the
   same as on a non-CDB), `[known_issue]` and `fixed_in` (see above), `exactly_once` (diff fails on a
-  transaction delivered twice, except the one re-sent at a START SCN; default: a note).
+  transaction delivered twice, except the one re-sent at a START SCN; default: a note), `expect_log` and
+  `forbid_log` (regexes over the whole OLR log, INFO lines included: each `expect_log` must match, no
+  `forbid_log` may; judged by check run).
 - `setup.sql` (not captured), `workload.sql` (captured), `README.md` (what and why).
 - SQL files: statements end with `;`, PL/SQL blocks with a `/` line, SQL*Plus commands are
   ignored. Directives: `-- @session N`, `-- @switch_logfile`, `-- @sleep S`,
