@@ -153,7 +153,8 @@ namespace {
             Seq minSequence = Seq::none();
             FileOffset minFileOffset;
             Xid minXid;
-            buffer->checkpoint(Scn(scn), minSequence, minFileOffset, minXid);
+            Time minTimestamp;
+            buffer->checkpoint(Scn(scn), minSequence, minFileOffset, minXid, minTimestamp);
             DormantCheckpoint dormant;
             buffer->checkpointDormant(ctx.dormantTransactionsMax, Seq(12), FileOffset(8192), dormant);
             return dormant;
@@ -165,7 +166,8 @@ namespace {
             Seq minSequence = Seq::none();
             FileOffset minFileOffset;
             Xid minXid;
-            buffer->checkpoint(Scn(scn), minSequence, minFileOffset, minXid);
+            Time minTimestamp;
+            buffer->checkpoint(Scn(scn), minSequence, minFileOffset, minXid, minTimestamp);
             DormantCheckpoint dormant;
             if (computeDormant && ctx.dormantTransactionsMax > 0)
                 buffer->checkpointDormant(ctx.dormantTransactionsMax, Seq(seq), FileOffset(offset), dormant);
@@ -397,7 +399,7 @@ int main() {
         Env env(1000);
         Transaction* d1 = env.begin(D1, 10, 1024, 100);
         env.session(d1, "U1");
-        env.buffer->addCommitted(Scn(510), Scn(0), Seq(11), FileOffset(512), R2);
+        env.buffer->addCommitted(Scn(510), Scn(0), Seq(11), FileOffset(512), R2, Time(0));
         const DormantCheckpoint c = env.checkpoint(505);
         check("committed in the checkpoint LWN pins the position", c.sequence == Seq(11) && c.fileOffset == FileOffset(512) && c.xid == R2);
         check("committed in the checkpoint LWN: dormant still listed", c.transactions.size() == 1);
@@ -671,8 +673,8 @@ int main() {
         Transaction* d2 = env.begin(D2, 12, 9216, 520);
         env.session(d2, "U2");
         env.buffer->dormantGeneration = env.metadata->dormantGeneration;
-        Seq ms = Seq::none(); FileOffset mo; Xid mx;
-        env.buffer->checkpoint(Scn(530), ms, mo, mx);
+        Seq ms = Seq::none(); FileOffset mo; Xid mx; Time mt;
+        env.buffer->checkpoint(Scn(530), ms, mo, mx, mt);
         DormantCheckpoint after;
         env.buffer->checkpointDormant(1000, Seq(13), FileOffset(512), after);
         after.generation = env.metadata->dormantGeneration;
@@ -720,7 +722,7 @@ int main() {
         env.session(d1, "U1");
         static_cast<void>(env.writeCheckpoint(500, 12, 8192));
         env.insert(d1, 77);
-        env.buffer->addCommitted(Scn(512), Scn(0), Seq(10), FileOffset(1024), D1);
+        env.buffer->addCommitted(Scn(512), Scn(0), Seq(10), FileOffset(1024), D1, Time(0));
         env.buffer->dropTransaction(D1, 0);
         d1->purge(&env.ctx);
         delete d1;

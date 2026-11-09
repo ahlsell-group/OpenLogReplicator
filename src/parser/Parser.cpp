@@ -881,7 +881,7 @@ namespace OpenLogReplicator {
 #endif
         if (transaction->begin && !transaction->rollback && transaction->commitScn >= lwnScn)
             transactionBuffer->addCommitted(transaction->commitScn, metadata->firstDataScn, transaction->beginSequence, transaction->beginFileOffset,
-                                            transaction->xid);
+                                            transaction->xid, transaction->beginTimestamp);
 
         // By the position the transaction gets, not its commit SCN: one committed below the current position is sent at
         // that position, and a restart from it must send it again. Inclusive: a client restarting from the position of a
@@ -1684,7 +1684,12 @@ namespace OpenLogReplicator {
                         Seq minSequence = Seq::none();
                         FileOffset minFileOffset;
                         Xid minXid;
-                        transactionBuffer->checkpoint(lwnScn, minSequence, minFileOffset, minXid);
+                        Time minTimestamp;
+                        transactionBuffer->checkpoint(lwnScn, minSequence, minFileOffset, minXid, minTimestamp);
+                        // A restart from this checkpoint reads from the begin of min-tran, or from the checkpoint itself
+                        if (ctx->metrics != nullptr)
+                            ctx->metrics->emitCheckpointMinTranTime(
+                                    (minSequence == Seq::none() ? lwnTimestamp : minTimestamp).toEpoch(ctx->hostTimezone));
                         // At most once per second of redo; the last result stays valid for later checkpoints
                         DormantCheckpoint* dormant = nullptr;
                         const uint64_t dormantGeneration = metadata->dormantGeneration.load();

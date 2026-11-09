@@ -268,10 +268,11 @@ namespace OpenLogReplicator {
             redoLogRecord1->flg &= ~(OpCode::FLG_MULTIBLOCKUNDOHEAD | OpCode::FLG_MULTIBLOCKUNDOMID | OpCode::FLG_MULTIBLOCKUNDOTAIL);
     }
 
-    bool TransactionBuffer::addCommitted(Scn commitScn, Scn firstDataScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid) {
+    bool TransactionBuffer::addCommitted(Scn commitScn, Scn firstDataScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid,
+                                         Time beginTimestamp) {
         if (commitScn < firstDataScn)
             return false;
-        committedAtOrAfterLwn.emplace(commitScn, CommittedBegin{beginSequence, beginFileOffset, xid});
+        committedAtOrAfterLwn.emplace(commitScn, CommittedBegin{beginSequence, beginFileOffset, xid, beginTimestamp});
         return true;
     }
 
@@ -281,21 +282,22 @@ namespace OpenLogReplicator {
     // the commit SCN of such a transaction gets the checkpoint (Metadata::readCheckpoints takes the newest one at or
     // below the start SCN) and the transaction (Parser sends the ones committed at or after the start SCN), so the
     // checkpoint must still reach back to its begin.
-    void TransactionBuffer::checkpoint(Scn checkpointScn, Seq& minSequence, FileOffset& minFileOffset, Xid& minXid) {
-        const auto update = [&](Seq sequence, FileOffset fileOffset, Xid xid) {
+    void TransactionBuffer::checkpoint(Scn checkpointScn, Seq& minSequence, FileOffset& minFileOffset, Xid& minXid, Time& minTimestamp) {
+        const auto update = [&](Seq sequence, FileOffset fileOffset, Xid xid, Time timestamp) {
             if (sequence < minSequence || (sequence == minSequence && fileOffset < minFileOffset)) {
                 minSequence = sequence;
                 minFileOffset = fileOffset;
                 minXid = xid;
+                minTimestamp = timestamp;
             }
         };
 
         for (const auto& [_, transaction]: xidTransactionMap)
-            update(transaction->beginSequence, transaction->beginFileOffset, transaction->xid);
+            update(transaction->beginSequence, transaction->beginFileOffset, transaction->xid, transaction->beginTimestamp);
 
         committedAtOrAfterLwn.erase(committedAtOrAfterLwn.begin(), committedAtOrAfterLwn.lower_bound(checkpointScn));
         for (const auto& [_, committed]: committedAtOrAfterLwn)
-            update(committed.sequence, committed.fileOffset, committed.xid);
+            update(committed.sequence, committed.fileOffset, committed.xid, committed.timestamp);
     }
 
     // Call after checkpoint() for the checkpoint at checkpointSequence/checkpointFileOffset (it has pruned the committed

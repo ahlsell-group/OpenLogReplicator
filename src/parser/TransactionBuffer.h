@@ -32,6 +32,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/types/FileOffset.h"
 #include "../common/types/Types.h"
 #include "../common/types/Seq.h"
+#include "../common/types/Time.h"
 #include "../common/types/Xid.h"
 
 namespace OpenLogReplicator {
@@ -68,6 +69,7 @@ namespace OpenLogReplicator {
             Seq sequence;
             FileOffset fileOffset;
             Xid xid;
+            Time timestamp;
         };
         // Begin positions of committed transactions, by commit SCN, whose commit SCN is not below the SCN of the LWN
         // they committed in. A checkpoint at that LWN is already past their commit, but a client may start from their
@@ -95,11 +97,12 @@ namespace OpenLogReplicator {
         void addTransactionChunk(Transaction* transaction, RedoLogRecord* redoLogRecord1, const RedoLogRecord* redoLogRecord2);
         void rollbackTransactionChunk(Transaction* transaction);
         void mergeBlocks(uint8_t* mergeBuffer, RedoLogRecord* redoLogRecord1, const RedoLogRecord* redoLogRecord2);
-        bool addCommitted(Scn commitScn, Scn firstDataScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid);
+        bool addCommitted(Scn commitScn, Scn firstDataScn, Seq beginSequence, FileOffset beginFileOffset, Xid xid, Time beginTimestamp);
         [[nodiscard]] size_t committedSize() const {
             return committedAtOrAfterLwn.size();
         }
-        void checkpoint(Scn checkpointScn, Seq& minSequence, FileOffset& minFileOffset, Xid& minXid);
+        // minTimestamp: redo time of the begin of the min-tran transaction, unchanged when there is none
+        void checkpoint(Scn checkpointScn, Seq& minSequence, FileOffset& minFileOffset, Xid& minXid, Time& minTimestamp);
         uint64_t dormantGeneration{0};
         void pinOpenTransactions();
         void checkpointDormant(uint64_t dormantMax, Seq checkpointSequence, FileOffset checkpointFileOffset, DormantCheckpoint& dormant);

@@ -64,6 +64,9 @@ namespace OpenLogReplicator {
         // checkpoint_lag
         virtual void emitCheckpointLag(int64_t gauge) = 0;
 
+        // checkpoint_min_tran_age_s: redo time (epoch seconds) a restart from the latest checkpoint reads from, 0 before the first one
+        virtual void emitCheckpointMinTranTime(int64_t timeS) = 0;
+
         // ddl_ops
         virtual void emitDdlOpsAlter(uint64_t counter) = 0;
         virtual void emitDdlOpsCreate(uint64_t counter) = 0;
