@@ -18,7 +18,7 @@ Checks (failures go to run.json "assert_failures", so check run fails):
     from the "scn" field (a restarted run raises the SCN of messages below its start SCN to it) and the
     schema column list (printed once per table and process with schema "first");
   - B's log shows the dormant position was used (unless expect_engaged = false), C's does not;
-  - no 60061, 50039, 70003, 70004 in B or C, and the same 60011 lines in both;
+  - no 60061, 50039, 70003, 70004 in B or C, and the same 60011 lines in both, apart from empty incomplete transactions (flag 1024);
   - the same transactions committed below the stream position (60048: xid, commit and position SCN) in B and C;
   - every checkpoint SCN both B and C wrote a <db>-position-<scn>.json for has the same position SCN.
 
@@ -182,8 +182,12 @@ def run(image, scenario, profile, workdir, spec, rec, make_config, container_cls
     for name, log in (("B", b_log), ("C", c_log)):
         for line in warns(log, "60061|50039|7000[34]"):
             fails.append(f"equivalence: run {name}: {line[:200]}")
-    if warns(b_log, "60011") != warns(c_log, "60011"):
-        fails.append(f"equivalence: 60011 differs between B and C: {warns(b_log, '60011')[:3]} | {warns(c_log, '60011')[:3]}")
+    # with flag 1024 a run creates an incomplete transaction from whatever record of it lies after its own start, so the
+    # earlier start of C also warns for empty ones (op: 0 chunks: 0) that B never sees; they lost nothing
+    lost_b = [w for w in warns(b_log, "60011") if " op: 0 chunks: 0 " not in w]
+    lost_c = [w for w in warns(c_log, "60011") if " op: 0 chunks: 0 " not in w]
+    if lost_b != lost_c:
+        fails.append(f"equivalence: 60011 differs between B and C: {lost_b[:3]} | {lost_c[:3]}")
     below_b = [m.groups() for m in BELOW.finditer(b_log)]
     below_c = [m.groups() for m in BELOW.finditer(c_log)]
     if below_b != below_c:
