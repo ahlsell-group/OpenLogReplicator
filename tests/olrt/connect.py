@@ -54,6 +54,8 @@ A scenario opts in with connect.toml next to scenario.toml:
   [[step]]
   switch_logfile = true
   [[step]]
+  kafka_produce = "{prefix}-signal"   # one record on a broker topic: key = "...", value = "..." ({prefix} expanded)
+  [[step]]
   sleep = 2
   [[step]]
   rpk = "topic alter-config {prefix}.X --set k=v"   # rpk in the broker container
@@ -371,7 +373,9 @@ def connector_config(sc, spec, prefix, olr_host, adapter=None):
         for kv in filter(None, os.environ.get("OLRT_OLR_CONNECTOR_CONFIG", "").split(";")):
             k, v = kv.split("=", 1)
             cfg[k.strip()] = v.strip()
-    cfg.update({k: str(v) for k, v in c.get("config", {}).items()})
+    # {prefix} and {broker} in a value: the connector's topic prefix and the broker host (Kafka signal channel)
+    cfg.update({k: str(v).replace("{prefix}", prefix).replace("{broker}", S.BROKER_CONTAINER)
+                for k, v in c.get("config", {}).items()})
     return cfg
 
 
@@ -988,6 +992,16 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 args = shlex.split(step["rpk"].format(prefix=prefix))
                 r = _docker("exec", S.BROKER_CONTAINER, "rpk", *args, check=False)
                 events.append(f"step {i}: rpk {' '.join(args)}: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}")
+            elif "kafka_produce" in step:
+                # one record on a broker topic, e.g. a Debezium signal on the Kafka channel;
+                # {prefix} in topic, key and value is the connector's topic prefix
+                from confluent_kafka import Producer
+                topic = step["kafka_produce"].format(prefix=prefix)
+                p = Producer({"bootstrap.servers": f"127.0.0.1:{S.KAFKA_PORT}"})
+                p.produce(topic, key=step.get("key", "").format(prefix=prefix),
+                          value=step.get("value", "").replace("{prefix}", prefix))
+                left = p.flush(30)
+                events.append(f"step {i}: produced to {topic} ({'not ' if left else ''}delivered)")
             elif "sleep" in step:
                 time.sleep(float(step["sleep"]))
             else:

@@ -1,0 +1,4 @@
+description = "Incremental snapshot requested on the Kafka signal channel, as prd can, while the snapshotted table is updated (1024-row chunks, 40000 rows): window deduplication and the signal thread"
+tags = ["connect", "snapshot", "keycols"]
+tables = ["OLRT_K5.T", "OLRT_K5.STREAM", "OLRT_K5.DBZ_SIGNAL"]
+olr_timeout = 3600

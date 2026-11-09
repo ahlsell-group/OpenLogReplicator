@@ -1,0 +1,4 @@
+description = "ALTER TABLE ADD COLUMN on the table being snapshotted, between chunks (1024-row chunks, 60000 rows): the key columns must be resolved again for the new table model and every row must arrive with the new column"
+tags = ["connect", "snapshot", "keycols"]
+tables = ["OLRT_K2.T", "OLRT_K2.STREAM", "OLRT_K2.DBZ_SIGNAL"]
+olr_timeout = 3600
