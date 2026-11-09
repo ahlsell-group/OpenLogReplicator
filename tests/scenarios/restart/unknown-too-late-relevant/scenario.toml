@@ -7,7 +7,8 @@ checks = ["run"]
 # container) after a restart
 allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
 expect_warning = "^60011 skipping transaction with no beginning, changes committed after the starting scn are lost: xid: 0x"
-expect_warning_images = ["olrt/olr:local*"]
+# required on every image: images without the fix fail check run, which [known_issue] turns into xfail there
+expect_warning_images = ["*"]
 fixed_in = ["olrt/olr:local*"]
 
 [known_issue]
