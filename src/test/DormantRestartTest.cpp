@@ -27,7 +27,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include <rapidjson/document.h>
 
+#include "../builder/BuilderJson.h"
 #include "../common/Attribute.h"
+#include "../common/Format.h"
 #include "../common/Ctx.h"
 #include "../common/DormantTransaction.h"
 #include "../common/RedoLogRecord.h"
@@ -84,6 +86,15 @@ namespace {
             r.obj = obj;
         }
     };
+
+    Format testFormat() {
+        return {Format::DB_FORMAT::DEFAULT, Format::ATTRIBUTES_FORMAT::DEFAULT, Format::INTERVAL_DTS_FORMAT::UNIX_NANO,
+                Format::INTERVAL_YTM_FORMAT::MONTHS, Format::MESSAGE_FORMAT::DEFAULT, Format::RID_FORMAT::SKIP,
+                Format::REDO_THREAD_FORMAT::SKIP, Format::XID_FORMAT::TEXT_HEX, Format::TIMESTAMP_FORMAT::UNIX_NANO,
+                Format::TIMESTAMP_FORMAT::UNIX_NANO, Format::TIMESTAMP_TZ_FORMAT::UNIX_NANO_STRING, Format::TIMESTAMP_TYPE::DEFAULT,
+                Format::CHAR_FORMAT::UTF8, Format::SCN_FORMAT::NUMERIC, Format::SCN_TYPE::DEFAULT, Format::UNKNOWN_FORMAT::QUESTION_MARK,
+                Format::SCHEMA_FORMAT::DEFAULT, Format::COLUMN_FORMAT::CHANGED, Format::UNKNOWN_TYPE::HIDE, Format::USER_TYPE::DEFAULT};
+    }
 
     struct Env {
         Ctx ctx;
@@ -158,7 +169,7 @@ namespace {
             DormantCheckpoint dormant;
             if (computeDormant && ctx.dormantTransactionsMax > 0)
                 buffer->checkpointDormant(ctx.dormantTransactionsMax, Seq(seq), FileOffset(offset), dormant);
-            metadata->checkpoint(&thread, Scn(scn), Time(0), Seq(seq), FileOffset(offset), 0, minSequence, minFileOffset, minXid,
+            metadata->checkpoint(&thread, Scn(scn), Time(0), Seq(seq), FileOffset(offset), 0, minSequence, minFileOffset, minXid, Scn::none(),
                                  computeDormant && ctx.dormantTransactionsMax > 0 ? &dormant : nullptr);
             std::ostringstream ss;
             SerializerJson serializer;
@@ -524,7 +535,10 @@ int main() {
         table->addColumn(new DbColumn(1, -1, 1, "ID", SysCol::COLTYPE::VARCHAR, 10, -1, -1, 0, 1, false, false, false, false, false, false,
                                       false, false, false));
         env.metadata->schema->tablePartitionMap.insert_or_assign(77, table);
-        auto parserPtr = std::make_unique<Parser>(&env.ctx, nullptr, env.metadata.get(), env.buffer.get(), 0, "test");
+        Format format = testFormat();
+        auto builder = std::make_unique<BuilderJson>(&env.ctx, &env.locales, env.metadata.get(), format, 0);
+        builder->initialize();
+        auto parserPtr = std::make_unique<Parser>(&env.ctx, builder.get(), env.metadata.get(), env.buffer.get(), 0, "test");
         Parser& parser = *parserPtr;
         Transaction* s = env.begin(D1, 10, 1024, 100);
         Transaction* u = env.begin(D2, 10, 1536, 101);
@@ -642,7 +656,7 @@ int main() {
         env.buffer->checkpointDormant(1000, Seq(12), FileOffset(8192), before);
         before.generation = env.metadata->dormantGeneration;
         env.metadata->changeDormantFingerprint(&env.thread, "");
-        env.metadata->checkpoint(&env.thread, Scn(500), Time(0), Seq(12), FileOffset(8192), 0, Seq(10), FileOffset(1024), D1, &before);
+        env.metadata->checkpoint(&env.thread, Scn(500), Time(0), Seq(12), FileOffset(8192), 0, Seq(10), FileOffset(1024), D1, Scn::none(), &before);
         check("reload: state computed before the change is dropped", !env.metadata->dormant.valid);
         env.metadata->changeDormantFingerprint(&env.thread, "fp-2");
         env.buffer->pinOpenTransactions();
@@ -656,7 +670,7 @@ int main() {
         DormantCheckpoint after;
         env.buffer->checkpointDormant(1000, Seq(13), FileOffset(512), after);
         after.generation = env.metadata->dormantGeneration;
-        env.metadata->checkpoint(&env.thread, Scn(530), Time(0), Seq(13), FileOffset(512), 0, ms, mo, mx, &after);
+        env.metadata->checkpoint(&env.thread, Scn(530), Time(0), Seq(13), FileOffset(512), 0, ms, mo, mx, Scn::none(), &after);
         std::ostringstream ss;
         SerializerJson serializer;
         serializer.serialize(env.metadata.get(), ss, false);

@@ -958,7 +958,7 @@ namespace OpenLogReplicator {
         if (unlikely(metadata->dormantRestart) &&
             metadata->dormantKnownXids.find(redoLogRecord1->xid) != metadata->dormantKnownXids.end()) {
             transactionBuffer->unknownXids.erase(redoLogRecord1->xid);
-            if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || redoLogRecord1->scn < metadata->firstDataScn ||
+            if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || !builder->isDataCommit(redoLogRecord1->scn) ||
                 (metadata->conId > 0 && redoLogRecord1->conId != metadata->conId))
                 return;
             ctx->warning(60061, "commit of transaction " + redoLogRecord1->xid.toString() + " at scn " + redoLogRecord1->scn.toString() +
