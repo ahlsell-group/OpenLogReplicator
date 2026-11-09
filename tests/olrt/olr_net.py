@@ -65,6 +65,8 @@ client.toml:
   olr = "restart"                 # docker stop + start, same state dir
   delete_writer_checkpoint = true # remove <db>-chkpt.json first (as an init container might)
   signal = "INT"                  # INT = clean shutdown, KILL = crash
+  drop_min_tran = true            # remove min-tran from every metadata checkpoint first: the next start
+                                  # begins after the begin of the transactions open at the checkpoint
   [[step]]
   olr = "stop"                    # as restart, but OLR stays down until an olr = "start" step
   [[step]]                        # (log switches while OLR is down)
@@ -426,6 +428,12 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                     if p.exists():
                         events.append(f"step {i}: deleted {p.name}: {p.read_text().strip()}")
                         p.unlink()
+                if step.get("drop_min_tran"):
+                    for p in sorted((workdir / "state").glob(f"{scenario.db_name}-chkpt-*.json")):
+                        doc = json.loads(p.read_text())
+                        if doc.pop("min-tran", None) is not None:
+                            p.write_text(json.dumps(doc, separators=(",", ":")))
+                            events.append(f"step {i}: removed min-tran of {p.name}")
                 if step["olr"] == "restart":
                     subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
                     time.sleep(2)
