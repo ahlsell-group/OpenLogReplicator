@@ -206,6 +206,7 @@ namespace OpenLogReplicator {
         void readCheckpoint(Scn scn);
         bool readCheckpointPosition(const std::string& name, Scn& positionScn) const;
         void applyDormantRestart(const std::string& fileName);
+        void dropDormantRestart();
         void dropDormantPending(const std::string& fileName);
         void deleteOldCheckpoints(Thread* t);
         void loadAdaptiveSchema();

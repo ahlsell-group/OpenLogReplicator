@@ -200,7 +200,7 @@ namespace OpenLogReplicator {
                         ctx->info(0, "first schema SCN: " + metadata->firstSchemaScn.toString());
 
                     if (metadata->firstDataScn == Scn::none() || metadata->sequence == Seq::none()) {
-                        metadata->dormantSeed.clear();
+                        metadata->dropDormantRestart();
                         positionReader();
                     }
 

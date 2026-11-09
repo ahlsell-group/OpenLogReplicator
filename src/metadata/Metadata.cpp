@@ -712,6 +712,13 @@ namespace OpenLogReplicator {
         dormantPendingKnown.clear();
     }
 
+    // A cold start (also one retried after a failed start): nothing of a restart past dormant transactions applies
+    void Metadata::dropDormantRestart() {
+        dormantSeed.clear();
+        dormantKnownXids.clear();
+        dormantRestart = false;
+    }
+
     // Only after the whole checkpoint, its schema (own or referenced) included, loaded; otherwise the start stays at min-tran
     void Metadata::applyDormantRestart(const std::string& fileName) {
         if (dormantPendingSequence == Seq::none())
