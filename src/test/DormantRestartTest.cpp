@@ -290,6 +290,7 @@ int main() {
         check("classify: dormant list is ordered by begin", c.transactions[0].xid == D1 && c.transactions[1].xid == D2);
         check("classify: attributes are kept", c.transactions[0].attributes != nullptr &&
               c.transactions[0].attributes->at(Attribute::KEY::LOGIN_USER_NAME) == "U1");
+        check("classify: session records mark it buffered, an empty one not", c.transactions[0].buffered && !c.transactions[1].buffered);
         static_cast<void>(e);
     }
 
@@ -311,6 +312,11 @@ int main() {
               restart.seed[0].beginScn == Scn(100) && restart.seed[0].beginTimestamp.getVal() == 1100 && restart.seed[0].thread == 1);
         check("restart: with its attributes", restart.seed.size() == 1 && restart.seed[0].attributes != nullptr &&
               restart.seed[0].attributes->at(Attribute::KEY::LOGIN_USER_NAME) == "U1");
+        check("restart: buffered kept", restart.seed.size() == 1 && restart.seed[0].buffered && contains(json, R"("buffered":1)"));
+        check("restart: recreated as buffered", restart.seed.size() == 1 && [&] {
+            Env next(1000);
+            return next.buffer->seedDormant(nullptr, restart.seed[0])->buffered;
+        }());
 
         const Restart off = readCheckpoint(json, 0, "fp-1");
         check("toggled off: restart from min-tran, nothing recreated", off.ok && off.sequence == Seq(10) &&
@@ -763,6 +769,9 @@ int main() {
     }
 
     check("fingerprint: stable", dormantFingerprint("a") == dormantFingerprint("a") && dormantFingerprint("a").size() == 16);
+    check("fingerprint: state written without buffered (format 1) does not match, restart from min-tran",
+          dormantFingerprint(0, 0, "", "", nullptr) != dormantFingerprint("1|flags:0|transaction-max:0|debug:.|filter:") &&
+          dormantFingerprint(0, 0, "", "", nullptr) == dormantFingerprint("2|flags:0|transaction-max:0|debug:.|filter:"));
     check("fingerprint: differs", dormantFingerprint(R"({"table":[{"owner":"A","table":"T"}]})") !=
           dormantFingerprint(R"({"table":[{"owner":"A","table":"T"},{"owner":"A","table":"U"}]})"));
 

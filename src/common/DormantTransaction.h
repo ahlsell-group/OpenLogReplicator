@@ -48,6 +48,8 @@ namespace OpenLogReplicator {
         Scn beginScn{Scn::none()};
         Time beginTimestamp{0};
         std::shared_ptr<const AttributeMap> attributes;
+        // It had buffered session records, so its commit takes a position like any non-empty transaction (Transaction::flush)
+        bool buffered{false};
 
         [[nodiscard]] bool beginsBefore(Seq sequence, FileOffset fileOffset) const {
             return beginSequence < sequence || (beginSequence == sequence && beginFileOffset < fileOffset);
@@ -99,7 +101,7 @@ namespace OpenLogReplicator {
             rapidjson::Writer<rapidjson::StringBuffer> filterWriter(filterBuffer);
             filter->Accept(filterWriter);
         }
-        return dormantFingerprint("1|flags:" + std::to_string(flags) + "|transaction-max:" + std::to_string(transactionSizeMax) + "|debug:" +
+        return dormantFingerprint("2|flags:" + std::to_string(flags) + "|transaction-max:" + std::to_string(transactionSizeMax) + "|debug:" +
                                   debugOwner + "." + debugTable + "|filter:" + filterBuffer.GetString());
     }
 }

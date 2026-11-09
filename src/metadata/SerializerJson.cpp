@@ -843,6 +843,7 @@ namespace OpenLogReplicator {
                     R"(,"offset":)" << transaction.beginFileOffset.toString() <<
                     R"(,"scn":)" << transaction.beginScn.toString() <<
                     R"(,"time":)" << std::dec << transaction.beginTimestamp.getVal() <<
+                    R"(,"buffered":)" << (transaction.buffered ? "1" : "0") <<
                     R"(,"attributes":{)";
             bool firstAttribute = true;
             if (transaction.attributes != nullptr) {
@@ -917,6 +918,7 @@ namespace OpenLogReplicator {
             if (!ctx->isDisableChecksSet(Ctx::DISABLE_CHECKS::JSON_TAGS)) {
                 static const std::vector<std::string> transactionJsonChildNames{
                     "attributes",
+                    "buffered",
                     "con-id",
                     "offset",
                     "scn",
@@ -936,6 +938,7 @@ namespace OpenLogReplicator {
             transaction.beginFileOffset = FileOffset(Ctx::getJsonFieldU64(fileName, transactionJson, "offset"));
             transaction.beginScn = Scn(Ctx::getJsonFieldU64(fileName, transactionJson, "scn"));
             transaction.beginTimestamp = Time(Ctx::getJsonFieldU32(fileName, transactionJson, "time"));
+            transaction.buffered = Ctx::getJsonFieldU16(fileName, transactionJson, "buffered") != 0;
 
             auto attributes = std::make_shared<AttributeMap>();
             const rapidjson::Value& attributesJson = Ctx::getJsonFieldO(fileName, transactionJson, "attributes");

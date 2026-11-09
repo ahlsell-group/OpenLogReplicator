@@ -71,6 +71,8 @@ namespace OpenLogReplicator {
         bool relevant{false};
         // Recreated on start from a checkpoint (dormant), its begin was not read
         bool recreated{false};
+        // Recreated: it had buffered session records before the restart position, which the restart does not read again
+        bool buffered{false};
         typeTransactionSize size{0};
         uint16_t thread;
 
@@ -118,6 +120,11 @@ namespace OpenLogReplicator {
         [[nodiscard]] bool holdsRestartState() const {
             return relevant || !begin || system || schema || shutdown || lastSplit || mergeBuffer != nullptr || !lobCtx.lobs.empty() ||
                     !lobCtx.listMap.empty();
+        }
+
+        // Whether its commit takes a position (Transaction::flush): it buffered records, also before a restart past it
+        [[nodiscard]] bool hasBuffered() const {
+            return opCodes > 0 || buffered;
         }
 
         [[nodiscard]] std::string toString(const Ctx* ctx) const;

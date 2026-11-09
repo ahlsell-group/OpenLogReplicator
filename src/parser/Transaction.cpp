@@ -212,7 +212,9 @@ namespace OpenLogReplicator {
         std::unique_lock const lckTransaction(metadata->mtxTransaction);
         std::unique_lock lckSchema(metadata->mtxSchema, std::defer_lock);
 
-        if (opCodes == 0 || rollback) {
+        // A recreated transaction that had buffered session records commits as it would have without the restart:
+        // processBegin moves the position to its commit SCN, processCommit skips the empty message
+        if (!hasBuffered() || rollback) {
             metadata->ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
             return;
         }

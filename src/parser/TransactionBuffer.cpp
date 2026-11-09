@@ -342,7 +342,7 @@ namespace OpenLogReplicator {
             const auto conId = static_cast<typeConId>(static_cast<uint16_t>(xidMap >> 32));
             dormant.transactions.push_back(DormantTransaction{transaction->xid, conId, transaction->thread, transaction->beginSequence,
                                                               transaction->beginFileOffset, transaction->beginScn, transaction->beginTimestamp,
-                                                              transaction->attributesSnapshot});
+                                                              transaction->attributesSnapshot, transaction->hasBuffered()});
         }
 
         const auto older = [](const DormantTransaction& a, const DormantTransaction& b) {
@@ -379,6 +379,7 @@ namespace OpenLogReplicator {
         Transaction* transaction = findTransaction(xmlCtx, dormant.xid, dormant.conId, dormant.thread, false, true, false);
         transaction->begin = true;
         transaction->recreated = true;
+        transaction->buffered = dormant.buffered;
         transaction->beginSequence = dormant.beginSequence;
         transaction->beginScn = dormant.beginScn;
         transaction->beginTimestamp = dormant.beginTimestamp;
