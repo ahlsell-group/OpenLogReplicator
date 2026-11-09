@@ -22,7 +22,9 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include <sstream>
 #include <string>
 
+#include "../builder/BuilderJson.h"
 #include "../common/Ctx.h"
+#include "../common/Format.h"
 #include "../common/DbColumn.h"
 #include "../common/DbTable.h"
 #include "../common/RedoLogRecord.h"
@@ -100,12 +102,23 @@ namespace {
     constexpr typeObj OTHER = 88;
     constexpr typeObj DICTIONARY = 18;
 
+    Format makeFormat() {
+        return {Format::DB_FORMAT::DEFAULT, Format::ATTRIBUTES_FORMAT::DEFAULT, Format::INTERVAL_DTS_FORMAT::UNIX_NANO,
+                Format::INTERVAL_YTM_FORMAT::MONTHS, Format::MESSAGE_FORMAT::DEFAULT, Format::RID_FORMAT::SKIP,
+                Format::REDO_THREAD_FORMAT::SKIP, Format::XID_FORMAT::TEXT_HEX, Format::TIMESTAMP_FORMAT::UNIX_NANO,
+                Format::TIMESTAMP_FORMAT::UNIX_NANO, Format::TIMESTAMP_TZ_FORMAT::UNIX_NANO_STRING, Format::TIMESTAMP_TYPE::DEFAULT,
+                Format::CHAR_FORMAT::UTF8, Format::SCN_FORMAT::NUMERIC, Format::SCN_TYPE::DEFAULT, Format::UNKNOWN_FORMAT::QUESTION_MARK,
+                Format::SCHEMA_FORMAT::DEFAULT, Format::COLUMN_FORMAT::CHANGED, Format::UNKNOWN_TYPE::HIDE, Format::USER_TYPE::DEFAULT};
+    }
+
     struct Env {
         Ctx ctx;
         TestThread thread{&ctx};
         Locales locales;
         std::unique_ptr<Metadata> metadata;
         std::unique_ptr<TransactionBuffer> buffer;
+        Format format{makeFormat()};
+        std::unique_ptr<BuilderJson> builder;
         std::unique_ptr<Parser> parser;
         DbTable* table;
         DbTable* dictionary;
@@ -125,11 +138,14 @@ namespace {
                                                false, false, false, false));
             metadata->schema->tablePartitionMap.insert_or_assign(DICTIONARY, dictionary);
             buffer = std::make_unique<TransactionBuffer>(&ctx);
-            parser = std::make_unique<Parser>(&ctx, nullptr, metadata.get(), buffer.get(), 0, "test");
+            builder = std::make_unique<BuilderJson>(&ctx, &locales, metadata.get(), format, 0);
+            builder->initialize();
+            parser = std::make_unique<Parser>(&ctx, builder.get(), metadata.get(), buffer.get(), 0, "test");
         }
 
         ~Env() {
             parser.reset();
+            builder.reset();
             buffer->purge();
             for (const auto& [_, sc]: ctx.swapChunks)
                 delete sc;
@@ -190,6 +206,14 @@ int main() {
         check("rollback: silent", count(env.commit(A, 600, true), "60011") == 0);
         env.dml(B, 0x0B02, FILTERED);
         check("commit before the first data scn (not sent anyway): silent", count(env.commit(B, 499), "60011") == 0);
+    }
+    {
+        // Sent by its position like appendToTransactionCommit: committed below the first data SCN, but the stream is
+        // already past it (a commit below the stream position is sent at the position)
+        Env env;
+        env.builder->lwnScn = Scn(650);
+        env.dml(A, 0x0B02, FILTERED);
+        check("commit below the first data scn, stream position past it: reported", count(env.commit(A, 450), "60011") == 1);
     }
     {
         Env env;

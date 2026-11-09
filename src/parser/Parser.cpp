@@ -948,8 +948,8 @@ namespace OpenLogReplicator {
     }
 
     // Commit of a transaction OLR has not seen begin. Loud when it changed something OLR would have sent and is itself to
-    // be applied, by the rule of appendToTransactionCommit: at or after the first data SCN, or for a dictionary change after
-    // the first schema SCN (a lost schema change), not a rollback. A cold start has already named the transactions open at
+    // be applied, by the rule of appendToTransactionCommit: sent by its position (Builder::isDataCommit), or for a dictionary
+    // change after the first schema SCN (a lost schema change), not a rollback. A cold start has already named the transactions open at
     // the start it can't read (60011 at startup).
     void Parser::checkUnknownCommit(const RedoLogRecord* redoLogRecord1) {
         const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
@@ -957,8 +957,7 @@ namespace OpenLogReplicator {
             return;
         const bool system = it->second;
         transactionBuffer->unknownXids.erase(it);
-        const bool applied = system ? redoLogRecord1->scn > metadata->firstSchemaScn || redoLogRecord1->scn >= metadata->firstDataScn
-                                    : redoLogRecord1->scn >= metadata->firstDataScn;
+        const bool applied = builder->isDataCommit(redoLogRecord1->scn) || (system && redoLogRecord1->scn > metadata->firstSchemaScn);
         if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || !applied ||
             metadata->coldStartLostXids.find(redoLogRecord1->xid) != metadata->coldStartLostXids.end())
             return;
