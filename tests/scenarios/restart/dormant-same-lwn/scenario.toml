@@ -1,0 +1,7 @@
+description = "dormant transaction begun in the LWN of the begin of the pinning transaction"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM20.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = []
+forbid_log = ["60011", "50039", "60061"]

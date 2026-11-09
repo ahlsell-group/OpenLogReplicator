@@ -1,0 +1,9 @@
+description = "review probe: a transaction unknown to OLR (begin never read) commits after a restart past dormant transactions"
+tags = ["restart", "network", "dormant", "review"]
+tables = ["OLRT_DRM30.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]   # client disconnects on purpose; undo of an unknown transaction
+expect_log = ["restart past dormant transactions: from seq", "recreated 1 dormant transaction", "WARN  60011 skipping transaction with no beginning.*xid: 0x"]
+forbid_log = ["50039", "60061"]
+checks = ["run"]
+expect_warning = "^60011 skipping transaction with no beginning"   # the transaction the earlier start lost

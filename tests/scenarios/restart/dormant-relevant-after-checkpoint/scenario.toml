@@ -1,0 +1,7 @@
+description = "dormant at a checkpoint, rows in the filter after it, killed twice before the commit"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM4.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["restart past dormant transactions: from seq", "recreated [1-9]\\d* dormant transaction"]
+forbid_log = ["60011", "50039", "60061"]

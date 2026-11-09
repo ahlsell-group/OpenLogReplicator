@@ -1,0 +1,7 @@
+description = "recreated transaction locks rows of T and rolls back to a savepoint"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM22.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["restart past dormant transactions: from seq", "recreated [1-9]\\d* dormant transaction"]
+forbid_log = ["60011", "50039", "7000[34]", "60061"]

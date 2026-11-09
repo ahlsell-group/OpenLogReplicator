@@ -1,0 +1,142 @@
+[olr]
+queue_size = 65536
+dormant_max = 3
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (2, 'before')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 2' WHERE id = 2"
+session = 2
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 3' WHERE id = 3"
+session = 3
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 4' WHERE id = 4"
+session = 4
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 5' WHERE id = 5"
+session = 5
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 6' WHERE id = 6"
+session = 6
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 7' WHERE id = 7"
+session = 7
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 8' WHERE id = 8"
+session = 8
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM10.u SET v = 'dormant 9' WHERE id = 9"
+session = 9
+[[step]]
+sleep = 4
+[[step]]
+sleep = 3
+[[step]]
+switch_logfile = true
+count = 2
+[[step]]
+sleep = 5
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (3, 'after checkpoint')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "stop"
+signal = "KILL"
+delete_writer_checkpoint = true
+[[step]]
+olr = "start"
+[[step]]
+client = "connect"
+[[step]]
+read = "idle"
+idle = 8
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (102, 'session 2')"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (103, 'session 3')"
+session = 3
+[[step]]
+sql = "COMMIT"
+session = 3
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (104, 'session 4')"
+session = 4
+[[step]]
+sql = "COMMIT"
+session = 4
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (105, 'session 5')"
+session = 5
+[[step]]
+sql = "COMMIT"
+session = 5
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (106, 'session 6')"
+session = 6
+[[step]]
+sql = "COMMIT"
+session = 6
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (107, 'session 7')"
+session = 7
+[[step]]
+sql = "COMMIT"
+session = 7
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (108, 'session 8')"
+session = 8
+[[step]]
+sql = "COMMIT"
+session = 8
+[[step]]
+sql = "INSERT INTO OLRT_DRM10.t VALUES (109, 'session 9')"
+session = 9
+[[step]]
+sql = "COMMIT"
+session = 9
+[[step]]
+read = "commits"
+count = 8
+timeout = 60

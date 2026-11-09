@@ -1,0 +1,8 @@
+description = "flags 1024 (show incomplete transactions) with a dormant transaction across a kill"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM18.T"]
+olr_timeout = 900
+expect_log = ["restart past dormant transactions: from seq", "recreated [1-9]\\d* dormant transaction"]
+forbid_log = ["50039", "60061"]
+olr_flags = 1024
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback", "^60011 "]

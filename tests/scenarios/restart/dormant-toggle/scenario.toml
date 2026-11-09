@@ -1,0 +1,7 @@
+description = "option on, restart with it off, restart with it on again, a dormant transaction open throughout"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM9.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["restart past them is off, starting from min-tran"]
+forbid_log = ["recreated .* dormant", "60011", "50039", "60061"]

@@ -1,0 +1,9 @@
+description = "dormant-tran list emptied while OLR is down: the safety net 60061 must fire"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM15.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["restart past dormant transactions: from seq", "WARN  60061 commit of transaction"]
+forbid_log = ["60011", "50039"]
+checks = ["run"]
+expect_warning = "^60061 "

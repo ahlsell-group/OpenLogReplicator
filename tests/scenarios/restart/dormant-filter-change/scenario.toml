@@ -1,0 +1,7 @@
+description = "U added to the filter between the checkpoint and the restart: fall back to min-tran"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM5.T", "OLRT_DRM5.U"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["filter or flags changed since the checkpoint"]
+forbid_log = ["recreated .* dormant", "60011", "50039", "60061"]

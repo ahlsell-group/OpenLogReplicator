@@ -1,0 +1,8 @@
+description = "direct-path load into T in a transaction dormant at the checkpoint"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM23.T", "OLRT_DRM23.L"]
+olr_timeout = 900
+expect_log = ["restart past dormant transactions: from seq"]
+forbid_log = ["60011", "50039", "60061"]
+checks = ["run"]
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback", "^60042 "]

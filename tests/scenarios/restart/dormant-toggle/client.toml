@@ -1,0 +1,96 @@
+[olr]
+queue_size = 65536
+dormant_max = 1000
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO OLRT_DRM9.t VALUES (2, 'before')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "UPDATE OLRT_DRM9.u SET v = 'dormant' WHERE id = 1"
+session = 2
+[[step]]
+sleep = 3
+[[step]]
+switch_logfile = true
+count = 2
+[[step]]
+sleep = 5
+[[step]]
+sql = "INSERT INTO OLRT_DRM9.t VALUES (3, 'after checkpoint')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "stop"
+signal = "INT"
+delete_writer_checkpoint = true
+[[step]]
+olr = "start"
+config = { dormant_max = 0 }
+[[step]]
+client = "connect"
+[[step]]
+read = "idle"
+idle = 8
+[[step]]
+sql = "INSERT INTO OLRT_DRM9.t VALUES (4, 'feature off')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+sleep = 3
+[[step]]
+switch_logfile = true
+count = 2
+[[step]]
+sleep = 5
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "stop"
+signal = "INT"
+delete_writer_checkpoint = true
+[[step]]
+olr = "start"
+config = { dormant_max = 1000 }
+[[step]]
+client = "connect"
+[[step]]
+read = "idle"
+idle = 8
+[[step]]
+sql = "INSERT INTO OLRT_DRM9.t VALUES (5, 'from the dormant transaction')"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+read = "commits"
+count = 1
