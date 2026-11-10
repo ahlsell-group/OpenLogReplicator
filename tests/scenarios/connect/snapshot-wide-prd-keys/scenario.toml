@@ -3,3 +3,4 @@ tags = ["connect", "snapshot", "keycols"]
 tables = ["OLRT_K1.WIDE", "OLRT_K1.STREAM", "OLRT_K1.DBZ_SIGNAL"]
 olr_timeout = 3600
 max_stream_stall = { "OLRT_K1.STREAM" = 60 }
+expect_incremental = ["OLRT_K1.WIDE"]

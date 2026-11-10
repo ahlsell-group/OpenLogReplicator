@@ -3,3 +3,4 @@ tags = ["connect", "snapshot", "keycols"]
 tables = ["OLRT_K3.T1", "OLRT_K3.T2", "OLRT_K3.STREAM", "OLRT_K3.DBZ_SIGNAL"]
 olr_timeout = 3600
 keys = { "OLRT_K3.T2" = ["COMPID", "COMPNO"] }
+expect_incremental = ["OLRT_K3.T1", "OLRT_K3.T2"]

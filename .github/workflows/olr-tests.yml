@@ -13,8 +13,8 @@ run-name: ${{ github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/
 # checkout, once with upstream Debezium and once with our patched connector jar. It runs on the manual
 # trigger and on release tags v2.0.0-ahlsell.*. The patched jar is a release asset on Aangbaeck/debezium
 # (DBZ_PATCHED_* below, published with tests/docker/connect/release-jar.sh), with an optional second jar
-# (DBZ_PATCHED_COMMON_*, debezium-connector-common); while the asset is missing that variant is skipped with a
-# notice. The patched variant also runs CONNECT_SCENARIOS_PATCHED (regression scenarios of the patched jars). Known issues per Debezium version are `known_issue` keys
+# (DBZ_PATCHED_COMMON_*, debezium-connector-common, attached to the same release by hand with `gh release
+# upload`); while an asset is missing that variant is skipped with a notice. The patched variant also runs CONNECT_SCENARIOS_PATCHED (regression scenarios of the patched jars). Known issues per Debezium version are `known_issue` keys
 # "check@<version>" in the scenario.toml files and do not fail the job.
 #
 # The `jobs` input picks the jobs of a manual run (all, test, connect, unit-sanitizers).
@@ -103,7 +103,7 @@ env:
     connect/confirm-row-rejected connect/olr-vanish connect/olr-vanished-client-info
     connect/redefinition-widen-min connect/redefinition-type-widen connect/big-txn-queue connect/big-txn-olr-restart
     connect/big-txn-exact-queue connect/big-txn-olr-restart-fresh
-  CONNECT_SCENARIOS_PATCHED: connect/snapshot-wide-prd-keys connect/snapshot-schema-change
+  CONNECT_SCENARIOS_PATCHED: connect/snapshot-wide-prd-keys connect/snapshot-schema-change connect/snapshot-restart-mid
 
 jobs:
   test:
@@ -249,7 +249,9 @@ jobs:
         id: jar
         run: |
           set -euo pipefail
-          if [ -z "$JAR_URL" ]; then JAR_URL=$DBZ_PATCHED_URL JAR_SHA256=$DBZ_PATCHED_SHA256; fi
+          # a manual patched_jar_url replaces the whole pinned set, so the pinned common jar only goes with the pinned one
+          common_url=
+          if [ -z "$JAR_URL" ]; then JAR_URL=$DBZ_PATCHED_URL JAR_SHA256=$DBZ_PATCHED_SHA256 common_url=$DBZ_PATCHED_COMMON_URL; fi
           [ -n "$JAR_SHA256" ] || { echo "::error::patched_jar_sha256 is required with patched_jar_url"; exit 1; }
           echo "url=$JAR_URL" >> "$GITHUB_OUTPUT"
           dir="docker/connect/overlay/$DBZ_PATCHED"
@@ -264,9 +266,16 @@ jobs:
           fi
           [ "$code" = 200 ] || { echo "::error::$JAR_URL: HTTP $code"; exit 1; }
           echo "$JAR_SHA256  $jar" | sha256sum -c -
-          if [ -n "$DBZ_PATCHED_COMMON_URL" ]; then
+          if [ -n "$common_url" ]; then
             common="$dir/debezium-connector-common-${DBZ_UPSTREAM}.jar"
-            curl -fsSL -o "$common" "$DBZ_PATCHED_COMMON_URL"
+            code=$(curl -sSL -o "$common" -w '%{http_code}' "$common_url" || true)
+            if [ "$code" = 404 ]; then
+              rm -rf "$dir"
+              echo "::notice title=Patched Debezium skipped::$common_url is not published (404); only Debezium $DBZ_UPSTREAM runs."
+              echo "available=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [ "$code" = 200 ] || { echo "::error::$common_url: HTTP $code"; exit 1; }
             echo "$DBZ_PATCHED_COMMON_SHA256  $common" | sha256sum -c -
           fi
           echo "available=true" >> "$GITHUB_OUTPUT"

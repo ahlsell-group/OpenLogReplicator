@@ -259,7 +259,8 @@ topic in offset order: each read equals the row after the streamed changes befor
 the snapshot SCN gets a read or a streamed change), and **stall** (with `max_stream_stall = { "OWNER.TABLE" = s }`:
 the largest delay from commit to Kafka of the table's streamed changes, above its smallest). A scenario with
 `ignore_watermarks = "OWNER.SIGNAL_TABLE"` leaves Debezium's `snapshot-window-*` rows of that table out of the
-checks. Topics are merged into one stream in
+checks; `expect_incremental = ["OWNER.TABLE"]` fails replay when the table gets no incremental read. Topics are
+merged into one stream in
 offset order per topic; CreateTime is only used to interleave topics. Evidence per run in
 `results/<run>/connect/<image>/<profile>@dbz-<version>/<scenario>/`: `kafka.jsonl` (decoded records),
 `schema-history.jsonl`, `connect.log`, `olr.log`, `run.json` (steps, task states, topic schema columns,

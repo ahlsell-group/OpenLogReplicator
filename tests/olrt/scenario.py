@@ -62,6 +62,8 @@ class Scenario:
     # connect: OWNER.TABLE -> seconds; check stall fails when a streamed change of the table reached Kafka later
     # than that after its commit (above the table's smallest delay)
     max_stream_stall: dict = dataclasses.field(default_factory=dict)
+    # connect: OWNER.TABLE that must get incremental snapshot reads (check replay fails without any)
+    expect_incremental: list[str] = dataclasses.field(default_factory=list)
 
     @property
     def mode(self):

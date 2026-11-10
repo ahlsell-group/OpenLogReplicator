@@ -527,9 +527,10 @@ def check_delivery(rec, txns, since_scn, exactly_once=False):
 
 
 def check_stall(limits, records):
-    """Streaming delay per table: Kafka record timestamp minus the change's commit time (source.ts_ms), above
-    the table's smallest delay (the clock offset between the database and the worker). Fails when the largest
-    one exceeds the scenario's limit in seconds (max_stream_stall = {"OWNER.TABLE" = s})."""
+    """Streaming delay per table: Kafka record timestamp minus the change's time in the database (source.ts_ms),
+    above the table's smallest delay (that absorbs the database time zone and clock offset, so a delay that is
+    constant over the whole run is not seen). Fails when the largest one exceeds the scenario's limit in
+    seconds (max_stream_stall = {"OWNER.TABLE" = s})."""
     r = checks.Result("stall")
     for t, limit in limits.items():
         lag = [x["ts"] - x["value"]["source"]["ts_ms"] for x in records
@@ -581,7 +582,9 @@ def check_incremental_snapshot(sc, rec, records, rr):
     in offset order: a read equals the row after the streamed changes before it on the topic (from the DB
     at the snapshot SCN), and every row present at the snapshot SCN gets a read or a streamed change (a
     change inside the open window replaces the read). Each chunk is read at its own time, so the DB at
-    one SCN is no reference for the reads themselves."""
+    one SCN is no reference for the reads themselves. A read must also carry every column of the table's
+    latest streamed change before it (or of the snapshot SCN), so a chunk read with an old table model fails.
+    Tables in the scenario's expect_incremental fail without any read."""
     by_table = {}
     for r in records:
         v = r.get("value")
@@ -592,11 +595,20 @@ def check_incremental_snapshot(sc, rec, records, rr):
     for t in sc.tables:
         rs = sorted(by_table.get(t, []), key=lambda r: (r.get("partition", 0), r.get("offset", 0)))
         if not any(r["value"]["op"] == "r" and r["value"]["source"].get("snapshot") == "incremental" for r in rs):
+            if t in sc.expect_incremental:
+                rr.fail(f"{t}: no incremental snapshot reads (expect_incremental)")
+            continue
+        info = rec["tables"].get(t) or rec["tables_before"].get(t)
+        if not info:
+            rr.fail(f"{t}: incremental reads for a table the recording has no model of")
             continue
         tm = checks.types(rec, t)
-        key = (rec["tables"].get(t) or rec["tables_before"][t])["key"]
-        state = {checks.key_of(x, key): dict(x) for x in (rec.get("at_snapshot") or {}).get(t, [])}
-        start_keys, covered, reads, bad = set(state), set(), 0, 0
+        key = info["key"]
+        start = (rec.get("at_snapshot") or {}).get(t, [])
+        state = {checks.key_of(x, key): dict(x) for x in start}
+        schema = set(start[0]) if start else None  # columns of the latest streamed change (or the snapshot SCN)
+        start_keys, covered, reads, bad, newer = set(state), set(), 0, 0, 0
+        start_cols = set(start[0]) if start else set()
         for r in rs:
             v = r["value"]
             before, after = checks.canon_image(v.get("before"), tm), checks.canon_image(v.get("after"), tm)
@@ -604,17 +616,21 @@ def check_incremental_snapshot(sc, rec, records, rr):
                 if v["source"].get("snapshot") != "incremental":
                     continue
                 reads += 1
+                newer += bool(start_cols and after.keys() - start_cols)
                 k = checks.key_of(after, key)
                 covered.add(k)
                 cur = state.get(k)
                 diff = None if cur is None else {c: (cur[c], after[c]) for c in cur.keys() & after.keys()
                                                   if cur[c] != after[c]}
-                if cur is None or diff:
+                absent = sorted((schema or set()) - after.keys())
+                if cur is None or diff or absent:
                     bad += 1
                     if bad <= 10:
+                        what = ("no such row" if cur is None else
+                                f"columns {absent} missing" if absent else checks.fmt_row_diff(
+                                    {c: d[0] for c, d in diff.items()}, {c: d[1] for c, d in diff.items()}))
                         rr.fail(f"{t} key {k} (offset {r.get('offset')}): incremental read vs the stream before it: "
-                                + ("no such row" if cur is None else checks.fmt_row_diff(
-                                    {c: d[0] for c, d in diff.items()}, {c: d[1] for c, d in diff.items()})))
+                                + what)
             elif v["op"] == "t":
                 covered |= set(state)
                 state = {}
@@ -628,6 +644,7 @@ def check_incremental_snapshot(sc, rec, records, rr):
                     ka = checks.key_of(after, key)
                     covered.add(ka)
                     state[ka] = {**state.get(ka, {}), **after}
+                    schema = set(after)
         if bad > 10:
             rr.fail(f"{t}: {bad} incremental reads differ from the stream before them")
         missing = start_keys - covered
@@ -635,7 +652,7 @@ def check_incremental_snapshot(sc, rec, records, rr):
             rr.fail(f"{t}: {len(missing)} rows present at the snapshot SCN have neither an incremental read nor a "
                     f"streamed change, e.g. {sorted(missing)[:3]}")
         rr.note(f"{t}: {reads} incremental reads, {len(start_keys & covered)} of {len(start_keys)} rows at the "
-                f"snapshot SCN covered")
+                f"snapshot SCN covered" + (f", {newer} reads with columns added after the snapshot SCN" if newer else ""))
 
 
 def check_txmeta(rec, records, since_scn, exactly_once=False):
@@ -1109,12 +1126,13 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 # one record on a broker topic, e.g. a Debezium signal on the Kafka channel;
                 # {prefix} in topic, key and value is the connector's topic prefix
                 from confluent_kafka import Producer
-                topic = step["kafka_produce"].format(prefix=prefix)
+                topic = step["kafka_produce"].replace("{prefix}", prefix)
                 p = Producer({"bootstrap.servers": f"127.0.0.1:{S.KAFKA_PORT}"})
-                p.produce(topic, key=step.get("key", "").format(prefix=prefix),
+                p.produce(topic, key=step.get("key", "").replace("{prefix}", prefix),
                           value=step.get("value", "").replace("{prefix}", prefix))
-                left = p.flush(30)
-                events.append(f"step {i}: produced to {topic} ({'not ' if left else ''}delivered)")
+                if p.flush(30):
+                    raise RuntimeError(f"step {i}: the record to {topic} was not delivered")
+                events.append(f"step {i}: produced to {topic}")
             elif "sleep" in step:
                 time.sleep(float(step["sleep"]))
             else:
