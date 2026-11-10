@@ -73,6 +73,9 @@ namespace OpenLogReplicator {
         bool recreated{false};
         // Recreated: it had buffered session records before the restart position, which the restart does not read again
         bool buffered{false};
+#ifdef OLR_TEST_HOOKS
+        bool testCommitBelow{false};
+#endif
         typeTransactionSize size{0};
         uint16_t thread;
 

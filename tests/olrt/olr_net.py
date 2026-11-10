@@ -20,6 +20,8 @@ client.toml:
   dormant_max = 1000              # state.dormant-transactions-max (restart past dormant transactions); -1 = leave out
   filter_tables = ["OWNER.T"]     # OLR filter instead of scenario.tables (the captured tables stay scenario.tables)
   disable_checks = 8              # reader disable-checks
+  env = { OLR_TEST_COMMIT_BELOW_TABLE = "OWNER.T", OLR_TEST_COMMIT_BELOW_CLIENT_INFO = "x" }  # OLR container environment (test builds)
+  requires_module = "test-hooks"  # skip on images whose --version does not list this module
 
   [[step]]
   client = "connect"              # Debezium connect: INFO, then START(offset scn) if READY or
@@ -192,6 +194,16 @@ def make_config(scenario, profile, olr_opts, version=(2, 0), image=None):
     return cfg
 
 
+def write_env(workdir, olr_opts):
+    """[olr] env: KEY=VALUE lines for docker --env-file, read by OlrContainer.start."""
+    env = olr_opts.get("env") or {}
+    path = workdir / "olr.env"
+    if env:
+        path.write_text("".join(f"{k}={v}\n" for k, v in env.items()))
+    elif path.exists():
+        path.unlink()
+
+
 class OlrContainer:
     def __init__(self, image, workdir, port, scenario=None):
         self.image, self.workdir, self.port, self.scenario = image, workdir, port, scenario
@@ -199,7 +211,9 @@ class OlrContainer:
 
     def start(self):
         subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)
+        env = self.workdir / "olr.env"
         subprocess.run(["docker", "run", "-d", "--name", self.name, "--network", S.NETWORK,
+                        *(["--env-file", str(env)] if env.exists() else []),
                         "--user", f"{os.getuid()}:{S.ORACLE_GID}",
                         "-p", f"127.0.0.1:{self.port}:5000",
                         "-v", f"{S.VOLUME}:/opt/oracle/oradata:ro",
@@ -301,6 +315,7 @@ def run(image, scenario, profile, workdir, token="adhoc"):
     olr_opts = dict(spec.get("olr", {}))
     version = olr.olr_version(image)
     (workdir / "config.json").write_text(json.dumps(make_config(scenario, profile, olr_opts, version=version, image=image), indent=2))
+    write_env(workdir, olr_opts)
 
     def edit_state(i, step):
         state = workdir / "state"
@@ -415,6 +430,10 @@ def run(image, scenario, profile, workdir, token="adhoc"):
         before = {t: record.snapshot(pconn, t, tables_before[t], start_scn) for t in scenario.tables}
         offset = (start_scn, None)
 
+        need = olr_opts.get("requires_module")
+        if need and need not in olr.olr_modules(image):
+            run_info["skip"] = f"image built without OLR module {need}"
+            raise _Abort()
         cont.start()
         time.sleep(2)
         st, rc = cont.status()

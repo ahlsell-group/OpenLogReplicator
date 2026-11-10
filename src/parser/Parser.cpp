@@ -36,6 +36,7 @@ If not, see <http://www.gnu.org/licenses/>. */
  */
 
 #include <algorithm>
+#include <cstdlib>
 #include <utility>
 
 #include "../builder/Builder.h"
@@ -86,6 +87,16 @@ namespace OpenLogReplicator {
             group(newGroup),
             path(std::move(newPath)) {
         zero.clear();
+#ifdef OLR_TEST_HOOKS
+        const char* belowTable = std::getenv("OLR_TEST_COMMIT_BELOW_TABLE");
+        const char* belowName = std::getenv("OLR_TEST_COMMIT_BELOW_CLIENT_INFO");
+        if (belowTable != nullptr && belowName != nullptr) {
+            testCommitBelowTable = belowTable;
+            testCommitBelowClientInfo = belowName;
+            ctx->info(0, "test build: commits with rows of " + testCommitBelowTable + " are placed below the last commit with client info " +
+                      testCommitBelowClientInfo);
+        }
+#endif
         lwnChunks[0] = ctx->getMemoryChunk(ctx->parserThread, Ctx::MEMORY::PARSER);
         ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
         auto* size = reinterpret_cast<uint64_t*>(lwnChunks[0]);
@@ -859,6 +870,15 @@ namespace OpenLogReplicator {
         transaction->commitTimestamp = redoLogRecord1->timestamp;
         if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0)
             transaction->rollback = true;
+#ifdef OLR_TEST_HOOKS
+        if (!testCommitBelowClientInfo.empty() && !transaction->rollback) {
+            const auto name = transaction->attributes.find(Attribute::KEY::CLIENT_INFO);
+            if (transaction->testCommitBelow && testLastCommitScn != Scn::none())
+                transaction->commitScn = Scn(testLastCommitScn.getData() - 1);
+            else if (name != transaction->attributes.end() && name->second == testCommitBelowClientInfo)
+                testLastCommitScn = transaction->commitScn;
+        }
+#endif
         if (transaction->begin && !transaction->rollback && transaction->commitScn >= lwnScn)
             transactionBuffer->addCommitted(transaction->commitScn, metadata->firstDataScn, transaction->beginSequence, transaction->beginFileOffset,
                                             transaction->xid);
@@ -1066,6 +1086,10 @@ namespace OpenLogReplicator {
                         return;
                     }
                 } else {
+#ifdef OLR_TEST_HOOKS
+                    if (!testCommitBelowTable.empty() && table->owner + "." + table->name == testCommitBelowTable)
+                        transaction->testCommitBelow = true;
+#endif
                     if (DbTable::isSystemTable(table->options))
                         transaction->system = true;
                     if (DbTable::isSchemaTable(table->options))

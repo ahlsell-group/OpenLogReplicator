@@ -490,6 +490,40 @@ so this does not reproduce the commit below the position (a later commit record 
                + commit_and_read(u, 5000, "after")),
          [PAST, RECREATED], ["60011", "50039"], equivalence=True)
 
+scenario("dormant-buffered-commit-below-position", 32, "a recreated transaction with session records commits, the next commit lies below it (test build), the client confirms in the middle of it", """
+Needs an image built with -DOLR_TEST_HOOKS (make image-test-hooks); other images skip it.
+
+Session 2 sets its client info and starts a transaction with DBMS_TRANSACTION.LOCAL_TRANSACTION_ID(TRUE): Oracle
+writes the begin as 5.2 5.1 5.19, and OLR buffers the 5.1 + 5.19 pair as a session chunk, so the
+transaction is dormant with "buffered": 1 (a DML statement first writes 5.2 5.1 11.x 5.19 and nothing is
+buffered). It updates U (outside the filter) and stays open over checkpoints. Session 1 inserts 3000
+rows into L, session 2 commits (COMMIT WRITE BATCH NOWAIT), session 1 commits right after it.
+
+A single-instance Oracle Free writes commit records in SCN order (no inversion in about 100 000
+concurrent commits, also with COMMIT WRITE NOWAIT/BATCH), so the test build places the commit of L 1
+below the commit of session 2's transaction (OLR_TEST_COMMIT_BELOW_TABLE/CLIENT_INFO), as redo of several
+strands or threads can: 60048, and the rows of L are sent at session 2's commit SCN.
+
+The client keeps an offset in the middle of those rows and OLR is killed with the writer checkpoint
+deleted. The restart picks a checkpoint from before session 2's commit (its position is below the start
+SCN), starts past session 2 and recreates it. Its commit has to move the stream position like the
+commit read from its begin, or the rest of L, committed below the start SCN, is never sent (diff,
+replay; equivalence B against C: messages, positions and 60048 identical).
+""", lambda u: (sql("BEGIN DBMS_APPLICATION_INFO.SET_CLIENT_INFO('olrt_dormant'); END;", 2) + sql("SELECT DBMS_TRANSACTION.LOCAL_TRANSACTION_ID(TRUE) FROM dual", 2)
+               + sql(f"UPDATE {u}.u SET v = 'dormant' WHERE id = 1", 2)
+               + checkpoint() + commit_and_read(u, 3, "after checkpoint")
+               + sql(f"INSERT INTO {u}.l SELECT LEVEL, 'below-' || LEVEL FROM dual CONNECT BY LEVEL <= 3000")
+               + sql("COMMIT WRITE BATCH NOWAIT", 2) + sql("COMMIT")
+               + '[[step]]\nread = "messages"\ncount = 1200\ntimeout = 60\n[[step]]\nclient = "commit_offset"\n'
+               + '[[step]]\nclient = "disconnect"\n[[step]]\nolr = "restart"\nsignal = "KILL"\ndelete_writer_checkpoint = true\n'
+               + '[[step]]\nclient = "connect"\n[[step]]\nread = "idle"\nidle = 10\n[[step]]\nclient = "commit_offset"\n'
+               + commit_and_read(u, 5, "after")),
+         [PAST, RECREATED, r"60048 transaction committed below the stream position"], ["60011", "50039"],
+         extra_olr='requires_module = "test-hooks"\nenv = {{ OLR_TEST_COMMIT_BELOW_TABLE = "{u}.L", OLR_TEST_COMMIT_BELOW_CLIENT_INFO = "olrt_dormant" }}',
+         extra_toml='allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback", '
+                    '"^60048 transaction committed below the stream position"]\n',
+         tables=["OLRT_DRM32.T", "OLRT_DRM32.L"], equivalence=True)
+
 # Filter reload after the state was computed, kill before the next checkpoint
 scenario("dormant-reload-before-kill", 27, "filter reloaded to add U after a checkpoint with dormant-tran, killed before the next checkpoint", """
 OLR runs with T only. Session 2 updates U (dormant) over a checkpoint, then the filter is reloaded

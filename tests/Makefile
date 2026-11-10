@@ -1,5 +1,6 @@
 # Run from tests/ (or make -C tests ...). See README.md.
 # make image                                  build olrt/olr:local-<sha> from this checkout
+# make image-test-hooks                       build olrt/olr:local-<sha>-test-hooks (-DOLR_TEST_HOOKS, test-only redo hooks)
 # make image-ref REF=bersler/OpenLogReplicator@2.0.0   build olrt/olr:2.0.0 from GitHub
 # make test IMAGE=olrt/olr:local-<sha>
 # make compare IMAGES="olrt/olr:2.0.0 olrt/olr:local-<sha>"
@@ -12,7 +13,7 @@ PROFILES ?= debezium,json
 SCENARIOS ?=
 RUN ?=
 
-.PHONY: venv db-up db-down db-reset test compare record replicate check list image image-ref unit-asan-image unit-asan
+.PHONY: venv db-up db-down db-reset test compare record replicate check list image image-test-hooks image-ref unit-asan-image unit-asan
 
 venv: .venv/.installed
 .venv/.installed: requirements.txt
@@ -50,6 +51,10 @@ list: venv
 LOCAL_TAG ?= local-$(shell git rev-parse --short HEAD)
 image:
 	docker build -f docker/olr/Dockerfile -t olrt/olr:$(LOCAL_TAG) ..
+
+# The same with the test hooks (scenarios with [olr] requires_module = "test-hooks"); never for production use
+image-test-hooks:
+	docker build -f docker/olr/Dockerfile -t olrt/olr:$(LOCAL_TAG)-test-hooks --build-arg EXTRA_CXXFLAGS=-DOLR_TEST_HOOKS ..
 
 # OLR image from GitHub: REF=<owner>/<repo>@<version>, a tag without the leading v, a branch or a commit
 REF ?= bersler/OpenLogReplicator@2.0.0

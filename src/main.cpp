@@ -77,6 +77,12 @@ If not, see <http://www.gnu.org/licenses/>. */
 #define HAS_THREAD_INFO ""
 #endif /* THREAD_INFO */
 
+#ifdef OLR_TEST_HOOKS
+#define HAS_TEST_HOOKS " test-hooks"
+#else
+#define HAS_TEST_HOOKS ""
+#endif /* OLR_TEST_HOOKS */
+
 namespace {
     OpenLogReplicator::Ctx* mainCtx = nullptr;
 
@@ -112,7 +118,7 @@ namespace {
         mainCtx->welcome("arch: " + std::string(name.machine) + buildArch + ", system: " + name.sysname +
                 ", release: " + name.release + ", build: " +
                 OpenLogReplicator_CMAKE_BUILD_TYPE + ", compiled: " + OpenLogReplicator_CMAKE_BUILD_TIMESTAMP + ", modules:"
-                HAS_KAFKA HAS_OCI HAS_PROMETHEUS HAS_PROTOBUF HAS_ZEROMQ HAS_STATIC HAS_THREAD_INFO);
+                HAS_KAFKA HAS_OCI HAS_PROMETHEUS HAS_PROTOBUF HAS_ZEROMQ HAS_STATIC HAS_THREAD_INFO HAS_TEST_HOOKS);
 
         const char* fileName = "scripts/OpenLogReplicator.json";
         try {

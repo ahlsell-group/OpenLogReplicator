@@ -88,6 +88,15 @@ def olr_version(image):
     return (int(m.group(1)), int(m.group(2))) if m else (2, 0)
 
 
+@functools.lru_cache(maxsize=None)
+def olr_modules(image):
+    """Modules of the OLR binary in an image, from the "modules:" list of --version (e.g. Kafka, OCI, test-hooks)."""
+    out = subprocess.run(["docker", "run", "--rm", "--entrypoint", "/opt/OpenLogReplicator/OpenLogReplicator",
+                          image, "--version"], capture_output=True, text=True)
+    m = re.search(r"modules:([^\n]*)", out.stdout + out.stderr)
+    return set(m.group(1).split()) if m else set()
+
+
 def make_config(rec, scenario, profile, state_dir="work/state", version=(2, 0), image=None):
     legacy = version < (2, 0)
     table = PROFILES_19 if legacy else PROFILES

@@ -73,6 +73,8 @@ def _run(image, scenario, profile, workdir, olr_opts, start_scn, make_config, co
     for p in (workdir / "state").iterdir():
         p.chmod(0o666)
     (workdir / "config.json").write_text(json.dumps(make_config(scenario, profile, olr_opts, version=version, image=image), indent=2))
+    if olr_opts.get("env"):
+        (workdir / "olr.env").write_text("".join(f"{k}={v}\n" for k, v in olr_opts["env"].items()))
     port = free_port()
     cont = container_cls(image, workdir, port)
     out = []

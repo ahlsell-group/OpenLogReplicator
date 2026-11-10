@@ -67,6 +67,15 @@ namespace OpenLogReplicator {
 
     protected:
         static constexpr uint64_t MAX_LWN_CHUNKS = static_cast<uint64_t>(512 * 2) / Ctx::MEMORY_CHUNK_SIZE_MB;
+#ifdef OLR_TEST_HOOKS
+        // Test builds only (-DOLR_TEST_HOOKS). OLR_TEST_COMMIT_BELOW_TABLE=OWNER.TABLE, OLR_TEST_COMMIT_BELOW_CLIENT_INFO=TEXT:
+        // a transaction with a row of that table commits 1 below the last commit of a transaction whose session set the
+        // client info TEXT, as a later commit record with a lower SCN (several redo strands or threads), which a
+        // single-instance Oracle Free does not write
+        std::string testCommitBelowTable;
+        std::string testCommitBelowClientInfo;
+        Scn testLastCommitScn{Scn::none()};
+#endif
         static constexpr uint64_t MAX_RECORDS_IN_LWN = 1048576;
 
         Ctx* ctx;
