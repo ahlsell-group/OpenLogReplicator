@@ -46,7 +46,9 @@ So the commit of a recreated transaction has to move the position exactly as the
 * a rollback of the whole transaction moves nothing in either case.
 
 The equivalence check of the network scenarios with `[equivalence]` compares messages, the 60048 lines and the position files of both restarts.
-With commit SCNs in redo order, as on a single instance, the dormant commit never moves the position past what the next checkpoint LWN moves it to, so only the unit test `DormantPositionTest` (a commit record with a lower SCN after the dormant commit) shows the difference.
+Session records are buffered only when Oracle writes the 5.19/5.20 right after a 5.1: on Oracle 23 Free for a transaction begun without a change, e.g. by `DBMS_TRANSACTION.LOCAL_TRANSACTION_ID(TRUE)` (record 5.2 5.1 5.19); a DML statement as first change writes 5.2 5.1 11.x 5.19 and nothing is buffered.
+A commit below the stream position needs a commit record after one with a higher SCN in a later LWN; a single-instance Oracle Free writes commit records in SCN order (none in about 100 000 concurrent commits).
+The unit test `DormantPositionTest` covers the difference, and the scenario `restart/dormant-buffered-commit-below-position` covers it end to end on an image built with `-DOLR_TEST_HOOKS` (`make image-test-hooks`), whose hook places one commit below the dormant one; with the rule before this fix (`opCodes == 0` in `flush`) the rest of that transaction is lost after the restart.
 
 == Checkpoint format
 
