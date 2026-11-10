@@ -183,6 +183,8 @@ def cmd_connect(args, rd):
                 for sc in scs:
                     w = rd / "connect" / olr.slug(img) / col / sc.safe_id
                     try:
+                        # a worker = "upgrade" step leaves another Debezium version running: back to this one
+                        connect.connect_up(ver)
                         ri = connect.run(img, sc, prof, ver, w, token=rd.name)
                         res = connect.check(sc, w)
                         print(f"[connect] dbz {ver} {img} {prof} {sc.id}: {ri['seconds']}s "
