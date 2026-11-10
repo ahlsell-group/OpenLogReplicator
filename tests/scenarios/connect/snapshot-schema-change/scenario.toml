@@ -1,0 +1,5 @@
+description = "ALTER TABLE ADD COLUMN on the table being snapshotted while the snapshot is paused (64-row chunks, 60000 rows; pause-snapshot after the first 5000 records, resume once the DDL has streamed): the key columns must be resolved again for the new table model and every read after the change must carry the new column"
+tags = ["connect", "snapshot", "keycols"]
+tables = ["OLRT_K2.T", "OLRT_K2.STREAM", "OLRT_K2.DBZ_SIGNAL"]
+olr_timeout = 3600
+expect_incremental = ["OLRT_K2.T"]

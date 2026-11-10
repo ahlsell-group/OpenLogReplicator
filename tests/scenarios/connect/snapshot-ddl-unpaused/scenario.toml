@@ -1,0 +1,8 @@
+description = "ALTER TABLE ADD COLUMN on the table being snapshotted while the snapshot runs (64-row chunks, 60000 rows, the DDL after the first 5000 records): records what Debezium does with a chunk whose result set has a column its table model does not have yet"
+tags = ["connect", "snapshot", "keycols"]
+tables = ["OLRT_K6.T", "OLRT_K6.STREAM", "OLRT_K6.DBZ_SIGNAL"]
+olr_timeout = 3600
+expect_incremental = ["OLRT_K6.T"]
+
+[known_issue]
+replay = "Debezium (DBZ-4350, upstream too): the chunk read after the ALTER returns NEWCOL before streaming has applied the DDL, ColumnUtils.toArray throws 'Column NEWCOL not found in result set', and Debezium logs 'Error while executing incremental snapshot ... skipping and continuing streaming' and drops the rest of the table's snapshot, so most rows get no read"

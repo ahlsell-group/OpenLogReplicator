@@ -12,8 +12,9 @@ run-name: ${{ github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/
 # Kafka Connect, Redpanda, Oracle Free; tests/README.md "Connect mode") against an OLR image built from the
 # checkout, once with upstream Debezium and once with our patched connector jar. It runs on the manual
 # trigger and on release tags v2.0.0-ahlsell.*. The patched jar is a release asset on Aangbaeck/debezium
-# (DBZ_PATCHED_* below, published with tests/docker/connect/release-jar.sh); while the asset is missing
-# that variant is skipped with a notice. Known issues per Debezium version are `known_issue` keys
+# (DBZ_PATCHED_* below, published with tests/docker/connect/release-jar.sh), with an optional second jar
+# (DBZ_PATCHED_COMMON_*, debezium-connector-common, attached to the same release by hand with `gh release
+# upload`); while an asset is missing that variant is skipped with a notice. The patched variant also runs CONNECT_SCENARIOS_PATCHED (regression scenarios of the patched jars). Known issues per Debezium version are `known_issue` keys
 # "check@<version>" in the scenario.toml files and do not fail the job.
 #
 # The `jobs` input picks the jobs of a manual run (all, test, connect, unit-sanitizers).
@@ -91,15 +92,18 @@ env:
   # connect job: one profile, upstream Debezium and our patched connector (tests/docker/connect/overlay/<version>/)
   CONNECT_PROFILE: debezium-ddl
   DBZ_UPSTREAM: 3.7.0.Final
-  DBZ_PATCHED: 3.7.0.Final-ahlsell.12
-  DBZ_PATCHED_URL: https://github.com/Aangbaeck/debezium/releases/download/v3.7.0.Final-ahlsell.12/debezium-connector-oracle-3.7.0.Final.jar
+  DBZ_PATCHED: 3.7.0.Final-ahlsell.13
+  DBZ_PATCHED_URL: https://github.com/Aangbaeck/debezium/releases/download/v3.7.0.Final-ahlsell.13/debezium-connector-oracle-3.7.0.Final.jar
   DBZ_PATCHED_SHA256: f3f2cde64e4123e3740cd73f2ee506f404eedcede4a64cea867e3fc64d03ad25
+  DBZ_PATCHED_COMMON_URL: https://github.com/Aangbaeck/debezium/releases/download/v3.7.0.Final-ahlsell.13/debezium-connector-common-3.7.0.Final.jar
+  DBZ_PATCHED_COMMON_SHA256: 0c4ebc5b71ef6f5978e3abc1b79b159e31f776d31d4d9e67fbd82a210002fdd7
   CONNECT_SCENARIOS: >-
     connect/smoke connect/olr-restart connect/quiet-checkpoint-stall connect/olr-server-keepalive
     connect/worker-kill-mid-txn connect/confirm-quiet-restart connect/confirm-interleaved-worker-kill
     connect/confirm-row-rejected connect/olr-vanish connect/olr-vanished-client-info
     connect/redefinition-widen-min connect/redefinition-type-widen connect/big-txn-queue connect/big-txn-olr-restart
     connect/big-txn-exact-queue connect/big-txn-olr-restart-fresh
+  CONNECT_SCENARIOS_PATCHED: connect/snapshot-wide-prd-keys connect/snapshot-schema-change connect/snapshot-restart-mid
 
 jobs:
   test:
@@ -208,7 +212,7 @@ jobs:
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.0.0-ahlsell.'))
       || (github.event_name == 'workflow_dispatch' && (inputs.jobs == 'all' || inputs.jobs == 'connect'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: tests
@@ -245,7 +249,9 @@ jobs:
         id: jar
         run: |
           set -euo pipefail
-          if [ -z "$JAR_URL" ]; then JAR_URL=$DBZ_PATCHED_URL JAR_SHA256=$DBZ_PATCHED_SHA256; fi
+          # a manual patched_jar_url replaces the whole pinned set, so the pinned common jar only goes with the pinned one
+          common_url=
+          if [ -z "$JAR_URL" ]; then JAR_URL=$DBZ_PATCHED_URL JAR_SHA256=$DBZ_PATCHED_SHA256 common_url=$DBZ_PATCHED_COMMON_URL; fi
           [ -n "$JAR_SHA256" ] || { echo "::error::patched_jar_sha256 is required with patched_jar_url"; exit 1; }
           echo "url=$JAR_URL" >> "$GITHUB_OUTPUT"
           dir="docker/connect/overlay/$DBZ_PATCHED"
@@ -260,6 +266,18 @@ jobs:
           fi
           [ "$code" = 200 ] || { echo "::error::$JAR_URL: HTTP $code"; exit 1; }
           echo "$JAR_SHA256  $jar" | sha256sum -c -
+          if [ -n "$common_url" ]; then
+            common="$dir/debezium-connector-common-${DBZ_UPSTREAM}.jar"
+            code=$(curl -sSL -o "$common" -w '%{http_code}' "$common_url" || true)
+            if [ "$code" = 404 ]; then
+              rm -rf "$dir"
+              echo "::notice title=Patched Debezium skipped::$common_url is not published (404); only Debezium $DBZ_UPSTREAM runs."
+              echo "available=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [ "$code" = 200 ] || { echo "::error::$common_url: HTTP $code"; exit 1; }
+            echo "$DBZ_PATCHED_COMMON_SHA256  $common" | sha256sum -c -
+          fi
           echo "available=true" >> "$GITHUB_OUTPUT"
 
       - name: Start Oracle Free (pulls ~3 GB, first start ~3 min)
@@ -303,7 +321,7 @@ jobs:
         continue-on-error: true
         run: |
           .venv/bin/python -m olrt connect --run ci-patched --image "${{ steps.image.outputs.tag }}" \
-            --profile "$CONNECT_PROFILE" --dbz "$DBZ_PATCHED" ${SCENARIO_LIST:-$CONNECT_SCENARIOS}
+            --profile "$CONNECT_PROFILE" --dbz "$DBZ_PATCHED" ${SCENARIO_LIST:-$CONNECT_SCENARIOS $CONNECT_SCENARIOS_PATCHED}
 
       - name: Summary
         if: always()

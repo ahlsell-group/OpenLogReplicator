@@ -1,0 +1,8 @@
+description = "Incremental snapshot requested on the Kafka signal channel, as prd can, while the snapshotted table is updated (1024-row chunks, 40000 rows): window deduplication and the signal thread"
+tags = ["connect", "snapshot", "keycols"]
+tables = ["OLRT_K5.T", "OLRT_K5.STREAM", "OLRT_K5.DBZ_SIGNAL"]
+olr_timeout = 3600
+expect_incremental = ["OLRT_K5.T"]
+
+[known_issue]
+diff = "not a data error: diff merges the topics by Kafka record timestamp, and across topics those timestamps do not follow commit order exactly while snapshot windows are written; the order within each topic is the commit order, delivery checks every row and its values, replay the final state"

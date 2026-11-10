@@ -1,0 +1,3 @@
+# connect/snapshot-kafka-signal
+
+Incremental snapshot requested on the Kafka signal channel, as prd can, while the snapshotted table is updated (1024-row chunks, 40000 rows): window deduplication and the signal thread.

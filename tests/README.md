@@ -254,7 +254,13 @@ committed after the snapshot SCN: rows lost, duplicated, or with other values; a
 duplicates fail with `exactly_once`), **txmeta** (with `checks` including it: BEGIN and END per transaction,
 END `event_count` and `data_collections` equal to the transaction's rows, `total_order` and
 `data_collection_order` covering 1..n), **diff** (LogMiner) and **replay** (from the DB AS OF the snapshot SCN;
-with `snapshot.mode=initial` the snapshot records are compared too). Topics are merged into one stream in
+with `snapshot.mode=initial` the snapshot records are compared too; incremental snapshot reads are checked per
+topic in offset order: each read equals the row after the streamed changes before it, and every row present at
+the snapshot SCN gets a read or a streamed change), and **stall** (with `max_stream_stall = { "OWNER.TABLE" = s }`:
+the largest delay from commit to Kafka of the table's streamed changes, above its smallest). A scenario with
+`ignore_watermarks = "OWNER.SIGNAL_TABLE"` leaves Debezium's `snapshot-window-*` rows of that table out of the
+checks; `expect_incremental = ["OWNER.TABLE"]` fails replay when the table gets no incremental read. Topics are
+merged into one stream in
 offset order per topic; CreateTime is only used to interleave topics. Evidence per run in
 `results/<run>/connect/<image>/<profile>@dbz-<version>/<scenario>/`: `kafka.jsonl` (decoded records),
 `schema-history.jsonl`, `connect.log`, `olr.log`, `run.json` (steps, task states, topic schema columns,

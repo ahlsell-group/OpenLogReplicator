@@ -54,6 +54,8 @@ A scenario opts in with connect.toml next to scenario.toml:
   [[step]]
   switch_logfile = true
   [[step]]
+  kafka_produce = "{prefix}-signal"   # one record on a broker topic: key = "...", value = "..." ({prefix} expanded)
+  [[step]]
   sleep = 2
   [[step]]
   rpk = "topic alter-config {prefix}.X --set k=v"   # rpk in the broker container
@@ -371,7 +373,9 @@ def connector_config(sc, spec, prefix, olr_host, adapter=None):
         for kv in filter(None, os.environ.get("OLRT_OLR_CONNECTOR_CONFIG", "").split(";")):
             k, v = kv.split("=", 1)
             cfg[k.strip()] = v.strip()
-    cfg.update({k: str(v) for k, v in c.get("config", {}).items()})
+    # {prefix} and {broker} in a value: the connector's topic prefix and the broker host (Kafka signal channel)
+    cfg.update({k: str(v).replace("{prefix}", prefix).replace("{broker}", S.BROKER_CONTAINER)
+                for k, v in c.get("config", {}).items()})
     return cfg
 
 
@@ -448,7 +452,8 @@ def to_output(records, sc):
         src = v["source"]
         table = f"{src.get('schema')}.{src.get('table')}"
         if v["op"] == "r":
-            snap.setdefault(table, []).append(v["after"])
+            if src.get("snapshot") != "incremental":  # incremental reads: check_incremental_snapshot
+                snap.setdefault(table, []).append(v["after"])
             continue
         if v["op"] == "t":
             close()
@@ -519,6 +524,135 @@ def check_delivery(rec, txns, since_scn, exactly_once=False):
     r.note(f"{lost} rows lost, {dup} rows duplicated, {nwrong} rows with other values")
     r.lost = lost
     return r
+
+
+def check_stall(limits, records):
+    """Streaming delay per table: Kafka record timestamp minus the change's time in the database (source.ts_ms),
+    above the table's smallest delay (that absorbs the database time zone and clock offset, so a delay that is
+    constant over the whole run is not seen). Fails when the largest one exceeds the scenario's limit in
+    seconds (max_stream_stall = {"OWNER.TABLE" = s})."""
+    r = checks.Result("stall")
+    for t, limit in limits.items():
+        lag = [x["ts"] - x["value"]["source"]["ts_ms"] for x in records
+               if isinstance(x.get("value"), dict) and x["value"].get("op") in ("c", "u", "d")
+               and f"{x['value']['source'].get('schema')}.{x['value']['source'].get('table')}" == t
+               and x.get("ts") and x["value"]["source"].get("ts_ms")]
+        if not lag:
+            r.fail(f"{t}: no streamed changes")
+            continue
+        worst = (max(lag) - min(lag)) / 1000
+        msg = f"{t}: {len(lag)} changes, largest delay {worst:.1f} s above the smallest (limit {limit} s)"
+        if worst > limit:
+            r.fail(msg)
+        else:
+            r.note(msg)
+    return r
+
+
+def _is_watermark(row):
+    return isinstance(row, dict) and str(row.get("TYPE") or "").startswith("snapshot-window-")
+
+
+def drop_watermarks(table, rec, records):
+    """rec and records without the Debezium watermark rows of signal table `table` (scenario ignore_watermarks)."""
+    rec = dict(rec)
+    for k in ("before", "after", "at_snapshot"):
+        if isinstance(rec.get(k), dict) and table in rec[k]:
+            rec[k] = dict(rec[k], **{table: [x for x in rec[k][table] if not _is_watermark(x)]})
+    txns = []
+    for t in rec["logminer"]["transactions"]:
+        ev = [e for e in t["events"] if not (e.get("table") == table
+                                             and (_is_watermark(e.get("after")) or _is_watermark(e.get("before"))))]
+        if ev:
+            txns.append(dict(t, events=ev))
+    rec["logminer"] = dict(rec["logminer"], transactions=txns)
+    out = []
+    for r in records:
+        v = r.get("value")
+        src = v.get("source", {}) if isinstance(v, dict) else {}
+        if (f"{src.get('schema')}.{src.get('table')}" == table
+                and (_is_watermark(v.get("after")) or _is_watermark(v.get("before")))):
+            continue
+        out.append(r)
+    return rec, out
+
+
+def check_incremental_snapshot(sc, rec, records, rr):
+    """Incremental snapshot reads (source.snapshot=incremental) against the DBLog guarantee, per table topic
+    in offset order: a read equals the row after the streamed changes before it on the topic (from the DB
+    at the snapshot SCN), and every row present at the snapshot SCN gets a read or a streamed change (a
+    change inside the open window replaces the read). Each chunk is read at its own time, so the DB at
+    one SCN is no reference for the reads themselves. A read must also carry every column of the table's
+    latest streamed change before it (or of the snapshot SCN), so a chunk read with an old table model fails.
+    Tables in the scenario's expect_incremental fail without any read."""
+    by_table = {}
+    for r in records:
+        v = r.get("value")
+        if not isinstance(v, dict) or "op" not in v or r["topic"].endswith(".transaction"):
+            continue
+        src = v["source"]
+        by_table.setdefault(f"{src.get('schema')}.{src.get('table')}", []).append(r)
+    for t in sc.tables:
+        rs = sorted(by_table.get(t, []), key=lambda r: (r.get("partition", 0), r.get("offset", 0)))
+        if not any(r["value"]["op"] == "r" and r["value"]["source"].get("snapshot") == "incremental" for r in rs):
+            if t in sc.expect_incremental:
+                rr.fail(f"{t}: no incremental snapshot reads (expect_incremental)")
+            continue
+        info = rec["tables"].get(t) or rec["tables_before"].get(t)
+        if not info:
+            rr.fail(f"{t}: incremental reads for a table the recording has no model of")
+            continue
+        tm = checks.types(rec, t)
+        key = info["key"]
+        start = (rec.get("at_snapshot") or {}).get(t, [])
+        state = {checks.key_of(x, key): dict(x) for x in start}
+        schema = set(start[0]) if start else None  # columns of the latest streamed change (or the snapshot SCN)
+        start_keys, covered, reads, bad, newer = set(state), set(), 0, 0, 0
+        start_cols = set(start[0]) if start else set()
+        for r in rs:
+            v = r["value"]
+            before, after = checks.canon_image(v.get("before"), tm), checks.canon_image(v.get("after"), tm)
+            if v["op"] == "r":
+                if v["source"].get("snapshot") != "incremental":
+                    continue
+                reads += 1
+                newer += bool(start_cols and after.keys() - start_cols)
+                k = checks.key_of(after, key)
+                covered.add(k)
+                cur = state.get(k)
+                diff = None if cur is None else {c: (cur[c], after[c]) for c in cur.keys() & after.keys()
+                                                  if cur[c] != after[c]}
+                absent = sorted((schema or set()) - after.keys())
+                if cur is None or diff or absent:
+                    bad += 1
+                    if bad <= 10:
+                        what = ("no such row" if cur is None else
+                                f"columns {absent} missing" if absent else checks.fmt_row_diff(
+                                    {c: d[0] for c, d in diff.items()}, {c: d[1] for c, d in diff.items()}))
+                        rr.fail(f"{t} key {k} (offset {r.get('offset')}): incremental read vs the stream before it: "
+                                + what)
+            elif v["op"] == "t":
+                covered |= set(state)
+                state = {}
+            else:
+                if before is not None:
+                    kb = checks.key_of(before, key)
+                    covered.add(kb)
+                    if v["op"] == "d" or (after is not None and checks.key_of(after, key) != kb):
+                        state.pop(kb, None)
+                if after is not None:
+                    ka = checks.key_of(after, key)
+                    covered.add(ka)
+                    state[ka] = {**state.get(ka, {}), **after}
+                    schema = set(after)
+        if bad > 10:
+            rr.fail(f"{t}: {bad} incremental reads differ from the stream before them")
+        missing = start_keys - covered
+        if missing:
+            rr.fail(f"{t}: {len(missing)} rows present at the snapshot SCN have neither an incremental read nor a "
+                    f"streamed change, e.g. {sorted(missing)[:3]}")
+        rr.note(f"{t}: {reads} incremental reads, {len(start_keys & covered)} of {len(start_keys)} rows at the "
+                f"snapshot SCN covered" + (f", {newer} reads with columns added after the snapshot SCN" if newer else ""))
 
 
 def check_txmeta(rec, records, since_scn, exactly_once=False):
@@ -988,6 +1122,17 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 args = shlex.split(step["rpk"].format(prefix=prefix))
                 r = _docker("exec", S.BROKER_CONTAINER, "rpk", *args, check=False)
                 events.append(f"step {i}: rpk {' '.join(args)}: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}")
+            elif "kafka_produce" in step:
+                # one record on a broker topic, e.g. a Debezium signal on the Kafka channel;
+                # {prefix} in topic, key and value is the connector's topic prefix
+                from confluent_kafka import Producer
+                topic = step["kafka_produce"].replace("{prefix}", prefix)
+                p = Producer({"bootstrap.servers": f"127.0.0.1:{S.KAFKA_PORT}"})
+                p.produce(topic, key=step.get("key", "").replace("{prefix}", prefix),
+                          value=step.get("value", "").replace("{prefix}", prefix))
+                if p.flush(30):
+                    raise RuntimeError(f"step {i}: the record to {topic} was not delivered")
+                events.append(f"step {i}: produced to {topic}")
             elif "sleep" in step:
                 time.sleep(float(step["sleep"]))
             else:
@@ -1090,7 +1235,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
 
 # ---------------------------------------------------------------- checks
 
-CHECKS = ["run", "delivery", "loss_warn", "scn", "txmeta", "diff", "replay"]
+CHECKS = ["run", "delivery", "loss_warn", "scn", "txmeta", "diff", "replay", "stall"]
 
 
 def apply_known(sc, profile, version, res, image=None):
@@ -1145,6 +1290,8 @@ def check(sc, workdir):
             continue  # consumer re-read after a rebalance, not a duplicate on the topic
         seen.add(pos)
         records.append(r_)
+    if sc.ignore_watermarks:
+        rec, records = drop_watermarks(sc.ignore_watermarks, rec, records)
     lines, snap, markers = to_output(records, sc)
     (workdir / "output.jsonl").write_text("\n".join(lines) + ("\n" if lines else ""))
     out = checks.read_olr(workdir / "output.jsonl", rec)
@@ -1181,6 +1328,8 @@ def check(sc, workdir):
         res["scn"] = check_scn(rec, records, snap_scn)
     if "txmeta" in sc.checks:
         res["txmeta"] = check_txmeta(rec, records, snap_scn, sc.exactly_once)
+    if sc.max_stream_stall:
+        res["stall"] = check_stall(sc.max_stream_stall, records)
     # diff/replay see one delivery per transaction: the deliveries spliced in order (a worker
     # kill leaves a partial first delivery and Debezium may continue in the middle of the
     # transaction; duplicates are the delivery check's business)
@@ -1220,6 +1369,7 @@ def check(sc, workdir):
                     if {c: want[k].get(c) for c in want[k]} != {c: got[k].get(c) for c in want[k]}:
                         rr.fail(f"{t} key {k}: snapshot record vs DB: {checks.fmt_row_diff(want[k], got[k])}")
                 rr.note(f"{t}: {len(got)} snapshot records")
+        check_incremental_snapshot(sc, rec, records, rr)
         res["replay"] = rr
     apply_known(sc, run_info["profile"], run_info["debezium"], res, run_info.get("image"))
     d = {k: v.to_dict() for k, v in res.items()}
