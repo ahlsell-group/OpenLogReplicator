@@ -1,6 +1,6 @@
 [connector]
 snapshot_mode = "no_data"
-final_task_state = { "3.6.1.Final" = "RUNNING", "3.7.0.Final" = "FAILED" }
+final_task_state = "RUNNING"
 config = { "internal.custom.retriable.exception" = ".*Connection lost.*", "errors.max.retries" = "3" }
 [olr]
 state_interval_s = 10
@@ -56,3 +56,15 @@ sql = "COMMIT"
 wait = "idle"
 idle = 8
 timeout = 90
+[[step]]
+expect_task = { "3.6.1.Final" = "RUNNING", default = "FAILED" }
+within = 30
+[[step]]
+connector = "restart_task"
+[[step]]
+expect_task = "RUNNING"
+within = 120
+[[step]]
+wait = "idle"
+idle = 10
+timeout = 180
