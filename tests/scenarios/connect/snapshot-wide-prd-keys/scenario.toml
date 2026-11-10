@@ -2,6 +2,4 @@ description = "Incremental snapshot of a 39-column table (250000 rows) with prd 
 tags = ["connect", "snapshot", "keycols"]
 tables = ["OLRT_K1.WIDE", "OLRT_K1.STREAM", "OLRT_K1.DBZ_SIGNAL"]
 olr_timeout = 3600
-
-[known_issue]
-"replay@3.7.0.Final-ahlsell.12" = "not a data error: without the key-columns fix a chunk is read after some workload updates, so its op=r rows carry the updated values while replay compares op=r rows with the database AS OF the start SCN"
+max_stream_stall = { "OLRT_K1.STREAM" = 60 }

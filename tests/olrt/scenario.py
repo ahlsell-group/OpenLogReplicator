@@ -56,6 +56,12 @@ class Scenario:
     container: str = "pdb"
     # connect: images with OLR's CONTINUE gap warning (60039): a run that lost rows must log it, a clean run must not
     warn_on_loss_images: list[str] = dataclasses.field(default_factory=list)
+    # connect: OWNER.TABLE of a signal table whose Debezium watermark rows (TYPE snapshot-window-*) the checks
+    # leave out: after a restart between a window's events and its close row, Debezium does not emit that row
+    ignore_watermarks: str = ""
+    # connect: OWNER.TABLE -> seconds; check stall fails when a streamed change of the table reached Kafka later
+    # than that after its commit (above the table's smallest delay)
+    max_stream_stall: dict = dataclasses.field(default_factory=dict)
 
     @property
     def mode(self):

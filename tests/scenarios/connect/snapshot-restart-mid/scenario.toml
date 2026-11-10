@@ -2,3 +2,4 @@ description = "Task restart and then a worker kill in the middle of an increment
 tags = ["connect", "snapshot", "keycols"]
 tables = ["OLRT_K4.T", "OLRT_K4.STREAM", "OLRT_K4.DBZ_SIGNAL"]
 olr_timeout = 3600
+ignore_watermarks = "OLRT_K4.DBZ_SIGNAL"
