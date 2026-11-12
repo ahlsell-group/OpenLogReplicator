@@ -36,6 +36,7 @@ If not, see <http://www.gnu.org/licenses/>. */
  */
 
 #include <algorithm>
+#include <cstdlib>
 #include <utility>
 
 #include "../builder/Builder.h"
@@ -86,6 +87,16 @@ namespace OpenLogReplicator {
             group(newGroup),
             path(std::move(newPath)) {
         zero.clear();
+#ifdef OLR_TEST_HOOKS
+        const char* belowTable = std::getenv("OLR_TEST_COMMIT_BELOW_TABLE");
+        const char* belowName = std::getenv("OLR_TEST_COMMIT_BELOW_CLIENT_INFO");
+        if (belowTable != nullptr && belowName != nullptr) {
+            testCommitBelowTable = belowTable;
+            testCommitBelowClientInfo = belowName;
+            ctx->info(0, "test build: commits with rows of " + testCommitBelowTable + " are placed below the last commit with client info " +
+                      testCommitBelowClientInfo);
+        }
+#endif
         lwnChunks[0] = ctx->getMemoryChunk(ctx->parserThread, Ctx::MEMORY::PARSER);
         ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
         auto* size = reinterpret_cast<uint64_t*>(lwnChunks[0]);
@@ -859,6 +870,15 @@ namespace OpenLogReplicator {
         transaction->commitTimestamp = redoLogRecord1->timestamp;
         if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0)
             transaction->rollback = true;
+#ifdef OLR_TEST_HOOKS
+        if (!testCommitBelowClientInfo.empty() && !transaction->rollback) {
+            const auto name = transaction->attributes.find(Attribute::KEY::CLIENT_INFO);
+            if (transaction->testCommitBelow && testLastCommitScn != Scn::none())
+                transaction->commitScn = Scn(testLastCommitScn.getData() - 1);
+            else if (name != transaction->attributes.end() && name->second == testCommitBelowClientInfo)
+                testLastCommitScn = transaction->commitScn;
+        }
+#endif
         if (transaction->begin && !transaction->rollback && transaction->commitScn >= lwnScn)
             transactionBuffer->addCommitted(transaction->commitScn, metadata->firstDataScn, transaction->beginSequence, transaction->beginFileOffset,
                                             transaction->xid);
@@ -951,7 +971,26 @@ namespace OpenLogReplicator {
     // be applied, by the rule of appendToTransactionCommit: sent by its position (Builder::isDataCommit), or for a dictionary
     // change after the first schema SCN (a lost schema change), not a rollback. A cold start has already named the transactions open at
     // the start it can't read (60011 at startup).
+    // After a start past dormant transactions, a transaction the checkpoint named (dormant or pinned) was recreated or had
+    // its begin read again: its unknown commit means the dormant state was wrong (60061, whatever it changed). Other
+    // unknown transactions were unknown before the checkpoint already (e.g. lost at an earlier cold start): 60011 as above.
     void Parser::checkUnknownCommit(const RedoLogRecord* redoLogRecord1) {
+        if (unlikely(metadata->dormantRestart) &&
+            metadata->dormantKnownXids.find(redoLogRecord1->xid) != metadata->dormantKnownXids.end()) {
+            transactionBuffer->unknownXids.erase(redoLogRecord1->xid);
+            if ((redoLogRecord1->flg & OpCode::FLG_ROLLBACK_OP0504) != 0 || !builder->isDataCommit(redoLogRecord1->scn) ||
+                (metadata->conId > 0 && redoLogRecord1->conId != metadata->conId))
+                return;
+            ctx->warning(60061, "commit of transaction " + redoLogRecord1->xid.toString() + " at scn " + redoLogRecord1->scn.toString() +
+                         " which the checkpoint names but was not recreated after the restart past dormant transactions, its changes "
+                         "are lost");
+            ctx->hint("restart with state.dormant-transactions-max 0 from a checkpoint before scn " + redoLogRecord1->scn.toString() +
+                      " and report this");
+            if (ctx->metrics != nullptr)
+                ctx->metrics->emitTransactionsCommitPartial(1);
+            return;
+        }
+
         const auto it = transactionBuffer->unknownXids.find(redoLogRecord1->xid);
         if (likely(it == transactionBuffer->unknownXids.end()))
             return;
@@ -1047,6 +1086,10 @@ namespace OpenLogReplicator {
                         return;
                     }
                 } else {
+#ifdef OLR_TEST_HOOKS
+                    if (!testCommitBelowTable.empty() && table->owner + "." + table->name == testCommitBelowTable)
+                        transaction->testCommitBelow = true;
+#endif
                     if (DbTable::isSystemTable(table->options))
                         transaction->system = true;
                     if (DbTable::isSchemaTable(table->options))
@@ -1642,11 +1685,27 @@ namespace OpenLogReplicator {
                         FileOffset minFileOffset;
                         Xid minXid;
                         transactionBuffer->checkpoint(lwnScn, minSequence, minFileOffset, minXid);
+                        // At most once per second of redo; the last result stays valid for later checkpoints
+                        DormantCheckpoint* dormant = nullptr;
+                        const uint64_t dormantGeneration = metadata->dormantGeneration.load();
+                        if (ctx->dormantTransactionsMax > 0 && dormantGeneration != transactionBuffer->dormantGeneration) {
+                            transactionBuffer->pinOpenTransactions();
+                            transactionBuffer->dormantGeneration = dormantGeneration;
+                            dormantComputed = false;
+                        }
+                        if (ctx->dormantTransactionsMax > 0 && (!dormantComputed || lwnTimestamp.getVal() != dormantComputedAt)) {
+                            transactionBuffer->checkpointDormant(ctx->dormantTransactionsMax, sequence, FileOffset(currentBlock, reader->getBlockSize()),
+                                                                 dormantCheckpoint);
+                            dormantCheckpoint.generation = dormantGeneration;
+                            dormantComputed = true;
+                            dormantComputedAt = lwnTimestamp.getVal();
+                            dormant = &dormantCheckpoint;
+                        }
                         if (unlikely(ctx->isTraceSet(Ctx::TRACE::LWN)))
                             ctx->logTrace(Ctx::TRACE::LWN, "* checkpoint: " + lwnScn.toString());
                         metadata->checkpoint(ctx->parserThread, lwnScn, lwnTimestamp, sequence, FileOffset(currentBlock, reader->getBlockSize()),
                                              static_cast<uint64_t>(currentBlock - lwnConfirmedBlock) * reader->getBlockSize(), minSequence,
-                                             minFileOffset, minXid, builder->lwnScn);
+                                             minFileOffset, minXid, builder->lwnScn, dormant);
 
                         if (ctx->stopCheckpoints > 0 && metadata->isNewData(lwnScn, builder->lwnIdx)) {
                             --ctx->stopCheckpoints;

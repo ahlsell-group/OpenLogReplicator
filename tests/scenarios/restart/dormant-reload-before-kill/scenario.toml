@@ -1,0 +1,7 @@
+description = "filter reloaded to add U after a checkpoint with dormant-tran, killed before the next checkpoint"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM27.T", "OLRT_DRM27.U"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["filter or flags changed since the checkpoint"]
+forbid_log = ["recreated .* dormant", "60011", "50039", "60061"]

@@ -1,0 +1,87 @@
+[olr]
+queue_size = 65536
+dormant_max = 1
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO OLRT_DRM21.t VALUES (2, 'before')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "INSERT INTO OLRT_DRM21.t VALUES (30, 'pins')"
+session = 3
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM21.u SET v = 'dormant' WHERE id = 1"
+session = 2
+[[step]]
+sleep = 4
+[[step]]
+sql = "UPDATE OLRT_DRM21.u SET v = 'dormant' WHERE id = 2"
+session = 4
+[[step]]
+sleep = 3
+[[step]]
+switch_logfile = true
+count = 2
+[[step]]
+sleep = 5
+[[step]]
+sql = "INSERT INTO OLRT_DRM21.t VALUES (3, 'after checkpoint')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "stop"
+signal = "KILL"
+delete_writer_checkpoint = true
+[[step]]
+olr = "start"
+[[step]]
+client = "connect"
+[[step]]
+read = "idle"
+idle = 8
+[[step]]
+sql = "COMMIT"
+session = 3
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+sql = "INSERT INTO OLRT_DRM21.t VALUES (4, 'from the dormant transaction')"
+session = 2
+[[step]]
+sql = "COMMIT"
+session = 2
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+sql = "INSERT INTO OLRT_DRM21.t VALUES (5, 'from the dormant transaction')"
+session = 4
+[[step]]
+sql = "COMMIT"
+session = 4
+[[step]]
+read = "commits"
+count = 1

@@ -295,6 +295,13 @@ def check_run(sc, workdir, run_info, olr_out, image=None):
         r.fail(f"exit status {rc}")
     for f in run_info.get("assert_failures", []):
         r.fail(f)
+    for pattern in getattr(sc, "expect_log", []) or []:
+        if not re.search(pattern, log, re.M):
+            r.fail(f"expected OLR log line /{pattern}/ not seen")
+    for pattern in getattr(sc, "forbid_log", []) or []:
+        hit = re.search(pattern, log, re.M)
+        if hit:
+            r.fail(f"OLR log line /{pattern}/ must not appear: {log[log.rfind(chr(10), 0, hit.start()) + 1:hit.end()][:200]}")
     if network and run_info.get("read_timeouts"):
         # a client read waited in vain: the stream stalled (e.g. queue-size deadlock)
         r.fail(f"{run_info['read_timeouts']} client read(s) timed out waiting for data")

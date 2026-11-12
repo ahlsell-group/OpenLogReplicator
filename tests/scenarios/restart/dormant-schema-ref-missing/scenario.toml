@@ -1,0 +1,7 @@
+description = "the checkpoint files other checkpoints take their schema from are deleted before the restart"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM14.T"]
+olr_timeout = 900
+expect_log = []
+forbid_log = ["restart past dormant transactions: from seq", "recreated .* dormant", "60011", "50039", "60061"]
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback", "^10003 file: work/state/FREEPDB1-chkpt-\\d+\\.json"]

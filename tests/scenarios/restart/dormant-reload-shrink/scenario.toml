@@ -1,0 +1,7 @@
+description = "filter reloaded from {T, U} to {T} while a dormant transaction updates U, restart with {T, U}"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM12.T", "OLRT_DRM12.U"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["filter or flags changed since the checkpoint|filter changed: transactions open now"]
+forbid_log = ["recreated .* dormant", "60011", "50039", "60061"]

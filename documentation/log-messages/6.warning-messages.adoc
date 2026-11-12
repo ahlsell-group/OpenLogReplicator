@@ -287,3 +287,16 @@ A DML record carried a value of a column whose type OpenLogReplicator does not d
 With `unknown-type: 0` (the default) the column is left out of the message, so the consumer cannot tell it from an unchanged column.
 Logged once per table and column, the first time a value is dropped; it can be logged again after the table definition is reloaded.
 Remediation: Change the column type, or set `unknown-type: 1` to send the column with the unknown-value placeholder; for JSON set the `EXPERIMENTAL_JSON` flag.
+
+==== code 60060: "file: <file> - dormant transactions position seq: <number> offset: <number> is not between min-tran and the checkpoint, starting from min-tran"
+
+The checkpoint names a restart position past its dormant transactions (`state.dormant-transactions-max`) which lies before the oldest open transaction or after the checkpoint itself, so the file is inconsistent.
+OpenLogReplicator ignores the dormant transactions and starts from the oldest open transaction, as without the option.
+Remediation: None needed for the data; report the checkpoint file.
+
+==== code 60061: "commit of transaction <xid> at scn <scn> which the checkpoint names but was not recreated after the restart past dormant transactions, its changes are lost"
+
+After a start past dormant transactions (`state.dormant-transactions-max`) a transaction committed that the checkpoint names (dormant or pinned) but OpenLogReplicator neither recreated nor saw begin.
+Its changes are not in the output. This should not happen; it means the dormant state in the checkpoint was wrong.
+Also counted by the metric `transactions_commit_partial`.
+Remediation: Restart with `dormant-transactions-max: 0` from a checkpoint before the SCN (a client start from an earlier SCN) to get the transaction, and report the case with the checkpoint file.

@@ -32,6 +32,17 @@ Checkpoints capture progress (redo-log SCN/timestamp) and an optional schema sna
 |Type / constraints
 |Description and notes
 
+|`dormant-transactions-max`
+|_integer_, min: 0, max: 1000000, default: 0
+|_Experimental._ Restart past open transactions that hold nothing to replicate yet (dormant), at most this many per checkpoint.
+`0` turns it off: checkpoints and restarts are unchanged.
+
+A checkpoint then also names the dormant transactions, and a restart reads redo only from the oldest transaction that holds rows, LOB data, DDL or dictionary changes, instead of from the oldest open one; the dormant ones are recreated from the checkpoint.
+A change of `filter`, `flags`, `transaction-max-mb` or the debug table between the checkpoint and the restart makes the restart start from the oldest open transaction as without the option.
+
+_CAUTION:_ OpenLogReplicator versions without this option reject a checkpoint written with it (error 20003) and take an older one; before going back to such a version run with `0` until a new checkpoint is written.
+See `experimental-features/restart-past-dormant-transactions.adoc`.
+
 |`interval-mb`
 |_integer_, min: 0, default: 500
 |Size threshold (megabytes) of processed redo-log data that triggers a checkpoint.

@@ -57,6 +57,9 @@ class Scenario:
     container: str = "pdb"
     # connect: images with OLR's CONTINUE gap warning (60039): a run that lost rows must log it, a clean run must not
     warn_on_loss_images: list[str] = dataclasses.field(default_factory=list)
+    # regexes over the whole OLR log (INFO lines too): each expect_log must match, no forbid_log may (check run)
+    expect_log: list[str] = dataclasses.field(default_factory=list)
+    forbid_log: list[str] = dataclasses.field(default_factory=list)
 
     @property
     def mode(self):

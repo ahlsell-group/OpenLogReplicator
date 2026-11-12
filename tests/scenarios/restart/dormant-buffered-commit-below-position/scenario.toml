@@ -1,0 +1,7 @@
+description = "a recreated transaction with session records commits, the next commit lies below it (test build), the client confirms in the middle of it"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM32.T", "OLRT_DRM32.L"]
+olr_timeout = 900
+expect_log = ["restart past dormant transactions: from seq", "recreated [1-9]\\d* dormant transaction", "60048 transaction committed below the stream position"]
+forbid_log = ["60011", "50039", "60061"]
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback", "^60048 transaction committed below the stream position"]

@@ -17,6 +17,7 @@ You should have received a copy of the GNU Affero General Public
 License along with this program; see the file LICENSE;
 If not, see <http://www.gnu.org/licenses/>. */
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 
@@ -295,6 +296,97 @@ namespace OpenLogReplicator {
         committedAtOrAfterLwn.erase(committedAtOrAfterLwn.begin(), committedAtOrAfterLwn.lower_bound(checkpointScn));
         for (const auto& [_, committed]: committedAtOrAfterLwn)
             update(committed.sequence, committed.fileOffset, committed.xid);
+    }
+
+    // Call after checkpoint() for the checkpoint at checkpointSequence/checkpointFileOffset (it has pruned the committed
+    // begins). The restart position over the transactions a restart has to read from their begin (the checkpoint if none), and the others
+    // (dormant) with what recreates them. A dormant transaction began at or before a LOB page OLR holds without a
+    // transaction (orphaned) may own it, so it pins the position too. Beyond dormantMax the dormant transactions that began
+    // last pin the position. The result stays valid for any later checkpoint: whatever a dormant transaction buffers later
+    // lies after the checkpoint and is read again.
+    void TransactionBuffer::checkpointDormant(uint64_t dormantMax, Seq checkpointSequence, FileOffset checkpointFileOffset,
+                                              DormantCheckpoint& dormant) {
+        dormant.clear();
+        const auto update = [&](Seq sequence, FileOffset fileOffset, Xid xid) {
+            if (sequence < dormant.sequence || (sequence == dormant.sequence && fileOffset < dormant.fileOffset)) {
+                dormant.sequence = sequence;
+                dormant.fileOffset = fileOffset;
+                dormant.xid = xid;
+            }
+        };
+
+        bool orphans = false;
+        Seq orphanSequence = Seq::zero();
+        FileOffset orphanFileOffset;
+        for (const auto& [_, data]: orphanedLobs) {
+            const auto* redoLogRecord = reinterpret_cast<const RedoLogRecord*>(data + sizeof(typeTransactionSize));
+            if (!orphans || orphanSequence < redoLogRecord->sequence ||
+                (orphanSequence == redoLogRecord->sequence && orphanFileOffset < redoLogRecord->fileOffset)) {
+                orphanSequence = redoLogRecord->sequence;
+                orphanFileOffset = redoLogRecord->fileOffset;
+            }
+            orphans = true;
+        }
+
+        for (const auto& [xidMap, transaction]: xidTransactionMap) {
+            if (transaction->holdsRestartState() ||
+                (orphans && (transaction->beginSequence < orphanSequence ||
+                             (transaction->beginSequence == orphanSequence && transaction->beginFileOffset <= orphanFileOffset)))) {
+                update(transaction->beginSequence, transaction->beginFileOffset, transaction->xid);
+                dormant.pinned.push_back(transaction->xid);
+                continue;
+            }
+
+            if (transaction->attributesSnapshot == nullptr || *transaction->attributesSnapshot != transaction->attributes)
+                transaction->attributesSnapshot = std::make_shared<const AttributeMap>(transaction->attributes);
+            const auto conId = static_cast<typeConId>(static_cast<uint16_t>(xidMap >> 32));
+            dormant.transactions.push_back(DormantTransaction{transaction->xid, conId, transaction->thread, transaction->beginSequence,
+                                                              transaction->beginFileOffset, transaction->beginScn, transaction->beginTimestamp,
+                                                              transaction->attributesSnapshot, transaction->hasBuffered()});
+        }
+
+        const auto older = [](const DormantTransaction& a, const DormantTransaction& b) {
+            return a.beginsBefore(b.beginSequence, b.beginFileOffset);
+        };
+        if (dormant.transactions.size() > dormantMax) {
+            std::nth_element(dormant.transactions.begin(), dormant.transactions.begin() + static_cast<std::ptrdiff_t>(dormantMax),
+                             dormant.transactions.end(), older);
+            for (auto it = dormant.transactions.begin() + static_cast<std::ptrdiff_t>(dormantMax); it != dormant.transactions.end(); ++it) {
+                update(it->beginSequence, it->beginFileOffset, it->xid);
+                dormant.pinned.push_back(it->xid);
+            }
+            dormant.transactions.resize(dormantMax);
+        }
+        std::sort(dormant.transactions.begin(), dormant.transactions.end(), older);
+
+        for (const auto& [_, committed]: committedAtOrAfterLwn)
+            update(committed.sequence, committed.fileOffset, committed.xid);
+
+        if (dormant.sequence == Seq::none()) {
+            dormant.sequence = checkpointSequence;
+            dormant.fileOffset = checkpointFileOffset;
+        }
+        dormant.valid = true;
+    }
+
+    // After a filter change at runtime: what an open transaction did before it was judged by the old filter
+    void TransactionBuffer::pinOpenTransactions() {
+        for (const auto& [_, transaction]: xidTransactionMap)
+            transaction->relevant = true;
+    }
+
+    Transaction* TransactionBuffer::seedDormant(XmlCtx* xmlCtx, const DormantTransaction& dormant) {
+        Transaction* transaction = findTransaction(xmlCtx, dormant.xid, dormant.conId, dormant.thread, false, true, false);
+        transaction->begin = true;
+        transaction->recreated = true;
+        transaction->buffered = dormant.buffered;
+        transaction->beginSequence = dormant.beginSequence;
+        transaction->beginScn = dormant.beginScn;
+        transaction->beginTimestamp = dormant.beginTimestamp;
+        transaction->beginFileOffset = dormant.beginFileOffset;
+        if (dormant.attributes != nullptr)
+            transaction->attributes = *dormant.attributes;
+        return transaction;
     }
 
     void TransactionBuffer::addOrphanedLob(RedoLogRecord* redoLogRecord1) {

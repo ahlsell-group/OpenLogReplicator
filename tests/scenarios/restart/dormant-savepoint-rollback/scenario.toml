@@ -1,0 +1,7 @@
+description = "rollbacks to savepoints set before the checkpoint, a full rollback and a transaction with rolled-back rows across a restart"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM6.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["restart past dormant transactions: from seq", "recreated [1-9]\\d* dormant transaction"]
+forbid_log = ["60011", "50039", "60010", "7000[34]", "60061"]

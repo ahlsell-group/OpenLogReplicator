@@ -1,0 +1,8 @@
+description = "only checkpoints with dormant-tran are kept, restart on an older image"
+tags = ["restart", "network", "dormant"]
+tables = ["OLRT_DRM16.T"]
+olr_timeout = 900
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_log = ["attribute dormant-tran not expected"]
+forbid_log = ["50039", "60061"]
+expect_olr_error = "^20003 .*attribute dormant-tran not expected"

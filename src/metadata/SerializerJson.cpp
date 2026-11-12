@@ -65,6 +65,12 @@ namespace OpenLogReplicator {
                     R"(,"offset":)" << metadata->minFileOffset.toString() <<
                     R"(,"xid":")" << metadata->minXid.toString() << R"("})";
         }
+        // Only when it starts later than min-tran; without it a restart starts from min-tran
+        if (metadata->dormant.valid && !metadata->dormantFingerprint.empty() && !metadata->dormant.transactions.empty() &&
+            metadata->minSequence != Seq::none() &&
+            (metadata->minSequence < metadata->dormant.sequence ||
+             (metadata->minSequence == metadata->dormant.sequence && metadata->minFileOffset < metadata->dormant.fileOffset)))
+            serializeDormant(metadata, ss);
         ss << R"(,"big-endian":)" << std::dec << (metadata->ctx->isBigEndian() ? 1 : 0) <<
                 R"(,"context":")";
         Data::writeEscapeValue(ss, metadata->context);
@@ -558,6 +564,7 @@ namespace OpenLogReplicator {
                     "db-id",
                     "db-recovery-file-dest",
                     "db-timezone",
+                    "dormant-tran",
                     "incarnations",
                     "log-archive-dest",
                     "log-archive-format",
@@ -621,6 +628,17 @@ namespace OpenLogReplicator {
                 if (unlikely(!metadata->fileOffset.matchesBlockSize(Ctx::MIN_BLOCK_SIZE)))
                     throw DataException(20006, "file: " + fileName + " - invalid offset: " + metadata->fileOffset.toString() +
                                         " is not a multiplication of " + std::to_string(Ctx::MIN_BLOCK_SIZE));
+
+                metadata->dormantSeed.clear();
+                metadata->dormantPendingSequence = Seq::none();
+                metadata->dormantPendingSeed.clear();
+                Seq dormantSequence = Seq::none();
+                FileOffset dormantFileOffset;
+                std::vector<DormantTransaction> dormantSeed;
+                std::set<Xid> dormantKnown;
+                if (document.HasMember("dormant-tran"))
+                    deserializeDormant(metadata, fileName, document, Ctx::getJsonFieldO(fileName, document, "dormant-tran"), dormantSequence,
+                                       dormantFileOffset, dormantSeed, dormantKnown);
 
                 metadata->minSequence = Seq::none();
                 metadata->minFileOffset = FileOffset::zero();
@@ -742,6 +760,12 @@ namespace OpenLogReplicator {
                     }
                     users.clear();
                 }
+
+                // Applied by Metadata::readCheckpoint once the whole checkpoint, schema included, is loaded
+                metadata->dormantPendingSequence = dormantSequence;
+                metadata->dormantPendingFileOffset = dormantFileOffset;
+                metadata->dormantPendingSeed = std::move(dormantSeed);
+                metadata->dormantPendingKnown = std::move(dormantKnown);
             }
 
             if (loadSchema) {
@@ -797,6 +821,152 @@ namespace OpenLogReplicator {
             return false;
         }
         return true;
+    }
+
+    void SerializerJson::serializeDormant(const Metadata* metadata, std::ostringstream& ss) {
+        const DormantCheckpoint& dormant = metadata->dormant;
+        ss << R"(,"dormant-tran":{"fingerprint":")";
+        Data::writeEscapeValue(ss, metadata->dormantFingerprint);
+        ss << R"(","seq":)" << dormant.sequence.toString() << R"(,"offset":)" << dormant.fileOffset.toString();
+        if (dormant.xid != Xid::zero())
+            ss << R"(,"xid":")" << dormant.xid.toString() << R"(")";
+        ss << R"(,"list":[)";
+        bool first = true;
+        for (const DormantTransaction& transaction: dormant.transactions) {
+            if (!first)
+                ss << ",";
+            first = false;
+            ss SERIALIZER_ENDL << R"({"xid":")" << transaction.xid.toString() <<
+                    R"(","con-id":)" << std::dec << transaction.conId <<
+                    R"(,"thread":)" << std::dec << transaction.thread <<
+                    R"(,"seq":)" << transaction.beginSequence.toString() <<
+                    R"(,"offset":)" << transaction.beginFileOffset.toString() <<
+                    R"(,"scn":)" << transaction.beginScn.toString() <<
+                    R"(,"time":)" << std::dec << transaction.beginTimestamp.getVal() <<
+                    R"(,"buffered":)" << (transaction.buffered ? "1" : "0") <<
+                    R"(,"attributes":{)";
+            bool firstAttribute = true;
+            if (transaction.attributes != nullptr) {
+                for (const auto& [key, value]: *transaction.attributes) {
+                    if (!firstAttribute)
+                        ss << ",";
+                    firstAttribute = false;
+                    ss << R"(")";
+                    Data::writeEscapeValue(ss, std::string(Attribute::toString(key)));
+                    ss << R"(":")";
+                    Data::writeEscapeValue(ss, value);
+                    ss << R"(")";
+                }
+            }
+            ss << "}}";
+        }
+        ss << R"(],"pinned":[)";
+        first = true;
+        for (const Xid xid: dormant.pinned) {
+            if (!first)
+                ss << ",";
+            first = false;
+            ss << R"(")" << xid.toString() << R"(")";
+        }
+        ss << "]}";
+    }
+
+    // Sets dormantSequence only if the restart can start past the dormant transactions; otherwise it starts from min-tran
+    void SerializerJson::deserializeDormant(const Metadata* metadata, const std::string& fileName, const rapidjson::Value& document,
+                                            const rapidjson::Value& dormantJson, Seq& dormantSequence, FileOffset& dormantFileOffset,
+                                            std::vector<DormantTransaction>& dormantSeed, std::set<Xid>& dormantKnown) {
+        Ctx* ctx = metadata->ctx;
+        if (!ctx->isDisableChecksSet(Ctx::DISABLE_CHECKS::JSON_TAGS)) {
+            static const std::vector<std::string> dormantJsonChildNames{
+                "fingerprint",
+                "list",
+                "offset",
+                "pinned",
+                "seq",
+                "xid"
+            };
+            Ctx::checkJsonFields(fileName, dormantJson, dormantJsonChildNames);
+        }
+
+        if (ctx->dormantTransactionsMax == 0) {
+            ctx->info(0, "file: " + fileName + " - has dormant transactions, restart past them is off, starting from min-tran");
+            return;
+        }
+        const std::string fingerprint = Ctx::getJsonFieldS(fileName, Ctx::JSON_PARAMETER_LENGTH, dormantJson, "fingerprint");
+        if (fingerprint != metadata->dormantFingerprint) {
+            ctx->info(0, "file: " + fileName + " - filter or flags changed since the checkpoint (" + fingerprint + " -> " +
+                      metadata->dormantFingerprint + "), starting from min-tran");
+            return;
+        }
+
+        const Seq sequence(Ctx::getJsonFieldU32(fileName, dormantJson, "seq"));
+        const FileOffset fileOffset(Ctx::getJsonFieldU64(fileName, dormantJson, "offset"));
+        const Seq checkpointSequence(Ctx::getJsonFieldU32(fileName, document, "seq"));
+        const FileOffset checkpointFileOffset(Ctx::getJsonFieldU64(fileName, document, "offset"));
+        if (unlikely(!fileOffset.matchesBlockSize(Ctx::MIN_BLOCK_SIZE) ||
+                     sequence < metadata->sequence || (sequence == metadata->sequence && fileOffset < metadata->fileOffset) ||
+                     checkpointSequence < sequence || (checkpointSequence == sequence && checkpointFileOffset < fileOffset))) {
+            ctx->warning(60060, "file: " + fileName + " - dormant transactions position seq: " + sequence.toString() + " offset: " +
+                         fileOffset.toString() + " is not between min-tran and the checkpoint, starting from min-tran");
+            return;
+        }
+
+        const rapidjson::Value& listJson = Ctx::getJsonFieldA(fileName, dormantJson, "list");
+        std::vector<DormantTransaction> seed;
+        for (rapidjson::SizeType i = 0; i < listJson.Size(); ++i) {
+            const rapidjson::Value& transactionJson = listJson[i];
+            if (!ctx->isDisableChecksSet(Ctx::DISABLE_CHECKS::JSON_TAGS)) {
+                static const std::vector<std::string> transactionJsonChildNames{
+                    "attributes",
+                    "buffered",
+                    "con-id",
+                    "offset",
+                    "scn",
+                    "seq",
+                    "thread",
+                    "time",
+                    "xid"
+                };
+                Ctx::checkJsonFields(fileName, transactionJson, transactionJsonChildNames);
+            }
+
+            DormantTransaction transaction;
+            transaction.xid = Xid(Ctx::getJsonFieldS(fileName, Ctx::JSON_XID_LENGTH, transactionJson, "xid"));
+            transaction.conId = Ctx::getJsonFieldI16(fileName, transactionJson, "con-id");
+            transaction.thread = Ctx::getJsonFieldU16(fileName, transactionJson, "thread");
+            transaction.beginSequence = Seq(Ctx::getJsonFieldU32(fileName, transactionJson, "seq"));
+            transaction.beginFileOffset = FileOffset(Ctx::getJsonFieldU64(fileName, transactionJson, "offset"));
+            transaction.beginScn = Scn(Ctx::getJsonFieldU64(fileName, transactionJson, "scn"));
+            transaction.beginTimestamp = Time(Ctx::getJsonFieldU32(fileName, transactionJson, "time"));
+            transaction.buffered = Ctx::getJsonFieldU16(fileName, transactionJson, "buffered") != 0;
+
+            auto attributes = std::make_shared<AttributeMap>();
+            const rapidjson::Value& attributesJson = Ctx::getJsonFieldO(fileName, transactionJson, "attributes");
+            for (const auto& attribute: attributesJson.GetObject()) {
+                const auto it = Attribute::fromString().find(std::string_view(attribute.name.GetString()));
+                if (unlikely(it == Attribute::fromString().end() || !attribute.value.IsString()))
+                    throw DataException(20003, "file: " + fileName + " - parse error, attribute " + attribute.name.GetString() +
+                                        " of a dormant transaction not expected");
+                attributes->insert_or_assign(it->second, std::string(attribute.value.GetString(), attribute.value.GetStringLength()));
+            }
+            transaction.attributes = std::move(attributes);
+
+            dormantKnown.insert(transaction.xid);
+            // Its begin is read again: the parser recreates it
+            if (!transaction.beginsBefore(sequence, fileOffset))
+                continue;
+            seed.push_back(std::move(transaction));
+        }
+
+        if (dormantJson.HasMember("pinned")) {
+            const rapidjson::Value& pinnedJson = Ctx::getJsonFieldA(fileName, dormantJson, "pinned");
+            for (rapidjson::SizeType i = 0; i < pinnedJson.Size(); ++i)
+                dormantKnown.insert(Xid(Ctx::getJsonFieldS(fileName, Ctx::JSON_XID_LENGTH, pinnedJson, "pinned", i)));
+        }
+
+        dormantSequence = sequence;
+        dormantFileOffset = fileOffset;
+        dormantSeed = std::move(seed);
     }
 
     void SerializerJson::deserializeSysCCol(const Metadata* metadata, const std::string& fileName, const rapidjson::Value& sysCColJson) {

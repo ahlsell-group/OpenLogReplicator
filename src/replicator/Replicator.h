@@ -81,6 +81,7 @@ namespace OpenLogReplicator {
 
         virtual void initialize();
         virtual void positionReader();
+        void seedDormantTransactions();
         virtual void loadDatabaseMetadata();
         void run() override;
         virtual Reader* readerCreate(int group);

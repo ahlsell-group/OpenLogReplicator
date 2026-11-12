@@ -745,7 +745,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
     (workdir / "state").mkdir(parents=True)
     os.chmod(workdir, 0o777)
     os.chmod(workdir / "state", 0o777)
-    cfg = olr_net.make_config(scenario, profile, spec.get("olr", {}), version=olr.olr_version(image))
+    cfg = olr_net.make_config(scenario, profile, spec.get("olr", {}), version=olr.olr_version(image), image=image)
     (workdir / "config.json").write_text(json.dumps(cfg, indent=2))
     storage_v = version  # the Connect group/topics in use; an upgrade step changes the worker, not these
     if spec.get("connector", {}).get("adapter") == "logminer" or any(

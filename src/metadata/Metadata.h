@@ -33,6 +33,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include "../common/Ctx.h"
 #include "../common/DbTable.h"
+#include "../common/DormantTransaction.h"
 #include "../common/types/FileOffset.h"
 #include "../common/types/Seq.h"
 #include "../common/types/Time.h"
@@ -135,6 +136,22 @@ namespace OpenLogReplicator {
         Xid minXid;
         // Transactions a cold start named as lost (60011 at startup)
         std::set<Xid> coldStartLostXids;
+        // Restart past dormant transactions: the last state the parser computed, the configuration fingerprint, and the
+        // transactions to recreate on start (from the checkpoint read)
+        DormantCheckpoint dormant;
+        std::string dormantFingerprint;
+        // Bumped when the filter changes at runtime: the parser then treats every open transaction as not dormant, and
+        // state computed before is not used
+        std::atomic<uint64_t> dormantGeneration{0};
+        std::vector<DormantTransaction> dormantSeed;
+        Seq dormantPendingSequence{Seq::none()};
+        FileOffset dormantPendingFileOffset;
+        std::vector<DormantTransaction> dormantPendingSeed;
+        std::set<Xid> dormantPendingKnown;
+        // Transactions the checkpoint of a dormant start names (recreated or begin read again), see Parser::checkUnknownCommit
+        std::set<Xid> dormantKnownXids;
+        // Set when the start uses a dormant position: a commit of a transaction OLR does not know is then a loss (60061)
+        bool dormantRestart{false};
         uint64_t schemaInterval{0};
         std::set<Scn> checkpointScnList;
         std::unordered_map<Scn, bool> checkpointSchemaMap;
@@ -177,8 +194,10 @@ namespace OpenLogReplicator {
         void setStatusReplicating(Thread* t);
         void wakeUp(Thread* t);
         void checkpoint(Thread* t, Scn newCheckpointScn, Time newCheckpointTime, Seq newCheckpointSequence, FileOffset newCheckpointFileOffset,
-                        uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn);
+                        uint64_t newCheckpointBytes, Seq newMinSequence, FileOffset newMinFileOffset, Xid newMinXid, Scn newPositionScn,
+                        DormantCheckpoint* newDormant = nullptr);
         void writeCheckpoint(Thread* t, bool force);
+        void changeDormantFingerprint(Thread* t, const std::string& newFingerprint);
         // An interval of 0 disables that trigger
         static bool checkpointIntervalDue(uint64_t elapsedS, uint64_t elapsedMb, uint64_t intervalS, uint64_t intervalMb) {
             return (intervalS > 0 && elapsedS >= intervalS) || (intervalMb > 0 && elapsedMb >= intervalMb);
@@ -186,6 +205,9 @@ namespace OpenLogReplicator {
         void readCheckpoints();
         void readCheckpoint(Scn scn);
         bool readCheckpointPosition(const std::string& name, Scn& positionScn) const;
+        void applyDormantRestart(const std::string& fileName);
+        void dropDormantRestart();
+        void dropDormantPending(const std::string& fileName);
         void deleteOldCheckpoints(Thread* t);
         void loadAdaptiveSchema();
         void allowCheckpoints();

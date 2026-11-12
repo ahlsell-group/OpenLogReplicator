@@ -47,6 +47,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 
 #include "builder/BuilderJson.h"
 #include "common/Ctx.h"
+#include "common/DormantTransaction.h"
 #include "common/MemoryManager.h"
 #include "common/exception/ConfigurationException.h"
 #include "common/exception/RuntimeException.h"
@@ -421,6 +422,7 @@ namespace OpenLogReplicator {
 
             if (!ctx->isDisableChecksSet(Ctx::DISABLE_CHECKS::JSON_TAGS)) {
                 static const std::vector<std::string> stateNames{
+                    "dormant-transactions-max",
                     "interval-mb",
                     "interval-s",
                     "keep-checkpoints",
@@ -452,6 +454,16 @@ namespace OpenLogReplicator {
 
             if (stateJson.HasMember("schema-force-interval"))
                 ctx->schemaForceInterval = Ctx::getJsonFieldU64(configFileName, stateJson, "schema-force-interval");
+
+            if (stateJson.HasMember("dormant-transactions-max")) {
+                ctx->dormantTransactionsMax = Ctx::getJsonFieldU64(configFileName, stateJson, "dormant-transactions-max");
+                if (ctx->dormantTransactionsMax > 1000000)
+                    throw ConfigurationException(30001, "bad JSON, invalid \"dormant-transactions-max\" value: " +
+                                                 std::to_string(ctx->dormantTransactionsMax) + ", expected: one of {0 .. 1000000}");
+                if (ctx->dormantTransactionsMax > 0)
+                    ctx->info(0, "restart past dormant transactions is on, at most " + std::to_string(ctx->dormantTransactionsMax) +
+                              " per checkpoint");
+            }
         }
 
         // Iterate through sources
@@ -1059,6 +1071,9 @@ namespace OpenLogReplicator {
                 replicator->metadata->logArchiveFormatCustom = true;
                 replicator->metadata->logArchiveFormat = Ctx::getJsonFieldS(configFileName, DbTable::VPARAMETER_LENGTH, readerJson, "log-archive-format");
             }
+
+            metadata->dormantFingerprint = dormantFingerprint(ctx->flags, ctx->transactionSizeMax, debugOwner, debugTable,
+                                                              sourceJson.HasMember("filter") ? &sourceJson["filter"] : nullptr);
 
             metadata->commitElements();
             replicators.push_back(replicator);

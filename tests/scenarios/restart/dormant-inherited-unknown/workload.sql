@@ -1,0 +1,1 @@
+-- network mode: the workload is in client.toml

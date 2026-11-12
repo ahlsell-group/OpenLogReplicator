@@ -208,6 +208,8 @@ namespace OpenLogReplicator {
         uint64_t checkpointIntervalMb{500};
         uint64_t checkpointKeep{100};
         uint64_t schemaForceInterval{20};
+        // Restart past open transactions that hold nothing to replicate, at most this many per checkpoint; 0 = off
+        uint64_t dormantTransactionsMax{0};
         // Reader
         uint64_t redoReadSleepUs{50000};
         uint64_t redoVerifyDelayUs{0};

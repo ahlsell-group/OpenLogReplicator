@@ -21,6 +21,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #define TRANSACTION_H_
 
 #include <map>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -66,10 +67,20 @@ namespace OpenLogReplicator {
         bool shutdown{false};
         bool lastSplit{false};
         bool dump{false};
+        // Set once the transaction buffered anything but session information; never reset
+        bool relevant{false};
+        // Recreated on start from a checkpoint (dormant), its begin was not read
+        bool recreated{false};
+        // Recreated: it had buffered session records before the restart position, which the restart does not read again
+        bool buffered{false};
+#ifdef OLR_TEST_HOOKS
+        bool testCommitBelow{false};
+#endif
         typeTransactionSize size{0};
         uint16_t thread;
 
         AttributeMap attributes;
+        std::shared_ptr<const AttributeMap> attributesSnapshot;
 
         explicit Transaction(Xid newXid, std::map<LobKey, uint8_t*>* newOrphanedLobs, XmlCtx* newXmlCtx, uint16_t thread);
 
@@ -106,6 +117,17 @@ namespace OpenLogReplicator {
                       " flg: " + std::to_string(redoLogRecord1->flg) +
                       " split: " + std::to_string(lastSplit ? 1 : 0) +
                       " offset: " + redoLogRecord1->fileOffset.toString());
+        }
+
+        // Whether a restart must read this transaction from its begin (see DormantTransaction)
+        [[nodiscard]] bool holdsRestartState() const {
+            return relevant || !begin || system || schema || shutdown || lastSplit || mergeBuffer != nullptr || !lobCtx.lobs.empty() ||
+                    !lobCtx.listMap.empty();
+        }
+
+        // Whether its commit takes a position (Transaction::flush): it buffered records, also before a restart past it
+        [[nodiscard]] bool hasBuffered() const {
+            return opCodes > 0 || buffered;
         }
 
         [[nodiscard]] std::string toString(const Ctx* ctx) const;

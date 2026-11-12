@@ -61,6 +61,7 @@ namespace OpenLogReplicator {
         log(metadata->ctx, "add ", redoLogRecord1);
         transactionBuffer->addTransactionChunk(this, redoLogRecord1);
         ++opCodes;
+        relevant = true;
     }
 
     void Transaction::add(const Metadata* metadata, TransactionBuffer* transactionBuffer, RedoLogRecord* redoLogRecord1, const RedoLogRecord* redoLogRecord2) {
@@ -68,6 +69,8 @@ namespace OpenLogReplicator {
         log(metadata->ctx, "add2", redoLogRecord2);
         transactionBuffer->addTransactionChunk(this, redoLogRecord1, redoLogRecord2);
         ++opCodes;
+        if (redoLogRecord2->opCode != 0x0513 && redoLogRecord2->opCode != 0x0514)
+            relevant = true;
     }
 
     void Transaction::rollbackLastOp(const Metadata* metadata, TransactionBuffer* transactionBuffer, const RedoLogRecord* redoLogRecord1,
@@ -143,6 +146,9 @@ namespace OpenLogReplicator {
             return;
         }
 
+        // A recreated transaction held only session records, which were before the start: nothing to roll back
+        if (recreated && !relevant && opCodes == 0)
+            return;
         ctx->warning(70004, "rollback failed for " + std::to_string(redoLogRecord1->opCode) + " empty buffer, offset: " +
                      redoLogRecord1->fileOffset.toString() + ", xid: " + xid.toString() + ", pos: 2");
     }
@@ -192,6 +198,8 @@ namespace OpenLogReplicator {
             return;
         }
 
+        if (recreated && !relevant && opCodes == 0)
+            return;
         metadata->ctx->warning(70004, "rollback failed for " + std::to_string(redoLogRecord1->opCode) +
                                " empty buffer, offset: " + redoLogRecord1->fileOffset.toString() + ", xid: " + xid.toString() + ", pos: 1");
     }
@@ -204,7 +212,9 @@ namespace OpenLogReplicator {
         std::unique_lock const lckTransaction(metadata->mtxTransaction);
         std::unique_lock lckSchema(metadata->mtxSchema, std::defer_lock);
 
-        if (opCodes == 0 || rollback) {
+        // A recreated transaction that had buffered session records commits as it would have without the restart:
+        // processBegin moves the position to its commit SCN, processCommit skips the empty message
+        if (!hasBuffered() || rollback) {
             metadata->ctx->parserThread->contextSet(Thread::CONTEXT::CPU);
             return;
         }

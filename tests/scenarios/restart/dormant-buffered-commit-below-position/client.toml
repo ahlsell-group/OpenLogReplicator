@@ -1,0 +1,87 @@
+[olr]
+queue_size = 65536
+dormant_max = 1000
+requires_module = "test-hooks"
+env = { OLR_TEST_COMMIT_BELOW_TABLE = "OLRT_DRM32.L", OLR_TEST_COMMIT_BELOW_CLIENT_INFO = "olrt_dormant" }
+[equivalence]
+
+[[step]]
+client = "connect"
+[[step]]
+sql = "INSERT INTO OLRT_DRM32.t VALUES (2, 'before')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "BEGIN DBMS_APPLICATION_INFO.SET_CLIENT_INFO('olrt_dormant'); END;"
+session = 2
+[[step]]
+sql = "SELECT DBMS_TRANSACTION.LOCAL_TRANSACTION_ID(TRUE) FROM dual"
+session = 2
+[[step]]
+sql = "UPDATE OLRT_DRM32.u SET v = 'dormant' WHERE id = 1"
+session = 2
+[[step]]
+sleep = 3
+[[step]]
+switch_logfile = true
+count = 2
+[[step]]
+sleep = 5
+[[step]]
+sql = "INSERT INTO OLRT_DRM32.t VALUES (3, 'after checkpoint')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "INSERT INTO OLRT_DRM32.l SELECT LEVEL, 'below-' || LEVEL FROM dual CONNECT BY LEVEL <= 3000"
+[[step]]
+sql = "COMMIT WRITE BATCH NOWAIT"
+session = 2
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "messages"
+count = 1200
+timeout = 60
+[[step]]
+client = "commit_offset"
+[[step]]
+client = "disconnect"
+[[step]]
+olr = "restart"
+signal = "KILL"
+delete_writer_checkpoint = true
+[[step]]
+client = "connect"
+[[step]]
+read = "idle"
+idle = 10
+[[step]]
+client = "commit_offset"
+[[step]]
+sql = "INSERT INTO OLRT_DRM32.t VALUES (5, 'after')"
+[[step]]
+sql = "COMMIT"
+[[step]]
+read = "commits"
+count = 1
+[[step]]
+read = "idle"
+idle = 3
+[[step]]
+client = "commit_offset"

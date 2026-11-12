@@ -17,6 +17,11 @@ client.toml:
   queue_size = 65536              # network writer queue-size
   trace = 0                       # OLR "trace" bit mask (e.g. 16384 = CHECKPOINT)
   flags = 0                       # optional: source flags instead of the profile's (e.g. 0 = no DDL messages)
+  dormant_max = 1000              # state.dormant-transactions-max (restart past dormant transactions); -1 = leave out
+  filter_tables = ["OWNER.T"]     # OLR filter instead of scenario.tables (the captured tables stay scenario.tables)
+  disable_checks = 8              # reader disable-checks
+  env = { OLR_TEST_COMMIT_BELOW_TABLE = "OWNER.T", OLR_TEST_COMMIT_BELOW_CLIENT_INFO = "x" }  # OLR container environment (test builds)
+  requires_module = "test-hooks"  # skip on images whose --version does not list this module
 
   [[step]]
   client = "connect"              # Debezium connect: INFO, then START(offset scn) if READY or
@@ -65,12 +70,21 @@ client.toml:
   olr = "restart"                 # docker stop + start, same state dir
   delete_writer_checkpoint = true # remove <db>-chkpt.json first (as an init container might)
   signal = "INT"                  # INT = clean shutdown, KILL = crash
-  drop_min_tran = true            # remove min-tran from every metadata checkpoint first: the next start
-                                  # begins after the begin of the transactions open at the checkpoint
+  drop_min_tran = true            # remove min-tran (and dormant-tran) from every metadata checkpoint first: the next
+                                  # start begins after the begin of the transactions open at the checkpoint
   [[step]]
   olr = "stop"                    # as restart, but OLR stays down until an olr = "start" step
   [[step]]                        # (log switches while OLR is down)
   olr = "start"
+  config = { dormant_max = 0 }    # optional on start/restart: [olr] keys to change for this and later starts
+  image = "old"                   # optional on start: run another image from here on (same state dir);
+                                  # "old" = OLRT_OLD_IMAGE (settings.OLD_IMAGE)
+  [[step]]                        # more options of a stop/restart step, applied to the state dir while OLR is down:
+  break_dormant_seed = true       #   move the dormant-tran list into pinned: named but never recreated (60061 must fire)
+  delete_schema_ref = true        #   delete the checkpoint files other checkpoints take their schema from
+  delete_checkpoints_without = "dormant-tran"  # delete the checkpoints without this text in their header
+  [[step]]
+  olr = "reconfigure"             # rewrite config.json while OLR runs (it reloads the filter); with config = {...}
   [[step]]
   mark = "long"                   # remember the current SCN and the open transaction of `session`
   session = 2                     # (xid as OLR prints it) under this name
@@ -140,9 +154,9 @@ def load_steps(scenario):
     return tomllib.loads(p.read_text())
 
 
-def make_config(scenario, profile, olr_opts, version=(2, 0)):
+def make_config(scenario, profile, olr_opts, version=(2, 0), image=None):
     stub = {"start_scn": 0, "start_seq": 0, "end_seq": 0}
-    cfg = olr.make_config(stub, scenario, profile, version=version)
+    cfg = olr.make_config(stub, scenario, profile, version=version, image=image)
     src = cfg["source"][0]
     src["reader"].pop("start-scn", None)     # the client's START decides
     src.pop("debug", None)                   # runs live, stopped by us
@@ -152,6 +166,15 @@ def make_config(scenario, profile, olr_opts, version=(2, 0)):
         state["interval-mb"] = int(olr_opts["state_interval_mb"])
     if "keep_checkpoints" in olr_opts:
         state["keep-checkpoints"] = int(olr_opts["keep_checkpoints"])
+    if int(olr_opts.get("dormant_max", -1)) >= 0:
+        state["dormant-transactions-max"] = int(olr_opts["dormant_max"])
+    elif "dormant_max" in olr_opts:
+        state.pop("dormant-transactions-max", None)
+    if "disable_checks" in olr_opts:
+        src["reader"]["disable-checks"] = int(olr_opts["disable_checks"])
+    if "filter_tables" in olr_opts:
+        src["filter"]["table"] = [{"owner": t.split(".")[0].upper(), "table": t.split(".")[1].upper()}
+                                  for t in olr_opts["filter_tables"]]
     if "trace" in olr_opts:
         cfg["trace"] = int(olr_opts["trace"])
     if "flags" in olr_opts:
@@ -171,6 +194,16 @@ def make_config(scenario, profile, olr_opts, version=(2, 0)):
     return cfg
 
 
+def write_env(workdir, olr_opts):
+    """[olr] env: KEY=VALUE lines for docker --env-file, read by OlrContainer.start."""
+    env = olr_opts.get("env") or {}
+    path = workdir / "olr.env"
+    if env:
+        path.write_text("".join(f"{k}={v}\n" for k, v in env.items()))
+    elif path.exists():
+        path.unlink()
+
+
 class OlrContainer:
     def __init__(self, image, workdir, port, scenario=None):
         self.image, self.workdir, self.port, self.scenario = image, workdir, port, scenario
@@ -178,7 +211,9 @@ class OlrContainer:
 
     def start(self):
         subprocess.run(["docker", "rm", "-f", self.name], capture_output=True)
+        env = self.workdir / "olr.env"
         subprocess.run(["docker", "run", "-d", "--name", self.name, "--network", S.NETWORK,
+                        *(["--env-file", str(env)] if env.exists() else []),
                         "--user", f"{os.getuid()}:{S.ORACLE_GID}",
                         "-p", f"127.0.0.1:{self.port}:5000",
                         "-v", f"{S.VOLUME}:/opt/oracle/oradata:ro",
@@ -232,6 +267,10 @@ def list_checkpoints(state_dir):
             rec[key] = int(m.group(1)) if m else None
         m = re.search(r'"min-tran":\{"seq":(\d+),"offset":(\d+),"xid":"([^"]+)"\}', head)
         rec["min_tran"] = {"seq": int(m.group(1)), "offset": int(m.group(2)), "xid": m.group(3)} if m else None
+        m = re.search(r'"dormant-tran":\{"fingerprint":"([^"]*)","seq":(\d+),"offset":(\d+)', head)
+        if m:
+            rec["dormant"] = {"fingerprint": m.group(1), "seq": int(m.group(2)), "offset": int(m.group(3)),
+                              "count": len(re.findall(r'\{"xid":"', head[m.start():]))}
         out.append(rec)
     return sorted(out, key=lambda r: r["scn"])
 
@@ -273,10 +312,49 @@ def run(image, scenario, profile, workdir, token="adhoc"):
     (workdir / "state").mkdir(parents=True)
     os.chmod(workdir, 0o777)
     os.chmod(workdir / "state", 0o777)
-    (workdir / "config.json").write_text(json.dumps(
-        make_config(scenario, profile, spec.get("olr", {}), version=olr.olr_version(image)), indent=2))
+    olr_opts = dict(spec.get("olr", {}))
+    version = olr.olr_version(image)
+    (workdir / "config.json").write_text(json.dumps(make_config(scenario, profile, olr_opts, version=version, image=image), indent=2))
+    write_env(workdir, olr_opts)
+
+    def edit_state(i, step):
+        state = workdir / "state"
+        chkpts = sorted(state.glob(f"{scenario.db_name}-chkpt-*.json"))
+        if step.get("break_dormant_seed"):
+            for p in chkpts:
+                doc = json.loads(p.read_text())
+                if "dormant-tran" in doc:
+                    # still named by the checkpoint (pinned), but neither recreated nor read again from its begin
+                    dt = doc["dormant-tran"]
+                    dt["pinned"] = list(dt.get("pinned", [])) + [t["xid"] for t in dt.get("list", [])]
+                    dt["list"] = []
+                    p.write_text(json.dumps(doc, separators=(",", ":")))
+                    events.append(f"step {i}: dormant-tran list of {p.name} moved to pinned")
+        if step.get("delete_schema_ref"):
+            refs = set()
+            for p in chkpts:
+                m = re.search(r'"schema-ref-scn":(\d+)', p.read_text())
+                if m:
+                    refs.add(m.group(1))
+            for r in refs:
+                p = state / f"{scenario.db_name}-chkpt-{r}.json"
+                if p.exists():
+                    p.unlink()
+                    events.append(f"step {i}: deleted schema checkpoint {p.name}")
+        if step.get("delete_checkpoints_without"):
+            for p in chkpts:
+                if p.exists() and step["delete_checkpoints_without"] not in p.read_bytes()[:8192].decode(errors="replace"):
+                    p.unlink()
+                    events.append(f"step {i}: deleted {p.name} (no {step['delete_checkpoints_without']})")
+
+    def reconfigure(i, step, new_image=None):
+        if step.get("config") or new_image:
+            olr_opts.update(step.get("config") or {})
+            (workdir / "config.json").write_text(json.dumps(make_config(scenario, profile, olr_opts, version=olr.olr_version(new_image or cont.image), image=new_image or cont.image), indent=2))
+            events.append(f"step {i}: OLR config: {step.get('config') or {}}, image {new_image or cont.image}")
 
     events = []          # client-side log, for evidence
+    prior_logs = []      # logs of OLR containers replaced by an image change
     run_info = {"image": image, "profile": profile, "mode": "network", "exit_code": None,
                 "timed_out": False, "skip": None, "read_timeouts": 0, "log": "olr.log",
                 "output": "output.jsonl", "assert_failures": [], "checkpoints": []}
@@ -352,6 +430,10 @@ def run(image, scenario, profile, workdir, token="adhoc"):
         before = {t: record.snapshot(pconn, t, tables_before[t], start_scn) for t in scenario.tables}
         offset = (start_scn, None)
 
+        need = olr_opts.get("requires_module")
+        if need and need not in olr.olr_modules(image):
+            run_info["skip"] = f"image built without OLR module {need}"
+            raise _Abort()
         cont.start()
         time.sleep(2)
         st, rc = cont.status()
@@ -423,6 +505,7 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                 cont.stop(step.get("signal", "INT"))
                 state_files = sorted(f.name for f in (workdir / "state").iterdir())
                 events.append(f"step {i}: OLR stopped ({step.get('signal', 'INT')}), state: {' '.join(state_files)}")
+                edit_state(i, step)
                 if step.get("delete_writer_checkpoint"):
                     p = workdir / "state" / f"{scenario.db_name}-chkpt.json"
                     if p.exists():
@@ -431,15 +514,33 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                 if step.get("drop_min_tran"):
                     for p in sorted((workdir / "state").glob(f"{scenario.db_name}-chkpt-*.json")):
                         doc = json.loads(p.read_text())
-                        if doc.pop("min-tran", None) is not None:
+                        # dormant-tran too: with it the option would read (or reject with 60060) a position before
+                        # the begins the step is meant to hide
+                        dropped = [k for k in ("min-tran", "dormant-tran") if doc.pop(k, None) is not None]
+                        if dropped:
                             p.write_text(json.dumps(doc, separators=(",", ":")))
-                            events.append(f"step {i}: removed min-tran of {p.name}")
+                            events.append(f"step {i}: removed {' and '.join(dropped)} of {p.name}")
                 if step["olr"] == "restart":
+                    reconfigure(i, step)
                     subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
                     time.sleep(2)
                     events.append(f"step {i}: OLR restarted")
+            elif step.get("olr") == "reconfigure":
+                time.sleep(1.1)   # OLR compares the file's mtime in seconds
+                reconfigure(i, step)
+                time.sleep(3)
             elif step.get("olr") == "start":
-                subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
+                if step.get("image"):
+                    new_image = S.OLD_IMAGE if step["image"] == "old" else step["image"]
+                    prior_logs.append(cont.logs())
+                    cont.remove()
+                    reconfigure(i, step, new_image)
+                    cont.image = new_image
+                    cont.start()
+                    events.append(f"step {i}: OLR image {new_image}")
+                else:
+                    reconfigure(i, step)
+                    subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
                 time.sleep(2)
                 events.append(f"step {i}: OLR started")
             elif "mark" in step:
@@ -553,6 +654,13 @@ def run(image, scenario, profile, workdir, token="adhoc"):
             "logminer": reference, "start_offsets": start_offsets,
         }
         (workdir / "recording.json").write_text(json.dumps(rec, indent=1, ensure_ascii=False))
+        if "equivalence" in spec:
+            from . import equivalence
+            fails, info = equivalence.run(image, scenario, profile, workdir, spec, rec, make_config, OlrContainer,
+                                          free_port, version)
+            run_info["assert_failures"] += fails
+            run_info["equivalence"] = info
+            events.append(f"equivalence: {info} {fails}")
         # the file-mode checks expect OLR to stop by itself at the end of the range
         run_info["live"] = True
     except _Abort:
@@ -565,7 +673,7 @@ def run(image, scenario, profile, workdir, token="adhoc"):
             sig = str(((spec or {}).get("olr") or {}).get("stop_signal", "INT"))
             run_info["stop_signal"] = sig
             run_info["exit_code"] = cont.stop(sig) if run_info["exit_code"] is None else run_info["exit_code"]
-            (workdir / "olr.log").write_text(cont.logs())
+            (workdir / "olr.log").write_text("".join(prior_logs) + cont.logs())
             cont.remove()
         out.close()
         rawlog.close()
