@@ -1,0 +1,15 @@
+description = "OLR started after the begin of an open transaction with filtered rows (min-tran removed from the checkpoints): WARN 60011 names it"
+tags = ["restart", "network", "unknown-transaction"]
+tables = ["OLRT_UNK1.T"]
+olr_timeout = 900
+checks = ["run"]
+# 10061: the client disconnects on purpose. 60010: undo of a transaction OLR does not know (background or another
+# container) after a restart
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]
+expect_warning = "^60011 skipping transaction with no beginning, changes committed after the starting scn are lost: xid: 0x"
+# required on every image: images without the fix fail check run, which [known_issue] turns into xfail there
+expect_warning_images = ["*"]
+fixed_in = ["olrt/olr:local*"]
+
+[known_issue]
+run = "without flag 1024 (show-incomplete-transactions) a transaction whose begin OLR did not read is dropped silently together with its changes; fix/loud-unknown-transaction logs WARN 60011 at its commit"

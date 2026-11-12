@@ -62,6 +62,8 @@ namespace OpenLogReplicator {
     };
 
     class Parser final {
+        friend struct ParserTestAccess;
+
     protected:
         static constexpr uint64_t MAX_LWN_CHUNKS = static_cast<uint64_t>(512 * 2) / Ctx::MEMORY_CHUNK_SIZE_MB;
         static constexpr uint64_t MAX_RECORDS_IN_LWN = 1048576;
@@ -87,6 +89,8 @@ namespace OpenLogReplicator {
         void appendToTransactionDdl(RedoLogRecord* redoLogRecord1);
         void appendToTransactionBegin(RedoLogRecord* redoLogRecord1);
         void appendToTransactionCommit(RedoLogRecord* redoLogRecord1);
+        void noteUnknown(const RedoLogRecord* redoLogRecord1, typeObj obj, bool alwaysRelevant);
+        void checkUnknownCommit(const RedoLogRecord* redoLogRecord1);
         void appendToTransactionLob(RedoLogRecord* redoLogRecord1);
         void appendToDirectLoad(const RedoLogRecord* redoLogRecord1);
         void flushDirectLoadWarnings(bool endOfFile);

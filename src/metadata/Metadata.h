@@ -133,6 +133,8 @@ namespace OpenLogReplicator {
         Seq minSequence{Seq::none()};
         FileOffset minFileOffset;
         Xid minXid;
+        // Transactions a cold start named as lost (60011 at startup)
+        std::set<Xid> coldStartLostXids;
         uint64_t schemaInterval{0};
         std::set<Scn> checkpointScnList;
         std::unordered_map<Scn, bool> checkpointSchemaMap;

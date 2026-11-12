@@ -1,0 +1,7 @@
+description = "as unknown-too-late-relevant, but the transaction OLR misses the begin of only changes a table outside the filter: no warning"
+tags = ["restart", "network", "unknown-transaction"]
+tables = ["OLRT_UNK2.T"]
+olr_timeout = 900
+# 10061: the client disconnects on purpose. 60010: undo of a transaction OLR does not know (background or another
+# container) after a restart
+allowed_warnings = ["^10061 network error, errno: 32", "^60010 no match found for transaction rollback"]

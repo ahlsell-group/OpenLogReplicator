@@ -318,6 +318,8 @@ namespace OpenLogReplicator {
                     ctx->info(0, "oldest open transaction with available redo began at scn: " + positionScn.toString() + " (seq: " +
                               sequence.toString() + "), starting before scn: " + metadata->firstDataScn.toString() + " to read it completely");
                 for (const ColdStart::Lost& lost: choice.lost)
+                    metadata->coldStartLostXids.insert(lost.transaction.xid);
+                for (const ColdStart::Lost& lost: choice.lost)
                     ctx->warning(60011, "transaction " + lost.transaction.xid.toString() + " began at scn " + lost.transaction.startScn.toString() +
                                         ", before the first redo log read (seq: " + sequence.toString() + "), it will be skipped at commit and its changes "
                                         "are lost: " + lost.reason);

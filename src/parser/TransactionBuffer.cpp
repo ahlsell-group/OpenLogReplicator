@@ -52,6 +52,7 @@ namespace OpenLogReplicator {
         }
         xidTransactionMap.clear();
         committedAtOrAfterLwn.clear();
+        unknownXids.clear();
     }
 
     Transaction* TransactionBuffer::findTransaction(XmlCtx* xmlCtx, Xid xid, typeConId conId, uint16_t thread, bool old, bool add, bool rollback) {
