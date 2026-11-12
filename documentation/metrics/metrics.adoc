@@ -59,6 +59,19 @@ Checkpoint timestamps have only 1-second precision, and clocks must be synchroni
 
 _CAUTION:_ A reported value of `1` second can be misleading: a checkpoint created just before the current second may appear as 1s lag even if actual lag is smaller.
 
+_NOTE:_ The checkpoint here is the redo LWN being parsed, so this is how far the parser is behind the database, not how far back a restart reads; for that see `checkpoint_min_tran_age_s`.
+
+| checkpoint_min_tran_age_s
+| gauge
+|
+| Seconds since the redo time a restart from the latest checkpoint reads from: the begin of its `min-tran` transaction (the oldest open one, or one committed at or after the checkpoint SCN), or the checkpoint itself when there is none.
+`0` before the first checkpoint.
+Computed when the endpoint is scraped, so it keeps growing while the parser reaches no new checkpoint.
+The same clock caveats as for `checkpoint_lag` apply.
+
+_TIP:_ A restart starts from the newest written checkpoint at or below the client's start SCN, and an older checkpoint never reaches less far back, so this is a lower bound.
+A long-open transaction anywhere in the database keeps it growing, including one that touches no replicated table; a restart then reads all the redo since its begin.
+
 | ddl_ops
 | counter
 | type={alter,create,drop,other,truncate}

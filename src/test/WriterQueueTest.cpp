@@ -94,6 +94,7 @@ namespace {
         void emitCheckpointsOut(uint64_t) override {}
         void emitCheckpointsSkip(uint64_t) override {}
         void emitCheckpointLag(int64_t) override {}
+        void emitCheckpointMinTranTime(int64_t) override {}
         void emitDdlOpsAlter(uint64_t) override {}
         void emitDdlOpsCreate(uint64_t) override {}
         void emitDdlOpsDrop(uint64_t) override {}

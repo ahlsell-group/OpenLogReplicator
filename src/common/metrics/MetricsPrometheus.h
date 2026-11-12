@@ -45,6 +45,19 @@ namespace OpenLogReplicator {
         [[nodiscard]] static double ageS(int64_t sentUs, int64_t nowUs);
     };
 
+    // Computed at scrape time, so the age keeps growing while the parser does not reach a new checkpoint
+    class CheckpointMinTranAge final : public prometheus::Collectable {
+    protected:
+        const Clock* clock;
+
+    public:
+        std::atomic<int64_t> timeS{0};
+
+        explicit CheckpointMinTranAge(const Clock* newClock);
+        [[nodiscard]] std::vector<prometheus::MetricFamily> Collect() const override;
+        [[nodiscard]] static double ageS(int64_t restartTimeS, int64_t nowS);
+    };
+
     class MetricsPrometheus final : public Metrics {
     protected:
         std::string bind;
@@ -75,6 +88,9 @@ namespace OpenLogReplicator {
         // checkpoint_lag
         prometheus::Family<prometheus::Gauge>* checkpointLag{nullptr};
         prometheus::Gauge* checkpointLagGauge{nullptr};
+
+        // checkpoint_min_tran_age_s
+        std::shared_ptr<CheckpointMinTranAge> checkpointMinTranAge;
 
         // ddl_ops
         prometheus::Family<prometheus::Counter>* ddlOps{nullptr};
@@ -203,6 +219,9 @@ namespace OpenLogReplicator {
 
         // checkpoint_lag
         void emitCheckpointLag(int64_t gauge) override;
+
+        // checkpoint_min_tran_age_s
+        void emitCheckpointMinTranTime(int64_t timeS) override;
 
         // ddl_ops
         void emitDdlOpsAlter(uint64_t counter) override;

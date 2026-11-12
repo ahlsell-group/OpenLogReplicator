@@ -26,6 +26,7 @@ If not, see <http://www.gnu.org/licenses/>. */
 #include "../common/types/FileOffset.h"
 #include "../common/types/Scn.h"
 #include "../common/types/Seq.h"
+#include "../common/types/Time.h"
 #include "../common/types/Xid.h"
 #include "../parser/TransactionBuffer.h"
 
@@ -49,11 +50,12 @@ namespace {
         OpenLogReplicator::Seq sequence{OpenLogReplicator::Seq::none()};
         OpenLogReplicator::FileOffset fileOffset;
         OpenLogReplicator::Xid xid;
+        OpenLogReplicator::Time timestamp;
     };
 
     MinTran checkpointAt(OpenLogReplicator::TransactionBuffer& buffer, uint64_t scn) {
         MinTran m;
-        buffer.checkpoint(OpenLogReplicator::Scn(scn), m.sequence, m.fileOffset, m.xid);
+        buffer.checkpoint(OpenLogReplicator::Scn(scn), m.sequence, m.fileOffset, m.xid, m.timestamp);
         return m;
     }
 }
@@ -71,10 +73,11 @@ int main() {
         check("nothing open or committed: no min-tran", checkpointAt(*buffer, 400).sequence == Seq::none());
 
         // T committed at 462 in the LWN 455
-        buffer->addCommitted(Scn(462), firstData, Seq(20), FileOffset(533504ULL), t);
+        buffer->addCommitted(Scn(462), firstData, Seq(20), FileOffset(533504ULL), t, Time(1000));
         const MinTran m = checkpointAt(*buffer, 455);
         check("checkpoint below the commit scn points at the begin of T", m.sequence == Seq(20) && m.fileOffset == FileOffset(533504ULL));
         check("checkpoint below the commit scn names T", m.xid == t);
+        check("checkpoint below the commit scn carries the begin time of T", m.timestamp == Time(1000));
 
         check("checkpoint at the commit scn still points at the begin of T", checkpointAt(*buffer, 462).sequence == Seq(20));
         check("checkpoint above the commit scn drops T", checkpointAt(*buffer, 463).sequence == Seq::none());
@@ -84,19 +87,23 @@ int main() {
     {
         auto buffer = std::make_unique<TransactionBuffer>(&ctx);
         // Two transactions committed in the same LWN: the older begin wins
-        buffer->addCommitted(Scn(480), firstData, Seq(21), FileOffset(1024ULL), u);
-        buffer->addCommitted(Scn(470), firstData, Seq(20), FileOffset(4096ULL), t);
+        buffer->addCommitted(Scn(480), firstData, Seq(21), FileOffset(1024ULL), u, Time(2000));
+        buffer->addCommitted(Scn(470), firstData, Seq(20), FileOffset(4096ULL), t, Time(1000));
         MinTran m = checkpointAt(*buffer, 465);
         check("two commits: the older begin is used", m.sequence == Seq(20) && m.fileOffset == FileOffset(4096ULL) && m.xid == t);
+        check("two commits: the begin time goes with the older begin", m.timestamp == Time(1000));
         m = checkpointAt(*buffer, 475);
         check("two commits: after the first commit scn the second begin is used",
               m.sequence == Seq(21) && m.fileOffset == FileOffset(1024ULL) && m.xid == u);
-        check("two commits: after both commit scns nothing is left", checkpointAt(*buffer, 481).sequence == Seq::none());
+        check("two commits: the begin time goes with the second begin", m.timestamp == Time(2000));
+        m = checkpointAt(*buffer, 481);
+        check("two commits: after both commit scns nothing is left", m.sequence == Seq::none());
+        check("no min-tran: the begin time is left as it was", m.timestamp == Time());
     }
 
     {
         auto buffer = std::make_unique<TransactionBuffer>(&ctx);
-        buffer->addCommitted(Scn(462), firstData, Seq(20), FileOffset(533504ULL), t);
+        buffer->addCommitted(Scn(462), firstData, Seq(20), FileOffset(533504ULL), t, Time(1000));
         buffer->purge();
         check("purge drops committed begins", checkpointAt(*buffer, 455).sequence == Seq::none());
     }
@@ -109,13 +116,14 @@ int main() {
         const Scn catchUpFirstData(100000);
         uint64_t kept = 0;
         for (uint64_t scn = 1000; scn < 100000; ++scn)
-            if (buffer->addCommitted(Scn(scn), catchUpFirstData, Seq(static_cast<uint32_t>(10 + (scn / 10000))), FileOffset(scn * 512), t))
+            if (buffer->addCommitted(Scn(scn), catchUpFirstData, Seq(static_cast<uint32_t>(10 + (scn / 10000))), FileOffset(scn * 512), t,
+                                     Time(1000)))
                 ++kept;
         check("catch-up: commits below firstDataScn are not kept", kept == 0 && buffer->committedSize() == 0);
 
         // The LWN that holds firstDataScn: its SCN is below, the commits in it at or above firstDataScn are kept
         for (uint64_t scn = 100000; scn < 100005; ++scn)
-            buffer->addCommitted(Scn(scn), catchUpFirstData, Seq(20), FileOffset(scn * 512), u);
+            buffer->addCommitted(Scn(scn), catchUpFirstData, Seq(20), FileOffset(scn * 512), u, Time(2000));
         check("catch-up: commits at or above firstDataScn in the boundary LWN are kept", buffer->committedSize() == 5);
         const MinTran m = checkpointAt(*buffer, 100002);
         check("catch-up: first checkpoint prunes below its scn", buffer->committedSize() == 3 && m.sequence == Seq(20));
@@ -125,7 +133,7 @@ int main() {
         size_t maxSize = 0;
         for (uint64_t lwn = 100010; lwn < 200000; lwn += 10) {
             for (uint64_t c = 0; c < 3; ++c)
-                buffer->addCommitted(Scn(lwn + c), catchUpFirstData, Seq(21), FileOffset(lwn * 512), u);
+                buffer->addCommitted(Scn(lwn + c), catchUpFirstData, Seq(21), FileOffset(lwn * 512), u, Time(2000));
             maxSize = std::max(maxSize, buffer->committedSize());
             checkpointAt(*buffer, lwn);
         }

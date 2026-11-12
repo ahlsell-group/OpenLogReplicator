@@ -271,7 +271,8 @@ int main() {
         Seq ms = Seq::none();
         FileOffset mo;
         Xid mx;
-        env.buffer->checkpoint(Scn(1100), ms, mo, mx);
+        Time mt;
+        env.buffer->checkpoint(Scn(1100), ms, mo, mx, mt);
         DormantCheckpoint c;
         env.buffer->checkpointDormant(1000, Seq(12), FileOffset(8192), c);
         check("computed again: buffered kept for the recreated one, not set for the empty one", c.transactions.size() == 2 &&

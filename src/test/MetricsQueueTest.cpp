@@ -135,6 +135,20 @@ int main() {
     text = scrape(port);
     check("scrape: commits below the position counted", has(text, "transactions_commit_scn_below_position 2"));
 
+    // The clock is at 5907 s here
+    check("min-tran age: before the first checkpoint is 0", CheckpointMinTranAge::ageS(0, 5907) == 0);
+    check("min-tran age: clock behind the redo time is 0", CheckpointMinTranAge::ageS(6000, 5907) == 0);
+    check("min-tran age: 907 s", CheckpointMinTranAge::ageS(5000, 5907) == 907);
+    check("scrape: min-tran age before the first checkpoint", has(text, "checkpoint_min_tran_age_s 0") &&
+          text.find("# TYPE checkpoint_min_tran_age_s gauge") != std::string::npos);
+    metrics->emitCheckpointMinTranTime(5900);
+    text = scrape(port);
+    check("scrape: min-tran age", has(text, "checkpoint_min_tran_age_s 7"));
+    // No checkpoint while the parser is stuck: the age keeps growing
+    clock->now = 9500000000;
+    text = scrape(port);
+    check("scrape: min-tran age grows between checkpoints", has(text, "checkpoint_min_tran_age_s 3600"));
+
     if (failures > 0) {
         std::cerr << failures << " check(s) failed\n";
         return 1;

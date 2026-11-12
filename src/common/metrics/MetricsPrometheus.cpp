@@ -42,6 +42,27 @@ namespace OpenLogReplicator {
         return {family};
     }
 
+    CheckpointMinTranAge::CheckpointMinTranAge(const Clock* newClock):
+            clock(newClock) {}
+
+    double CheckpointMinTranAge::ageS(int64_t restartTimeS, int64_t nowS) {
+        if (restartTimeS == 0 || nowS <= restartTimeS)
+            return 0;
+        return static_cast<double>(nowS - restartTimeS);
+    }
+
+    std::vector<prometheus::MetricFamily> CheckpointMinTranAge::Collect() const {
+        prometheus::ClientMetric metric;
+        metric.gauge.value = ageS(timeS.load(), static_cast<int64_t>(clock->getTimeT()));
+        prometheus::MetricFamily family;
+        family.name = "checkpoint_min_tran_age_s";
+        family.help = "Seconds since the redo time a restart from the latest checkpoint reads from (begin of min-tran, else the checkpoint), "
+                "0 before the first checkpoint";
+        family.type = prometheus::MetricType::Gauge;
+        family.metric.push_back(std::move(metric));
+        return {family};
+    }
+
     MetricsPrometheus::MetricsPrometheus(TAG_NAMES newTagNames, std::string newBind):
             Metrics(newTagNames),
             bind(std::move(newBind)) {}
@@ -320,6 +341,10 @@ namespace OpenLogReplicator {
         // writer_queue_oldest_age_s
         writerQueueAge = std::make_shared<WriterQueueAge>(ctx->clock);
         exposer->RegisterCollectable(writerQueueAge);
+
+        // checkpoint_min_tran_age_s
+        checkpointMinTranAge = std::make_shared<CheckpointMinTranAge>(ctx->clock);
+        exposer->RegisterCollectable(checkpointMinTranAge);
     }
 
     void MetricsPrometheus::shutdown() {}
@@ -356,6 +381,11 @@ namespace OpenLogReplicator {
     // checkpoint_lag
     void MetricsPrometheus::emitCheckpointLag(int64_t gauge) {
         checkpointLagGauge->Set(gauge);
+    }
+
+    // checkpoint_min_tran_age_s
+    void MetricsPrometheus::emitCheckpointMinTranTime(int64_t timeS) {
+        checkpointMinTranAge->timeS.store(timeS);
     }
 
     // ddl_ops
