@@ -1,0 +1,26 @@
+[connector]
+adapter = "logminer"
+snapshot_mode = "no_data"
+heartbeat_ms = 10000
+final_idle_timeout = 900
+drain_to_scn = true
+config = { "log.mining.transaction.retention.ms" = "93600000", "database.query.timeout.ms" = "3600000" }
+
+[load]
+sessions = 6
+long_sessions = 3
+max_ops = 25
+think_ms = 150
+savepoint_pct = 10
+rollback_pct = 5
+long_hold_s = [20, 120]
+switch_s = 20
+
+[[step]]
+connector = "create"
+[[step]]
+load = "start"
+[[step]]
+sleep = 300
+[[step]]
+load = "stop"

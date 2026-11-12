@@ -123,6 +123,31 @@ def read_olr(path, rec):
 
 # ---------------------------------------------------------------- normalisation
 
+def position_violations(path, limit=5):
+    """Messages whose (c_scn, c_idx) is not above the previous message's. A checkpoint may repeat the previous position,
+    every other message must be above it: a client continues and confirms by position, so a repeated or lower one can
+    be skipped as already received."""
+    out, prev = [], None
+    if not path.exists():
+        return out
+    for ln, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if "c_scn" not in msg or "c_idx" not in msg:
+            continue
+        pos = (int(msg["c_scn"]), int(msg["c_idx"]))
+        chkpt = any(p.get("op") == "chkpt" for p in msg.get("payload", []))
+        if prev is not None and (pos < prev or (pos == prev and not chkpt)):
+            out.append(f"line {ln}: position {pos} after {prev}" + (" (checkpoint)" if chkpt else ""))
+            if len(out) >= limit:
+                break
+        prev = max(prev, pos) if prev is not None else pos
+    return out
+
+
+
 def columns(rec, table):
     info = rec["tables"].get(table) or rec["tables_before"].get(table)
     return info["columns"] if info else []
@@ -183,6 +208,32 @@ def fmt_row_diff(x, y, limit=6):
 
 
 # ---------------------------------------------------------------- check: run
+
+def replay_position_changes(path, limit=5):
+    """Messages sent again (after an OLR or client restart) with a different (c_scn, c_idx) than the first time. A
+    client that skips through its stored position drops a message whose position moved down."""
+    out, first = [], {}
+    if not path.exists():
+        return out
+    for ln, line in enumerate(path.read_text(errors="replace").splitlines(), start=1):
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        payload = msg.get("payload", [])
+        if "c_scn" not in msg or "c_idx" not in msg or any(p.get("op") == "chkpt" for p in payload):
+            continue
+        key = (msg.get("xid"), msg.get("scn"), json.dumps(payload, sort_keys=True))
+        pos = (int(msg["c_scn"]), int(msg["c_idx"]))
+        seen = first.setdefault(key, {})
+        # Same position again: a resend. Higher: another identical message, or a resend moved up (a duplicate at worst).
+        if seen and pos not in seen and pos < max(seen):
+            low = min(seen)
+            out.append(f"line {ln}: sent again at {pos}, earlier at {low} (line {seen[low]})")
+            if len(out) >= limit:
+                break
+        seen.setdefault(pos, ln)
+    return out
 
 def check_run(sc, workdir, run_info, olr_out, image=None):
     r = Result("run")
@@ -252,7 +303,18 @@ def check_run(sc, workdir, run_info, olr_out, image=None):
                + (f" (stopped with SIG{run_info['stop_signal']})" if run_info.get("stop_signal") else ""))
     txns, ddl, problems = olr_out
     for p in problems:
+        if getattr(sc, "open_transactions_ok", False) and p.startswith("transaction ") and "has no commit" in p:
+            r.note(p)
+            continue
         r.fail(p)
+    # One pass over recorded redo: positions must only grow. A network run can restart OLR and see messages again.
+    for v in position_violations(workdir / "output.jsonl"):
+        if network:
+            r.note(f"position not increasing: {v}")
+        else:
+            r.fail(f"position not increasing: {v}")
+    for v in replay_position_changes(workdir / "output.jsonl"):
+        r.fail(f"position changed on resend: {v}")
     r.note(f"exit={rc} {run_info.get('seconds')}s, {len(txns)} transactions, {sum(len(t['events']) for t in txns)} rows")
     return r
 

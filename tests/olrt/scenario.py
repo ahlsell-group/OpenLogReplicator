@@ -34,6 +34,7 @@ class Scenario:
     fixed_in: list[str] = dataclasses.field(default_factory=list)  # image patterns where known_issue is fixed
     guards: str = ""
     checks: list[str] = dataclasses.field(default_factory=lambda: ["run", "diff", "replay"])
+    open_transactions_ok: bool = False  # run: a transaction without commit in the output is expected (OLR stopped mid-way)
     exactly_once: bool = False   # diff (and in connect mode delivery, txmeta) fails on anything delivered twice (default: a note)
     xid_exact: bool = False      # xid format 3 must equal LogMiner's raw XID exactly (check diff)
     commit_time: bool = False    # also compare event timestamps with the DB commit time
@@ -68,7 +69,7 @@ class Scenario:
     @property
     def db_name(self):
         """Service name OLR connects to and its config "name" (state file prefix, network database name)."""
-        return "FREE" if self.container == "root" else S.PDB
+        return S.CDB if self.container == "root" else S.PDB
 
     @property
     def con_name(self):

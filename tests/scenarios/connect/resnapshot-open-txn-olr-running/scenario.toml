@@ -1,0 +1,10 @@
+description = "New snapshot (offsets deleted) while OLR keeps streaming and a transaction is open across the new snapshot SCN"
+tags = ["connect", "restart", "a2"]
+tables = ["OLRT_C13.T"]
+
+# Debezium side: the offset has no scn_idx, so startFrom sets skipToStartScn also on the CONTINUE path (OLR answers
+# REPLICATE) and drops the open transaction's rows below the new snapshot SCN. Not fixable in OLR.
+[known_issue]
+delivery = "Debezium skipToStartScn on CONTINUE after a new snapshot drops the open transaction's rows below the new snapshot SCN (OlrNetworkClient.startFrom); runbook rule: give OLR an empty state before a re-snapshot"
+diff = "Debezium skipToStartScn on CONTINUE after a new snapshot drops the open transaction's rows below the new snapshot SCN"
+replay = "Debezium skipToStartScn on CONTINUE after a new snapshot drops the open transaction's rows below the new snapshot SCN"

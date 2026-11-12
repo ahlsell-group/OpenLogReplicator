@@ -67,6 +67,12 @@ PROFILES_19 = {
 ARCH_ONLY = 0  # flags bit 0 (archived logs only) never starts from an empty state dir on upstream 2.0.0, see README "Findings"
 
 
+
+def memory_args(scenario):
+    """docker run limit for an OLR container (OLRT_OLR_MEMORY_MB): an OLR that outgrows it is killed alone (exit 137)."""
+    mb = S.OLR_MEMORY_MB
+    return ["--memory", f"{mb}m", "--memory-swap", f"{mb}m"] if mb > 0 else []
+
 def slug(image):
     s = re.sub(r"[^A-Za-z0-9_.-]+", "_", image)
     return s[-60:] if len(s) > 60 else s
@@ -305,7 +311,7 @@ def _run(image, rec, scenario, profile, workdir, extra_args=(), on_start=None):
            "--user", f"{os.getuid()}:{S.ORACLE_GID}",
            "-v", f"{S.VOLUME}:/opt/oracle/oradata:ro",
            "-v", f"{workdir.resolve()}:/opt/OpenLogReplicator/work",
-           "--label", "olrt=1", *extra_args,
+           "--label", "olrt=1", *memory_args(scenario), *extra_args,
            "--entrypoint", "/opt/OpenLogReplicator/OpenLogReplicator",
            image, "-f", "work/config.json"]
     t0 = time.time()

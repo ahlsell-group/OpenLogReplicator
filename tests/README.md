@@ -79,6 +79,8 @@ runs can share one Docker engine; set `OLRT_ORACLE_PORT` per instance (Kafka and
 derive from it). `OLRT_RESULTS=<dir>` moves `results/` (default `./results`). Other knobs:
 `OLRT_OLR_PARALLEL` (default 4), `OLRT_OLR_TIMEOUT` (default 300 s), `OLRT_KEEP_TOPICS`,
 `OLRT_ORACLE_TZ` (DB container time zone, default `Europe/Berlin`).
+`OLRT_GITOPS_CHART` (path to a Helm chart that renders `offsets.json`) and `OLRT_GITOPS_VALUES` (values
+file in it, default `values.yaml`) are needed only by steps with `offsets_via = "chart"`.
 
 ## How a run works
 

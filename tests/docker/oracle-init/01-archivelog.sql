@@ -12,8 +12,8 @@ ALTER DATABASE ARCHIVELOG;
 ALTER DATABASE OPEN;
 
 ALTER DATABASE ADD SUPPLEMENTAL LOG DATA;
--- FREEPDB1 is already open here (gvenzl opens it); keep it open across restarts.
-ALTER PLUGGABLE DATABASE FREEPDB1 SAVE STATE;
+-- The PDB is already open here (gvenzl opens it); keep it open across restarts.
+ALTER PLUGGABLE DATABASE ALL SAVE STATE;
 
 ALTER SYSTEM ARCHIVE LOG CURRENT;
 SELECT log_mode, force_logging, supplemental_log_data_min, supplemental_log_data_pk FROM v$database;

@@ -84,6 +84,8 @@ client.toml:
   hard = true                     # optional: ALTER SYSTEM SWITCH LOGFILE first, then
                                   # ARCHIVE LOG CURRENT (two switches per count)
   [[step]]
+  remove_archive = "long"         # move away the archived log holding the marked transaction's begin (controlfile keeps it)
+  [[step]]
   sleep = 2
 
 An olr restart/stop step also records the state directory (schema checkpoints) in run.json, so a
@@ -168,8 +170,8 @@ def make_config(scenario, profile, olr_opts, version=(2, 0)):
 
 
 class OlrContainer:
-    def __init__(self, image, workdir, port):
-        self.image, self.workdir, self.port = image, workdir, port
+    def __init__(self, image, workdir, port, scenario=None):
+        self.image, self.workdir, self.port, self.scenario = image, workdir, port, scenario
         self.name = "olrt-olrnet-" + str(abs(hash(str(workdir))))[:12]
 
     def start(self):
@@ -179,7 +181,7 @@ class OlrContainer:
                         "-p", f"127.0.0.1:{self.port}:5000",
                         "-v", f"{S.VOLUME}:/opt/oracle/oradata:ro",
                         "-v", f"{self.workdir.resolve()}:/opt/OpenLogReplicator/work",
-                        "--label", "olrt=1",
+                        "--label", "olrt=1", *olr.memory_args(self.scenario),
                         "--entrypoint", "/opt/OpenLogReplicator/OpenLogReplicator",
                         self.image, "-f", "work/config.json"], check=True, capture_output=True)
 
@@ -277,13 +279,14 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                 "timed_out": False, "skip": None, "read_timeouts": 0, "log": "olr.log",
                 "output": "output.jsonl", "assert_failures": [], "checkpoints": []}
     marks = {}           # mark step name -> {scn, seq, xid}
+    hidden = []          # archived logs moved away by remove_archive, put back before the LogMiner reference
     start_offsets = []   # SCNs the client sent START with
     out = open(workdir / "output.jsonl", "w")
     rawlog = open(workdir / "received.jsonl", "w")   # everything OLR sent, incl. client-skipped
     rconn, pconn = db.root(), db.scenario_conn(scenario)
     sessions = {1: pconn}
     port = free_port()
-    cont = OlrContainer(image, workdir, port)
+    cont = OlrContainer(image, workdir, port, scenario)
     client = None
     requests = []        # every request sent by any client instance
     offset = None        # (scn, idx) as Debezium would store it
@@ -497,10 +500,28 @@ def run(image, scenario, profile, workdir, token="adhoc"):
                     run_info["assert_failures"].append(f"step {i}: OLR log matches /{pat}/: {found[0][:300]}")
                 elif not absent and not found:
                     run_info["assert_failures"].append(f"step {i}: no OLR log line matches /{pat}/")
+            elif "remove_archive" in step:
+                # move away the archived log holding the begin of a marked transaction on disk only: the controlfile
+                # still lists it (V$ARCHIVED_LOG.DELETED = 'NO'), as after an OS-level cleanup
+                m = marks[step["remove_archive"]]
+                start = m["open"][m["xid"]]
+                row = rconn.cursor().execute(
+                    "SELECT sequence#, name FROM v$archived_log WHERE name IS NOT NULL AND first_change# <= :1 "
+                    "AND next_change# > :2 ORDER BY sequence#", [start, start]).fetchone()
+                if row is None:
+                    raise ValueError(f"client.toml step {i}: no archived log holds SCN {start}")
+                subprocess.run(["docker", "exec", S.ORACLE_CONTAINER, "mv", row[1], row[1] + ".hidden"], check=True,
+                               capture_output=True)
+                hidden.append(row[1])
+                events.append(f"step {i}: removed archived log seq {row[0]} ({row[1]}) holding SCN {start}")
             elif "sleep" in step:
                 time.sleep(float(step["sleep"]))
             else:
                 raise ValueError(f"client.toml step {i}: unknown step {step}")
+
+        # LogMiner needs the logs OLR was denied
+        for name in hidden:
+            subprocess.run(["docker", "exec", S.ORACLE_CONTAINER, "mv", name + ".hidden", name], check=True, capture_output=True)
 
         for c in sessions.values():
             c.commit()

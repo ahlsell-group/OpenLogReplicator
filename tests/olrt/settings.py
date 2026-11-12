@@ -22,12 +22,20 @@ ORACLE_PORT = int(os.environ.get("OLRT_ORACLE_PORT", "15210"))
 ORACLE_PASSWORD = "oracle"
 # DB host time zone with DST; redo timestamps are host-local wall time.
 ORACLE_TZ = os.environ.get("OLRT_ORACLE_TZ", "Europe/Berlin")
-PDB = "FREEPDB1"
+# CDB service and PDB name: FREE/FREEPDB1 for oracle-free, XE/XEPDB1 for gvenzl/oracle-xe
+CDB = os.environ.get("OLRT_CDB", "FREE")
+PDB = os.environ.get("OLRT_PDB", f"{CDB}PDB1")
 # gid of oinstall in the Oracle image: redo files are 0640 oracle:oinstall
 ORACLE_GID = 54321
+# Optional minimum online redo: "<groups>x<MB>", e.g. "6x200". The image has 2 x 10 MB, which a
+# lagging LogMiner overruns under load (ORA-01368). Unset leaves the database as created.
+REDO = os.environ.get("OLRT_REDO", "")
 
 OLR_TIMEOUT_S = int(os.environ.get("OLRT_OLR_TIMEOUT", "300"))
 OLR_PARALLEL = int(os.environ.get("OLRT_OLR_PARALLEL", "4"))
+# OLR container memory limit in MB (docker run --memory); unset or 0: no limit. OLR uses more than its max-mb (dictionary),
+# a limit of max-mb + 1024 killed file-mode runs with 137
+OLR_MEMORY_MB = int(os.environ.get("OLRT_OLR_MEMORY_MB", "0") or 0)
 
 # Debezium Connect mode (olrt.connect): broker with schema registry + one Kafka Connect worker
 BROKER_IMAGE = os.environ.get("OLRT_BROKER_IMAGE", "redpandadata/redpanda:v24.2.7")

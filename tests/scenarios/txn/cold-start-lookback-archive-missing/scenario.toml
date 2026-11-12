@@ -1,0 +1,9 @@
+description = "Cold start look-back to an open transaction whose archived log is listed in the controlfile but missing on disk"
+tags = ["txn", "restart", "network"]
+tables = ["OLRT_A6.T"]
+checks = ["run"]
+olr_timeout = 300
+# The transaction is given up loudly (its begin is unreadable) and OLR keeps running; before fork b26bd3bd it stopped
+# with 10009 after 10 tries, and a pod restart made the same choice again
+expect_warning = "^60011 transaction .* began at scn"
+expect_warning_images = ["olrt/olr:local*"]

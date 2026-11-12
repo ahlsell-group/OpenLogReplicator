@@ -46,6 +46,17 @@ A scenario opts in with connect.toml next to scenario.toml:
                          # connector, set the offset to scn = oldest open transaction's start SCN,
                          # commit_scn = "<old scn>:1:" so LogMiner skips what OLR already delivered,
                          # then PUT the config and resume
+                         # gap_before_stop / gap_stopped / gap_after_patch = s or [min, max]: pauses between
+                         # the S query, the stop, the offset PATCH and the restart, as between gitops syncs.
+                         # offsets_via = "chart": the PATCH body is the offsets.json the gitops chart renders
+                         # (OLRT_GITOPS_CHART, values as an operator types them); min_straddlers = N: fail
+                         # "rewind" as inconclusive unless N transactions were open across the offset SCN
+  [[step]]
+  connector = "reset_offsets"   # stop, DELETE the offsets, resume: a new snapshot while OLR keeps streaming
+  [[step]]
+  load = "start" | "stop"   # background DML load ([load] in connect.toml, olrt.load), running across steps
+  [[step]]
+  load = "batch_begin"   # table = "OWNER.T", rows = N: one large transaction left open; "batch_commit" ends it
   [[step]]
   worker = "upgrade"     # version = "3.7.0.Final": replace the Connect worker with another Debezium
                          # version on the same group and storage topics (offsets and config kept)
@@ -98,9 +109,36 @@ import urllib.error
 import urllib.request
 
 from . import checks, db, kafka, logminer, olr, olr_net, record
+from . import load as loadgen
 from . import settings as S
 
 CONNECT_URL = f"http://127.0.0.1:{S.CONNECT_PORT}"
+GITOPS_CHART = os.environ.get("OLRT_GITOPS_CHART", "")
+GITOPS_VALUES = os.environ.get("OLRT_GITOPS_VALUES", "values.yaml")
+
+
+def _gap(v):
+    if isinstance(v, list):
+        import random
+        return random.uniform(float(v[0]), float(v[1]))
+    return float(v or 0)
+
+
+def chart_offsets(prefix, scn, commit_scn, snapshot_scn, workdir):
+    """The offsets.json the gitops chart renders for debezium.alterOffsets, with the SCNs written as
+    plain YAML numbers (as an operator types them into values.yaml)."""
+    vals = workdir / "alter-offsets-values.yaml"
+    vals.write_text(f"debezium:\n  enabled: true\n  topicPrefix: {prefix}\n  alterOffsets:\n    scn: {scn}\n"
+                    f"    commitScn: \"{commit_scn}\"\n    snapshotScn: {snapshot_scn}\n")
+    if not GITOPS_CHART:
+        raise RuntimeError('offsets_via = "chart" needs OLRT_GITOPS_CHART (path to the chart rendering offsets.json)')
+    out = subprocess.run(["helm", "template", "olrt", GITOPS_CHART, "-f", os.path.join(GITOPS_CHART, GITOPS_VALUES),
+                          "-f", str(vals)], capture_output=True, text=True, check=True).stdout
+    (workdir / "alter-offsets-render.yaml").write_text(out)
+    m = re.search(r'^\s*offsets\.json:\s*(".*")\s*$', out, re.M)
+    if not m:
+        raise RuntimeError("chart: no offsets.json in the rendered ConfigMap")
+    return json.loads(json.loads(m.group(1)))
 
 
 # ---------------------------------------------------------------- stack
@@ -189,7 +227,7 @@ def connect_up(version, storage_version=None):
             "-e", "VALUE_CONVERTER=io.confluent.connect.avro.AvroConverter",
             "-e", f"CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL=http://{S.BROKER_CONTAINER}:8081",
             "-e", f"CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL=http://{S.BROKER_CONTAINER}:8081",
-            "-e", "HEAP_OPTS=-Xms256m -Xmx1g",
+            "-e", f"HEAP_OPTS=-Xms256m -Xmx{os.environ.get('OLRT_CONNECT_HEAP', '1g')}",
             *debug_env(),
             image)
     _wait_http(f"{CONNECT_URL}/connectors", 180)
@@ -197,12 +235,15 @@ def connect_up(version, storage_version=None):
 
 def debug_env():
     """OLRT_CONNECT_DEBUG=1: DEBUG for Debezium's OLR adapter (CONFIRM / CONTINUE positions) and
-    io.debezium.connector.common (offsets handed to commitOffset)."""
-    if not os.environ.get("OLRT_CONNECT_DEBUG"):
+    io.debezium.connector.common (offsets handed to commitOffset). OLRT_CONNECT_DEBUG=trace: TRACE for
+    the OLR adapter (every received and skipped event)."""
+    level = os.environ.get("OLRT_CONNECT_DEBUG")
+    if not level:
         return []
-    return ["-e", "CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_ORACLE_OLR=DEBUG",
+    olr = "TRACE" if level.lower() == "trace" else "DEBUG"
+    return ["-e", f"CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_ORACLE_OLR={olr}",
             "-e", "CONNECT_LOG4J_LOGGER_IO_DEBEZIUM_CONNECTOR_COMMON=DEBUG",
-            "-e", "CONNECT_LOG4J_APPENDER_STDOUT_THRESHOLD=DEBUG"]
+            "-e", f"CONNECT_LOG4J_APPENDER_STDOUT_THRESHOLD={olr}"]
 
 
 NETADMIN_IMAGE = "olrt/netadmin:local"
@@ -339,10 +380,10 @@ def connector_config(sc, spec, prefix, olr_host, adapter=None):
         "poll.interval.ms": "500",
         "heartbeat.interval.ms": str(c.get("heartbeat_ms", 5000)),
         "provide.transaction.metadata": "true",
-        "database.url": f"jdbc:oracle:thin:@//{S.ORACLE_CONTAINER}:1521/FREE",
+        "database.url": f"jdbc:oracle:thin:@//{S.ORACLE_CONTAINER}:1521/{S.CDB}",
         "database.user": S.DBZ_USER,
         "database.password": S.DBZ_PASSWORD,
-        "database.dbname": "FREE",
+        "database.dbname": S.CDB,
         "database.pdb.name": S.PDB,
         "table.include.list": ",".join(sc.tables),
         "topic.prefix": prefix,
@@ -592,6 +633,42 @@ def check_txmeta(rec, records, since_scn, exactly_once=False):
     return r
 
 
+def check_rewind(rec, txns, run_info, since_scn):
+    """Per rewound adapter swap: the transactions LogMiner shows open across the old offset SCN X (first
+    change <= X, commit > X) are the ones a plain swap loses rows of. They must arrive whole; fewer than
+    min_straddlers of them makes the run inconclusive."""
+    swaps = [s for s in run_info.get("adapter_swaps", []) if s.get("rewind")]
+    if not swaps:
+        return None
+    r = checks.Result("rewind")
+    for s in swaps:
+        rw = s["rewind"]
+        x = int(rw["offset_scn"])
+        new = rw.get("new") or {}
+        for k in ("scn", "snapshot_scn"):
+            v = str(new.get(k, ""))
+            if not v.isdigit():
+                r.fail(f"offset {k} {v!r} is not a decimal SCN (via {rw.get('via')})")
+        after = ((rw.get("offsets_after_patch") or {}).get("offsets") or [{}])[0].get("offset", {})
+        if after and str(after.get("scn")) != str(new.get("scn")):
+            r.fail(f"offset after PATCH {after.get('scn')!r} != sent {new.get('scn')!r}")
+        straddlers = [t for t in rec["logminer"]["transactions"]
+                      if t["events"] and t.get("commit_scn") and t["commit_scn"] > x
+                      and min(e["scn"] for e in t["events"]) <= x]
+        rows_before = sum(sum(1 for e in t["events"] if e["scn"] <= x) for t in straddlers)
+        sub = check_delivery(dict(rec, logminer={"transactions": straddlers}), txns, since_scn)
+        r.note(f"X {x}, mining from {new.get('scn')}, {rw.get('open_transactions')} open at the S query; "
+               f"{len(straddlers)} transactions open across X ({rows_before} of their rows before X, "
+               f"{sum(len(t['events']) for t in straddlers)} in total), largest "
+               f"{max((len(t['events']) for t in straddlers), default=0)} rows; gaps {rw.get('gaps')}")
+        if sub.lost:
+            r.fail(f"{sub.lost} rows of transactions open across X lost")
+        if len(straddlers) < rw.get("min_straddlers", 0):
+            r.fail(f"inconclusive: {len(straddlers)} transactions open across X, "
+                   f"{rw['min_straddlers']} required")
+    return r
+
+
 def check_scn(rec, records, since_scn):
     """source.scn of every row equals the SCN of the row's redo record as LogMiner reports it (the LogMiner
     adapter's semantics), compared as multisets per transaction. Transactions delivered with a different
@@ -685,7 +762,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
     run_info["connector"] = name
     rconn, pconn = db.root(), db.pdb()
     sessions = {1: pconn}
-    cont = olr_net.OlrContainer(image, workdir, olr_net.free_port())
+    cont = olr_net.OlrContainer(image, workdir, olr_net.free_port(), scenario)
     # instance-scoped name: other suites on the engine use olrt-olrnet-* too
     cont.name = f"olrt-olrcon-{S.INSTANCE or 'default'}-{abs(hash(str(workdir))) % 10**10}"
     reader = None
@@ -694,6 +771,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
     t0 = time.time()
     snap_scn = None
     base = None
+    load = None
 
     def state(label):
         s = task_state(name)
@@ -706,6 +784,15 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
             run_info["expect_failures"].append(
                 f"step {i}: {n} records read before the restart >= {step['mid_rows']}: the transaction "
                 f"was already delivered, mid-transaction restart not tested (inconclusive)")
+
+    def pause(seconds):
+        # keep consuming: a reader idle past max.poll.interval.ms leaves its group and misses records
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            if reader is not None:
+                reader.poll(min(1.0, max(0.0, deadline - time.time())))
+            else:
+                time.sleep(min(1.0, max(0.0, deadline - time.time())))
 
     def wait_task(want, within):
         deadline = time.time() + within
@@ -920,6 +1007,28 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                     subprocess.run(["docker", "start", cont.name], check=True, capture_output=True)
                 time.sleep(2)
                 events.append(f"step {i}: OLR started")
+            elif step.get("connector") == "reset_offsets":
+                # A new snapshot while OLR keeps streaming: the offsets are deleted, so the connector snapshots
+                # again (snapshot.mode) and continues from the new snapshot SCN without an index
+                old_snap = snap_scn
+                code, body = rest("PUT", f"/connectors/{name}/stop")
+                st = wait_connector(name, "STOPPED", 60)
+                code, body = rest("DELETE", f"/connectors/{name}/offsets")
+                if code not in (200, 204):
+                    raise RuntimeError(f"offset delete: HTTP {code} {body}")
+                reset_since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 1))
+                rest("PUT", f"/connectors/{name}/resume")
+                wait_task("RUNNING", 60)
+                new_snap = None
+                deadline = time.time() + float(step.get("timeout", 120))
+                while time.time() < deadline and new_snap in (None, old_snap):
+                    new_snap, src = snapshot_scn(name, reset_since)
+                    if new_snap in (None, old_snap):
+                        reader.poll(1.0)
+                run_info.setdefault("resnapshots", []).append({"step": i, "old": old_snap, "new": new_snap,
+                                                               "connector_state": st and st["connector"]})
+                events.append(f"step {i}: offsets deleted, new snapshot scn {new_snap} (was {old_snap})")
+                reader.drain_until_idle(idle=float(step.get("idle", 4)), timeout=60)
             elif step.get("connector") == "adapter":
                 adapter = step["adapter"]
                 swap = {"step": i, "adapter": adapter, "t": time.time(), "records_before": len(reader.records)}
@@ -930,24 +1039,39 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                     # mining start and one that commits before the stop is skipped via commit_scn.
                     s_min = db.scalar(pconn, "SELECT NVL((SELECT MIN(start_scn) FROM v$transaction),"
                                              " (SELECT current_scn FROM v$database)) FROM dual")
+                    n_open = db.scalar(pconn, "SELECT COUNT(*) FROM v$transaction")
+                    gaps = {k: _gap(step.get(k)) for k in ("gap_before_stop", "gap_stopped", "gap_after_patch")}
+                    pause(gaps["gap_before_stop"])
                     code, body = rest("PUT", f"/connectors/{name}/stop")
                     st = wait_connector(name, "STOPPED", 60)
                     code, off = rest("GET", f"/connectors/{name}/offsets")
                     old = (off or {}).get("offsets", [{}])[0].get("offset", {})
                     x = int(old["scn"])
+                    pause(gaps["gap_stopped"])
                     # offset scn is the exclusive lower bound of the mining range (Debezium itself resumes at
                     # oldest open transaction - 1), and the first change of a transaction sits at its start SCN
                     scn = min(int(s_min), x) - 1
                     # the transaction committed at X that OLR delivered last: named in commit_scn so LogMiner skips
                     # it too (other transactions committed at exactly X would still be re-sent, at-least-once)
-                    new = {"scn": str(scn), "commit_scn": f"{x}:1:{old.get('txId') or ''}", "snapshot_scn": str(scn)}
-                    code, body = rest("PATCH", f"/connectors/{name}/offsets",
-                                      {"offsets": [{"partition": {"server": prefix}, "offset": new}]})
-                    swap.update(rewind=dict(oldest_open_scn=int(s_min), offset_scn=x, new=new, http=code,
-                                            response=body, connector_state=st and st["connector"]))
-                    events.append(f"step {i}: rewind: oldest open tx {s_min}, offset scn {x} -> {new} (HTTP {code})")
+                    commit_scn = f"{x}:1:{old.get('txId') or ''}"
+                    if step.get("offsets_via") == "chart":
+                        patch = chart_offsets(prefix, scn, commit_scn, scn, workdir)
+                    else:
+                        patch = {"offsets": [{"partition": {"server": prefix}, "offset": {
+                            "scn": str(scn), "commit_scn": commit_scn, "snapshot_scn": str(scn)}}]}
+                    new = patch["offsets"][0]["offset"]
+                    code, body = rest("PATCH", f"/connectors/{name}/offsets", patch)
+                    code2, after = rest("GET", f"/connectors/{name}/offsets")
+                    swap.update(rewind=dict(oldest_open_scn=int(s_min), open_transactions=int(n_open), offset_scn=x,
+                                            offset_tx=old.get("txId"), new=new, http=code, response=body,
+                                            offsets_after_patch=after, gaps=gaps, via=step.get("offsets_via", "rest"),
+                                            min_straddlers=int(step.get("min_straddlers", 0)),
+                                            connector_state=st and st["connector"]))
+                    events.append(f"step {i}: rewind: {n_open} open tx, oldest {s_min}, offset scn {x} -> {new} "
+                                  f"via {step.get('offsets_via', 'rest')} (HTTP {code}), gaps {gaps}")
                     if code not in (200, 204):
                         raise RuntimeError(f"offset patch: HTTP {code} {body}")
+                    pause(gaps["gap_after_patch"])
                 cc = connector_config(scenario, spec, prefix, cont.name, adapter=adapter)
                 (workdir / f"connector-{adapter}-{i}.json").write_text(json.dumps(cc, indent=1))
                 code, body = rest("PUT", f"/connectors/{name}/config", cc)
@@ -980,6 +1104,21 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 events.append(f"step {i}: expect task {want} -> {s and s['task']}")
                 if not ok:
                     run_info["expect_failures"].append(f"step {i}: task {s and s['task']}, expected {want}")
+            elif step.get("load") == "start":
+                seed = os.environ.get("OLRT_LOAD_SEED")
+                load = loadgen.Load(scenario.tables, scenario.keys, spec.get("load", {}),
+                                    seed=int(seed) if seed else None, log=events.append)
+                load.start()
+                run_info["load_seed"] = load.seed
+            elif step.get("load") == "stop":
+                run_info["load"] = load.stop()
+                load = None
+            elif step.get("load") == "batch_begin":
+                n = load.batch_begin(step["table"], int(step["rows"]))
+                events.append(f"step {i}: batch transaction open on {step['table']}, {n} rows")
+            elif step.get("load") == "batch_commit":
+                load.batch_commit()
+                events.append(f"step {i}: batch transaction committed")
             elif step.get("switch_logfile"):
                 db.switch_logfile(rconn)
                 events.append(f"step {i}: log switch")
@@ -989,14 +1128,36 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
                 r = _docker("exec", S.BROKER_CONTAINER, "rpk", *args, check=False)
                 events.append(f"step {i}: rpk {' '.join(args)}: exit {r.returncode} {(r.stdout + r.stderr).strip()[:200]}")
             elif "sleep" in step:
-                time.sleep(float(step["sleep"]))
+                pause(float(step["sleep"]))
             else:
                 raise ValueError(f"connect.toml step {i}: unknown step {step}")
             state(f"step {i}")
 
+        if load is not None:
+            load.batch_commit()
+            run_info["load"] = load.stop()
+            load = None
         for c in sessions.values():
             c.commit()
-        reader.drain_until_idle(idle=6, timeout=90)
+        final_timeout = float(spec.get("connector", {}).get("final_idle_timeout", 90))
+        if spec.get("connector", {}).get("drain_to_scn"):
+            # silence is no end condition for a lagging LogMiner: wait until the connector's offset has
+            # passed an SCN taken now (nothing commits after it), then drain what it has produced
+            target = db.current_scn(rconn)
+            deadline = time.time() + final_timeout
+            reached = None
+            while time.time() < deadline:
+                reader.poll(1.0)
+                code, off = rest("GET", f"/connectors/{name}/offsets")
+                o = ((off or {}).get("offsets") or [{}])[0].get("offset", {})
+                if o.get("scn") and str(o["scn"]).isdigit() and int(o["scn"]) >= target:
+                    reached = int(o["scn"])
+                    break
+            events.append(f"drain: offset scn {reached} >= {target}" if reached else
+                          f"drain: offset did not reach {target} in {final_timeout:.0f} s")
+            if not reached:
+                run_info["expect_failures"].append(f"end: connector offset did not reach SCN {target}")
+        reader.drain_until_idle(idle=6, timeout=final_timeout)
         final = state("end")
         want_final = per_version(spec.get("connector", {}).get("final_task_state", "RUNNING"), version)
         run_info["final_task_state_expected"] = want_final
@@ -1033,6 +1194,12 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
             r = netns(f"iptables -D {rule}")
             if r.returncode != 0:
                 events.append(f"iptables -D {rule} failed: {r.stderr.strip()}")
+        if load is not None:  # a step failed with the load running
+            try:
+                load.batch_commit()
+                run_info["load"] = load.stop()
+            except Exception as e:  # noqa: BLE001
+                events.append(f"load stop failed: {e}")
         if reader is not None:
             reader.poll(1.0)
             with open(workdir / "kafka.jsonl", "w") as f:
@@ -1090,7 +1257,7 @@ def run(image, scenario, profile, version, workdir, token="adhoc"):
 
 # ---------------------------------------------------------------- checks
 
-CHECKS = ["run", "delivery", "loss_warn", "scn", "txmeta", "diff", "replay"]
+CHECKS = ["run", "delivery", "rewind", "loss_warn", "scn", "txmeta", "diff", "replay"]
 
 
 def apply_known(sc, profile, version, res, image=None):
@@ -1174,6 +1341,16 @@ def check(sc, workdir):
     rec_stream["logminer"] = {"transactions": [t for t in rec["logminer"]["transactions"]
                                                if (t.get("commit_scn") or 0) > snap_scn]}
     res["delivery"] = check_delivery(rec, out[0], snap_scn, sc.exactly_once)
+    ld = run_info.get("load")
+    if ld:
+        r.note(f"load: {ld.get('commits')} commits, {ld.get('rows')} rows, {ld.get('rollbacks')} rollbacks, "
+               f"{ld.get('savepoint_rollbacks')} savepoint rollbacks, {ld.get('switches')} log switches, "
+               f"seed {ld.get('seed')}")
+        for e in ld.get("errors", []):
+            r.fail(f"load: {e}")
+    rw = check_rewind(rec, out[0], run_info, snap_scn)
+    if rw is not None:
+        res["rewind"] = rw
     lw = check_loss_warn(sc, workdir, run_info.get("image"), res["delivery"].lost)
     if lw is not None:
         res["loss_warn"] = lw

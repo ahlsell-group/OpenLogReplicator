@@ -1,0 +1,59 @@
+[connector]
+snapshot_mode = "no_data"
+heartbeat_ms = 10000
+# LogMiner draining a backlog of a few minutes of load plus the 200k-row transaction
+final_idle_timeout = 900
+drain_to_scn = true
+# dev's LogMiner settings (apps/openlogreplicator debezium.logMiner); ignored by the OLR adapter
+config = { "log.mining.transaction.retention.ms" = "93600000", "database.query.timeout.ms" = "3600000" }
+
+[olr]
+# dev: networkQueueSize, above the largest transaction
+queue_size = 1000000
+
+[load]
+sessions = 6
+long_sessions = 3
+max_ops = 25
+think_ms = 150
+savepoint_pct = 10
+rollback_pct = 5
+long_hold_s = [20, 120]
+switch_s = 20
+
+[[step]]
+connector = "create"
+[[step]]
+load = "start"
+[[step]]
+sleep = 60
+[[step]]
+load = "batch_begin"
+table = "OLRT_RL.LOCALPART"
+rows = 100000
+[[step]]
+sleep = 20
+[[step]]
+connector = "adapter"
+adapter = "logminer"
+rewind = "open_transactions"
+offsets_via = "chart"
+gap_before_stop = [20, 60]
+gap_stopped = [30, 90]
+gap_after_patch = [10, 30]
+min_straddlers = 3
+[[step]]
+expect_task = "RUNNING"
+within = 120
+[[step]]
+sleep = 30
+[[step]]
+load = "batch_commit"
+[[step]]
+sleep = 120
+[[step]]
+load = "stop"
+[[step]]
+wait = "idle"
+idle = 20
+timeout = 900

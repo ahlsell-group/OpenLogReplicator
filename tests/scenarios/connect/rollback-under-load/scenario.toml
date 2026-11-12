@@ -1,0 +1,9 @@
+description = "Lossless OLR -> LogMiner rollback (E11) under concurrent load: rewound offset rendered by the gitops chart, pauses as between syncs, a 200k-row transaction open across the switch"
+tags = ["connect", "swap", "load", "stress"]
+fixtures = ["wide"]
+tables = ["WIDE.WIDE_313", "WIDE.WIDE_278", "OLRT_RL.LOCALPART"]
+# the connector leaves OLR's network writer when it moves to LogMiner
+allowed_warnings = ["^10061 network error"]
+# as dev (apps/openlogreplicator): SHOW_DDL, OLR memory and write buffer
+olr_flags = 32
+olr_memory = { "max-mb" = 8192, "write-buffer-max-mb" = 6144 }

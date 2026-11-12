@@ -79,14 +79,14 @@ def _connect(service):
 
 def root():
     """SYS in CDB$ROOT (log switches, LogMiner, database-level settings)."""
-    c = _connect("FREE")
+    c = _connect(S.CDB)
     for s in NLS:
         c.cursor().execute(s)
     return c
 
 
 def pdb():
-    """SYS in FREEPDB1 (scenario SQL, snapshots)."""
+    """SYS in the PDB (scenario SQL, snapshots)."""
     c = _connect(S.PDB)
     for s in NLS:
         c.cursor().execute(s)
@@ -136,12 +136,27 @@ def prepare():
         # keep undo long enough that a recording can be replicated later in the same run.
         cur.execute("ALTER SYSTEM SET undo_retention = 86400")
         ensure_root_olr_user(c)
+        if S.REDO:
+            ensure_redo(c, *(int(x) for x in S.REDO.lower().split("x")))
     with pdb() as c:
         # also in 02-olr-user.sql; repeated here for volumes created without it (idempotent)
         c.cursor().execute("GRANT SELECT ON SYS.V_$TRANSACTION TO olr")
         # the PDB's undo is 31 MB, NOGUARANTEE: replicating a recording ~45 min later fails with
         # ORA-01555 on OLR's dictionary read AS OF the start SCN. Guarantee it (autoextends).
         c.cursor().execute("ALTER TABLESPACE undotbs1 RETENTION GUARANTEE")
+
+
+def ensure_redo(conn_root, groups, mb):
+    """Add online redo groups of `mb` MB until at least `groups` have that size. Idempotent; smaller
+    groups stay (dropping a CURRENT/ACTIVE group needs switches and checkpoints)."""
+    cur = conn_root.cursor()
+    have = cur.execute("SELECT group#, bytes FROM v$log WHERE thread# = 1").fetchall()
+    big = sum(1 for _, b in have if b >= mb * 1024 * 1024)
+    nxt = int(max(g for g, _ in have)) + 1
+    for _ in range(groups - big):
+        cur.execute(f"ALTER DATABASE ADD LOGFILE THREAD 1 GROUP {nxt} "
+                    f"('/opt/oracle/oradata/{S.CDB}/redo{nxt:02d}.log') SIZE {mb}M")
+        nxt += 1
 
 
 def scalar(conn, sql, **binds):
