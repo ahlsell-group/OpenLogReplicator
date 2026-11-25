@@ -400,7 +400,7 @@ namespace OpenLogReplicator {
             }
         }
 
-        pack->addKeys(row);
+        pack->addKeys(ctx, row);
 
         if constexpr (TABLE::dependentTable())
             metadata->schema->touchTable(row->getDependentTable());
@@ -732,6 +732,10 @@ namespace OpenLogReplicator {
 
         if (!metadata->schema->touched)
             return;
+
+        if (unlikely(metadata->schema->sharedKeys() > 0))
+            ctx->warning(60063, "dictionary transaction committed at scn " + scn.toString() + " with " +
+                         std::to_string(metadata->schema->sharedKeys()) + " unique key(s) still held by two rows");
 
         std::vector<std::string> msgs;
         std::unordered_map<typeObj, std::string> tablesDropped;

@@ -85,6 +85,8 @@ namespace OpenLogReplicator {
         bool suppLogDbAll{false};
         bool logArchiveFormatCustom{false};
         bool allowedCheckpoints{false};
+        // Odd while a dictionary transaction is applied, and for good once one fails half applied: no checkpoint stores that schema
+        std::atomic<uint64_t> schemaChanges{0};
         // The writer is controlling the boot parameters. If the data is not available on startup, don't fail immediately.
         bool bootFailsafe{false};
         typeDbId dbId{0};

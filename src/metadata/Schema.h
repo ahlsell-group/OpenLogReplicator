@@ -137,6 +137,7 @@ namespace OpenLogReplicator {
         [[nodiscard]] static uint64_t columnCharmapId(const Locales* locales, const SysCol* sysCol, uint64_t defaultCharacterMapId,
                                                       uint64_t defaultCharacterNcharMapId);
         void resetTouched();
+        [[nodiscard]] size_t sharedKeys() const;
         void updateXmlCtx();
     };
 }

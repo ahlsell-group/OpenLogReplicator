@@ -20,10 +20,12 @@ If not, see <http://www.gnu.org/licenses/>. */
 #ifndef TABLE_PACK_H_
 #define TABLE_PACK_H_
 
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <set>
 #include <unordered_map>
+#include <vector>
 
 #include "../exception/RuntimeException.h"
 #include "../types/FileOffset.h"
@@ -38,11 +40,15 @@ namespace OpenLogReplicator {
         std::map<KeyMap, Data*> mapKey;
         std::unordered_map<KeyUnorderedMap, Data*> unorderedMapKey;
         std::set<Data*> setTouched;
+        // Rows whose unique key another row took over: Oracle can give two rows the same key inside one transaction
+        // (an online index rebuild swaps OBJ# between two SYS.OBJ$ rows). The key goes back when the taker moves away.
+        std::vector<Data*> sharedKey;
+        std::vector<Data*> sharedUnorderedKey;
 
         [[nodiscard]] Data* forUpdate(const Ctx* ctx, RowId rowId, FileOffset fileOffset) {
             auto mapRowIdIt = mapRowId.find(rowId);
             if (likely(mapRowIdIt != mapRowId.end())) {
-                dropKeys(mapRowIdIt->second);
+                dropKeys(ctx, mapRowIdIt->second);
                 return mapRowIdIt->second;
             }
 
@@ -60,21 +66,25 @@ namespace OpenLogReplicator {
         void clear(const Ctx* ctx) {
             for (auto& [RowId, data]: mapRowId) {
                 if constexpr (!std::is_same_v<KeyMap, TabRowIdKeyDefault>) {
-                    KeyMap key(data);
-                    const auto& it = mapKey.find(key);
-                    if (unlikely(it == mapKey.end()))
-                        ctx->warning(50030, "missing index for " + Data::tableName() + " (" + data->toString() + ")");
-                    else
-                        mapKey.erase(it);
+                    if (!unshare(sharedKey, data)) {
+                        KeyMap key(data);
+                        const auto& it = mapKey.find(key);
+                        if (unlikely(it == mapKey.end()))
+                            ctx->warning(50030, "missing index for " + Data::tableName() + " (" + data->toString() + ")");
+                        else
+                            mapKey.erase(it);
+                    }
                 }
 
                 if constexpr (!std::is_same_v<KeyUnorderedMap, TabRowIdUnorderedKeyDefault>) {
-                    KeyUnorderedMap key(data);
-                    const auto& it = unorderedMapKey.find(key);
-                    if (unlikely(it == unorderedMapKey.end()))
-                        ctx->warning(50030, "missing index for " + Data::tableName() + " (" + data->toString() + ")u");
-                    else
-                        unorderedMapKey.erase(it);
+                    if (!unshare(sharedUnorderedKey, data)) {
+                        KeyUnorderedMap key(data);
+                        const auto& it = unorderedMapKey.find(key);
+                        if (unlikely(it == unorderedMapKey.end()))
+                            ctx->warning(50030, "missing index for " + Data::tableName() + " (" + data->toString() + ")u");
+                        else
+                            unorderedMapKey.erase(it);
+                    }
                 }
 
                 delete data;
@@ -128,7 +138,7 @@ namespace OpenLogReplicator {
                 if (unlikely(!ctx->isFlagSet(Ctx::REDO_FLAGS::ADAPTIVE_SCHEMA)))
                     throw RuntimeException(50022, "duplicate " + Data::tableName() + " (" + data->toString() + ") for insert at offset: " +
                                            fileOffset.toString());
-                dropKeys(data);
+                dropKeys(ctx, data);
             } else {
                 data = new Data(rowId);
                 mapRowId.insert_or_assign(rowId, data);
@@ -150,7 +160,7 @@ namespace OpenLogReplicator {
 
         void addWithKeys(const Ctx* ctx, Data* data) {
             add(ctx, data);
-            addKeys(data);
+            addKeys(ctx, data);
         }
 
         void drop(const Ctx* ctx, RowId rowId, FileOffset fileOffset = FileOffset::zero(), bool deleteTouched = false) {
@@ -165,45 +175,100 @@ namespace OpenLogReplicator {
 
             if (deleteTouched)
                 setTouched.erase(it->second);
-            dropKeys(it->second);
+            dropKeys(ctx, it->second);
             delete it->second;
             mapRowId.erase(it);
         }
 
-        void addKeys(Data* data) {
+        void addKeys(const Ctx* ctx, Data* data) {
             if constexpr (!std::is_same_v<KeyMap, TabRowIdKeyDefault>) {
                 KeyMap key(data);
                 const auto& it = mapKey.find(key);
                 if (unlikely(it != mapKey.end()))
-                    throw DataException(50024, "duplicate " + Data::tableName() + " value for unique (" + data->toString() + ")");
-                mapKey.insert_or_assign(key, data);
+                    share(ctx, sharedKey, it->second, data, "");
+                else
+                    mapKey.insert_or_assign(key, data);
             }
 
             if constexpr (!std::is_same_v<KeyUnorderedMap, TabRowIdUnorderedKeyDefault>) {
                 KeyUnorderedMap key(data);
                 const auto& it = unorderedMapKey.find(key);
                 if (unlikely(it != unorderedMapKey.end()))
-                    throw DataException(50024, "duplicate " + Data::tableName() + " value for unique (" + data->toString() + ")2");
-                unorderedMapKey.insert_or_assign(key, data);
+                    share(ctx, sharedUnorderedKey, it->second, data, "2");
+                else
+                    unorderedMapKey.insert_or_assign(key, data);
             }
         }
 
-        void dropKeys(Data* data) {
+        void dropKeys(const Ctx* ctx, Data* data) {
             if constexpr (!std::is_same_v<KeyMap, TabRowIdKeyDefault>) {
-                KeyMap key(data);
-                const auto& it = mapKey.find(key);
-                if (unlikely(it == mapKey.end()))
-                    throw DataException(50030, "missing index for " + Data::tableName() + " value for unique (" + data->toString() + ")");
-                mapKey.erase(it);
+                if (!unshare(sharedKey, data)) {
+                    KeyMap key(data);
+                    const auto& it = mapKey.find(key);
+                    if (unlikely(it == mapKey.end()))
+                        throw DataException(50030, "missing index for " + Data::tableName() + " value for unique (" + data->toString() + ")");
+                    const auto& comp = mapKey.key_comp();
+                    Data* const heir = takeShared(sharedKey, [&](Data* other) {
+                        const KeyMap otherKey(other);
+                        return !comp(key, otherKey) && !comp(otherKey, key);
+                    });
+                    if (heir != nullptr) {
+                        ctx->info(0, "unique " + Data::tableName() + " value back with (" + heir->toString() + ")");
+                        it->second = heir;
+                    } else
+                        mapKey.erase(it);
+                }
             }
 
             if constexpr (!std::is_same_v<KeyUnorderedMap, TabRowIdUnorderedKeyDefault>) {
-                KeyUnorderedMap key(data);
-                const auto& it = unorderedMapKey.find(key);
-                if (unlikely(it == unorderedMapKey.end()))
-                    throw DataException(50024, "missing index for " + Data::tableName() + " value for unique (" + data->toString() + ")2");
-                unorderedMapKey.erase(it);
+                if (!unshare(sharedUnorderedKey, data)) {
+                    KeyUnorderedMap key(data);
+                    const auto& it = unorderedMapKey.find(key);
+                    if (unlikely(it == unorderedMapKey.end()))
+                        throw DataException(50024, "missing index for " + Data::tableName() + " value for unique (" + data->toString() + ")2");
+                    const auto& eq = unorderedMapKey.key_eq();
+                    Data* const heir = takeShared(sharedUnorderedKey, [&](Data* other) {
+                        return eq(key, KeyUnorderedMap(other));
+                    });
+                    if (heir != nullptr) {
+                        ctx->info(0, "unique " + Data::tableName() + " value back with (" + heir->toString() + ")2");
+                        it->second = heir;
+                    } else
+                        unorderedMapKey.erase(it);
+                }
             }
+        }
+
+        [[nodiscard]] size_t sharedKeys() const {
+            return sharedKey.size() + sharedUnorderedKey.size();
+        }
+
+    private:
+        static void share(const Ctx* ctx, std::vector<Data*>& shared, Data*& holder, Data* data, const std::string& suffix) {
+            ctx->warning(60062, "duplicate " + Data::tableName() + " value for unique (" + data->toString() + ")" + suffix + ", held by (" +
+                         holder->toString() + "), continuing until one of them changes");
+            shared.push_back(holder);
+            holder = data;
+        }
+
+        static bool unshare(std::vector<Data*>& shared, const Data* data) {
+            const auto& it = std::find(shared.begin(), shared.end(), data);
+            if (it == shared.end())
+                return false;
+            shared.erase(it);
+            return true;
+        }
+
+        template<class Match>
+        static Data* takeShared(std::vector<Data*>& shared, Match match) {
+            for (auto it = shared.begin(); it != shared.end(); ++it) {
+                if (match(*it)) {
+                    Data* const heir = *it;
+                    shared.erase(it);
+                    return heir;
+                }
+            }
+            return nullptr;
         }
     };
 }

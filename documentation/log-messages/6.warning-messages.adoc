@@ -300,3 +300,16 @@ After a start past dormant transactions (`state.dormant-transactions-max`) a tra
 Its changes are not in the output. This should not happen; it means the dormant state in the checkpoint was wrong.
 Also counted by the metric `transactions_commit_partial`.
 Remediation: Restart with `dormant-transactions-max: 0` from a checkpoint before the SCN (a client start from an earlier SCN) to get the transaction, and report the case with the checkpoint file.
+
+==== code 60062: "duplicate <table> value for unique (<row>), held by (<row>), continuing until one of them changes"
+
+A dictionary row took a unique key (for SYS.OBJ$ the OBJ#) that another row still holds.
+Oracle does this inside one transaction, for example when an online index rebuild swaps the OBJ# of the old and the rebuilt index with two updates.
+OpenLogReplicator indexes the key to the newer row and gives it back to the other row when one of them changes again; before, this stopped replication with ERROR 50024.
+Remediation: None needed when warning 60063 does not follow for the same transaction.
+
+==== code 60063: "dictionary transaction committed at scn <scn> with <number> unique key(s) still held by two rows"
+
+A dictionary transaction committed while two rows still share a unique key (warning 60062), which Oracle does not allow.
+Lookups by that key find the newer row only, so the dictionary may be wrong for that object.
+Remediation: Report the case with the redo log; start from a checkpoint after the SCN if the object is not replicated.

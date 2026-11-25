@@ -509,6 +509,13 @@ namespace OpenLogReplicator {
         touched = false;
     }
 
+    size_t Schema::sharedKeys() const {
+        return sysCColPack.sharedKeys() + sysCDefPack.sharedKeys() + sysColPack.sharedKeys() + sysDeferredStgPack.sharedKeys() +
+               sysEColPack.sharedKeys() + sysLobPack.sharedKeys() + sysLobCompPartPack.sharedKeys() + sysLobFragPack.sharedKeys() +
+               sysObjPack.sharedKeys() + sysTabPack.sharedKeys() + sysTabComPartPack.sharedKeys() + sysTabPartPack.sharedKeys() +
+               sysTabSubPartPack.sharedKeys() + sysTsPack.sharedKeys() + sysUserPack.sharedKeys();
+    }
+
     void Schema::updateXmlCtx() {
         if (ctx->isFlagSet(Ctx::REDO_FLAGS::EXPERIMENTAL_XMLTYPE)) {
             xmlCtxDefault = nullptr;
