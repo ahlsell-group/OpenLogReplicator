@@ -436,7 +436,8 @@ namespace OpenLogReplicator {
         {
             t->contextSet(Thread::CONTEXT::CHKPT, Thread::REASON::CHKPT);
             std::unique_lock const lck(mtxCheckpoint);
-            if (!allowedCheckpoints)
+            const uint64_t changesBefore = schemaChanges;
+            if (!allowedCheckpoints || (changesBefore & 1) != 0)
                 return;
 
             // Nothing processed so far
@@ -459,6 +460,9 @@ namespace OpenLogReplicator {
                 schemaInterval = 0;
 
             serializer->serialize(this, ss, storeSchema);
+            // The schema is not locked here: drop the copy if a dictionary transaction ran meanwhile, the next loop retries
+            if (schemaChanges != changesBefore)
+                return;
             scn = checkpointScn;
             positionScn = checkpointPositionScn == Scn::none() ? Scn::zero() : checkpointPositionScn;
             positionSs << R"({"database":")" << database << R"(","scn":)" << scn.toString() << R"(,"position-scn":)" <<

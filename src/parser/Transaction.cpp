@@ -230,6 +230,7 @@ namespace OpenLogReplicator {
                 throw RedoLogException(50056, "system transaction already active");
             builder->systemTransaction = new SystemTransaction(builder, metadata);
             metadata->schema->scn = commitScn;
+            ++metadata->schemaChanges;
         }
         // Dictionary transactions are not sent
         if (!system)
@@ -575,6 +576,7 @@ namespace OpenLogReplicator {
             delete builder->systemTransaction;
             builder->systemTransaction = nullptr;
             metadata->schema->scn = commitScn;
+            ++metadata->schemaChanges;
 
             // Unlock schema
             lckSchema.unlock();
